@@ -532,7 +532,7 @@ call fill_byte                          ; zero the first 8 bytes
 
 ### Local Variables
 
-A `var` declaration reserves a named, stack-allocated local variable inside a `proc` or `block` body.
+A `var` declaration placed **inside** a `proc` or `block` body reserves a named, stack-allocated local variable scoped to that routine. When the same `var` keyword appears at module level (outside any routine), it declares a global static variable instead — see [Global Static Variables](#global-static-variables) in the Data Declarations section.
 
 **Syntax:**
 
@@ -642,7 +642,143 @@ block checksum8 {
 
 ## Data Declarations
 
-SASM provides two forms of array data declaration: **static** (resident in the data segment, available for the lifetime of the program) and **local** (stack-allocated, scoped to a `proc` or `block` body).
+SASM provides three forms of named data declaration:
+
+| Declaration Form | Keyword | Scope | Storage |
+|------|---------|-------|---------|
+| Global static scalar | `var` (at module level) | Entire module | Data segment |
+| Global static array  | `data` (at module level) | Entire module | Data segment |
+| Local scalar or array | `var` (inside `proc`/`block`) | Owning routine | Stack frame |
+
+The same `var` keyword is used for both global static scalars and local stack variables; context determines which form is generated — **module level** produces a data-segment label, **inside a `proc` or `block` body** produces a stack slot.
+
+---
+
+### Global Static Variables
+
+A `var` declaration placed **outside** any `proc` or `block` body declares a **global static scalar variable** in the data segment. It is available for the entire lifetime of the program and is accessible by name from any code in the module.
+
+**Syntax:**
+
+```sasm
+var <name> as <type>               ; zero-initialized
+var <name> as <type> = <value>     ; initialized to a literal
+```
+
+**Supported types:**
+
+| Type keyword | Size | Assembly directive | Default value |
+|--------------|------|--------------------|---------------|
+| `byte`       | 1 byte  | `DB` | `0` |
+| `word`       | 2 bytes | `DW` | `0` |
+| `dword`      | 4 bytes | `DD` | `0` |
+
+**Zero-initialized scalars:**
+
+```sasm
+var counter as word             ; counter: DW 0
+var flag    as byte             ; flag:    DB 0
+var total   as dword            ; total:   DD 0
+```
+
+*Equivalent ASM:*
+
+```asm
+counter: DW 0
+flag:    DB 0
+total:   DD 0
+```
+
+**Initialized scalars:**
+
+```sasm
+var max_count as word  = 100    ; max_count: DW 100
+var error_code as byte = 0xFF   ; error_code: DB 0FFh
+var base_addr  as dword = 0x00010000
+```
+
+*Equivalent ASM:*
+
+```asm
+max_count:  DW 100
+error_code: DB 0FFh
+base_addr:  DD 00010000h
+```
+
+**Accessing global static variables:**
+
+A global `var` name resolves directly to its data-segment address. Use it as a plain memory operand — no bracket arithmetic needed for scalars.
+
+```sasm
+; Write to a global variable:
+move 42 to counter              ; MOV [counter], 42 — stores 42 into the word
+move 0  to flag                 ; MOV [flag], 0
+
+; Read from a global variable:
+move counter to ax              ; MOV AX, [counter]
+move flag    to al              ; MOV AL, [flag]
+
+; Operate directly on a global variable:
+increment counter               ; INC [counter]
+add 1 to counter                ; ADD [counter], 1
+compare counter with max_count  ; CMP [counter], [max_count]
+```
+
+*Equivalent ASM:*
+
+```asm
+MOV  [counter],  42
+MOV  [flag],     0
+MOV  AX, [counter]
+MOV  AL, [flag]
+INC  [counter]
+ADD  [counter], 1
+CMP  [counter], [max_count]
+```
+
+**Rules:**
+
+* Module-level `var` declarations must appear **outside** any `proc` or `block` body — they are emitted as data-segment labels.
+* A module-level `var` declaration may appear before or after the `proc`/`block` definitions that use it; the assembler resolves names in a single pass.
+* The same `var` keyword inside a `proc` or `block` body declares a **stack-local** variable instead (see [Local Variables](#local-variables)).
+* The `= <value>` initializer must be a single integer literal (decimal, `0x` hex, `0b` binary, or character literal). For multi-element initialized storage, use `data` (see [Static Data Arrays](#static-data-arrays) later in this section).
+* Global scalars are **not** automatically saved/restored across calls; if a `proc` modifies a global, document that side effect in the `proc`'s comment header.
+
+**Example — global counter used across two procs:**
+
+```sasm
+var call_count as word = 0      ; module-level static: tracks invocations
+
+proc increment_and_get {
+    increment call_count        ; call_count++
+    move call_count to ax       ; return current count in ax
+}
+
+proc reset_count {
+    move 0 to call_count        ; call_count = 0
+}
+
+; Main sequence:
+call increment_and_get          ; ax = 1
+call increment_and_get          ; ax = 2
+call reset_count                ; call_count = 0
+call increment_and_get          ; ax = 1
+```
+
+*Equivalent ASM:*
+
+```asm
+call_count: DW 0
+
+increment_and_get:
+    INC  [call_count]
+    MOV  AX, [call_count]
+    RET
+
+reset_count:
+    MOV  WORD [call_count], 0
+    RET
+```
 
 ---
 
@@ -1087,6 +1223,7 @@ Complete example source files live in the [`example/`](example/) directory. The 
 | [`example/11_local_variables.sasm`](example/11_local_variables.sasm) | Local variables — `var <name> as <type>` inside `proc` and `block` |
 | [`example/12_arrays.sasm`](example/12_arrays.sasm) | Array declarations — static `data` arrays and local `var <name> as <type>[N]` arrays |
 | [`example/13_array_params.sasm`](example/13_array_params.sasm) | Arrays as parameters — passing and returning array pointers via register and stack conventions |
+| [`example/14_global_static_vars.sasm`](example/14_global_static_vars.sasm) | Global static variables — module-level `var <name> as <type>` and `var <name> as <type> = <val>` |
 
 ### Quick-reference snippets
 
@@ -1338,4 +1475,50 @@ proc get_result_buf ( out si as buf_ptr ) {
 }
 
 call get_result_buf          ; si = &result_buf[0] on return
+```
+
+---
+
+#### Example 14 — Global Static Variables
+
+`var <name> as <type>` at module level declares a named, zero-initialized static variable in the data segment. Append `= <value>` to initialize it. The variable is accessible by name from any `proc` or `block` in the module.
+
+```sasm
+(* Module-level static scalars. *)
+var counter    as word             ; counter:    DW 0
+var flag       as byte = 1        ; flag:       DB 1
+var base_addr  as dword = 0x1000  ; base_addr:  DD 1000h
+
+(* proc that reads and writes global variables. *)
+proc increment_and_get {
+    increment counter             ; counter++
+    move counter to ax            ; return current count in ax
+}
+
+proc reset_count {
+    move 0 to counter             ; counter = 0
+}
+
+; Caller:
+call increment_and_get            ; ax = 1
+call increment_and_get            ; ax = 2
+call reset_count                  ; counter = 0
+call increment_and_get            ; ax = 1
+```
+
+*Equivalent ASM:*
+
+```asm
+counter:   DW 0
+flag:      DB 1
+base_addr: DD 1000h
+
+increment_and_get:
+    INC  WORD [counter]
+    MOV  AX, [counter]
+    RET
+
+reset_count:
+    MOV  WORD [counter], 0
+    RET
 ```
