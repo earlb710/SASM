@@ -1,0 +1,13 @@
+; Example 03 — String Copy (null-terminated)
+; Copy a null-terminated byte string from si (DS-relative) to di (ES-relative).
+; Both si and di are advanced past the terminating null byte on return.
+
+proc strcpy {
+    clear direction          ; auto-increment si and di
+    repeat {
+        load string byte     ; al = [ds:si], si++
+        store string byte    ; [es:di] = al, di++
+        test al and al
+    } until equal            ; stop when al was 0
+    return
+}

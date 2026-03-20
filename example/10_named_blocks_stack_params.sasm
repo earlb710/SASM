@@ -1,0 +1,64 @@
+; Example 10 — Named Blocks with Stack Parameters
+; Demonstrates SASM's stack-based parameter passing convention and the
+; 'block name { }' call-only syntax.
+;
+; KEY RULE: both 'block' and 'proc' are CALL-ONLY named code regions.
+; Neither can be entered by fall-through or by 'goto'.
+;
+; New block syntax:
+;   block <name> {
+;       <body>
+;   }
+; The closing '}' emits an implicit RET.
+;
+; Stack-parameter proc syntax:
+;   proc <name> uses stack ( <p1>, <p2>, ... ) {
+;       (* p1 is at [bp+4], p2 at [bp+6], p3 at [bp+8], ... *)
+;       <body using param names>
+;       return
+;   }
+;
+; The compiler / assembler is responsible for generating the standard
+; BP-based frame (PUSH BP / MOV BP,SP) and for resolving each param
+; name to its [bp+N] address.
+
+(* --- print_substring: write a substring to a display buffer ---
+   Stack layout after prologue (16-bit near call):
+     [bp+0]  saved bp
+     [bp+2]  return address
+     [bp+4]  src_ptr  — segment offset of source string
+     [bp+6]  offset   — starting character index
+     [bp+8]  length   — number of characters to copy               *)
+
+proc print_substring uses stack ( src_ptr, offset, length ) {
+    ; Load parameters from stack by name (resolved to [bp+N] by the
+    ; assembler).  Use si as the working source pointer.
+    move src_ptr to si
+    add offset to si
+    move length to cx
+
+    clear direction
+    repeat cx times {
+        load string byte     ; al = [ds:si], si++
+        call emit_char       ; output al to display
+    }
+    return
+}
+
+
+(* --- call_print_substring: caller wrapper using block { } ---
+   A named block groups the push / call / stack-cleanup sequence so
+   it can be invoked by name from multiple places via 'call'.
+   The closing '}' emits the implicit RET that returns to the block's
+   own caller.                                                        *)
+
+block call_print_substring {
+    push 5                   ; length  = 5
+    push 3                   ; offset  = 3  (zero-based)
+    push si                  ; src_ptr = address already in si
+    call print_substring
+    add 6 to sp              ; caller cleans 3 × 2-byte args
+}                            ; implicit RET
+
+; Invoke the wrapper block:
+call call_print_substring

@@ -1,0 +1,9 @@
+; Example 06 — Byte Swap (Endian Conversion)
+; Reverse the byte order of a 32-bit value in eax.
+; Converts between big-endian and little-endian representations.
+; Requires an 80486 or later processor (BSWAP instruction).
+
+proc swap_endian {
+    swap bytes of eax
+    return
+}

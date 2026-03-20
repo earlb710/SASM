@@ -1,0 +1,121 @@
+; Example 11 — Local Variables
+; Demonstrates the SASM 'var <name> as <type>' syntax for declaring
+; stack-allocated local variables inside 'proc' and 'block' bodies.
+;
+; KEY RULES:
+;   * 'var' declarations must appear at the TOP of the body, before
+;     any executable statement.
+;   * The compiler emits a standard frame prologue:
+;       PUSH BP / MOV BP, SP / SUB SP, <total-local-size>
+;   * Each variable name is resolved to its [bp-N] slot automatically.
+;   * Every 'return' and the closing '}' emit the frame epilogue:
+;       MOV SP, BP / POP BP  followed by  RET.
+;   * Locals are UNINITIALIZED on entry — assign before reading.
+;
+; Supported types:
+;   byte  — 1 byte   at [bp-N], N advances by 1
+;   word  — 2 bytes  at [bp-N], N advances by 2
+;   dword — 4 bytes  at [bp-N], N advances by 4
+;
+; Local-variable syntax:
+;   proc <name> {
+;       var <name> as <type>
+;       var <name> as <type>
+;       <body>
+;   }
+;
+;   block <name> {
+;       var <name> as <type>
+;       <body>
+;   }
+
+
+(* ---------------------------------------------------------------
+   Part 1: proc with a local variable — min3
+   Find the minimum of three unsigned 16-bit values in ax, bx, cx.
+   Uses a local word 'best' to hold the running minimum.
+   Returns the result in ax.
+
+   Stack layout after prologue (16-bit near call):
+     [bp+0]  saved bp
+     [bp+2]  return address
+     [bp-2]  best  (one word local)
+   --------------------------------------------------------------- *)
+
+proc min3 {
+    var best as word
+
+    move ax to best                 ; best = ax (first candidate)
+    compare bx with best
+    if below { move bx to best }    ; best = bx if bx < best
+    compare cx with best
+    if below { move cx to best }    ; best = cx if cx < best
+    move best to ax                 ; return result in ax
+}
+
+; Caller — pass three values, retrieve minimum in ax:
+move 7  to ax
+move 3  to bx
+move 12 to cx
+call min3                           ; ax = 3 after return
+
+
+(* ---------------------------------------------------------------
+   Part 2: proc with multiple locals — divide_and_remainder
+   Divide ax by bx (unsigned 16-bit) using explicit local storage
+   to preserve registers across the operation.
+   Returns quotient  in ax and remainder in bx.
+
+   Stack layout after prologue:
+     [bp+0]  saved bp
+     [bp+2]  return address
+     [bp-2]  divisor  (word)
+     [bp-4]  dividend (word)
+   --------------------------------------------------------------- *)
+
+proc divide_and_remainder {
+    var divisor  as word
+    var dividend as word
+
+    move bx to divisor
+    move ax to dividend
+
+    move 0 to dx                    ; zero-extend ax into dx:ax
+    move dividend to ax             ; reload ax (dx:ax = dividend)
+    divide by divisor               ; ax = quotient, dx = remainder
+    move dx to bx                   ; return remainder in bx
+                                    ; ax already holds quotient
+}
+
+; Caller:
+move 100 to ax                      ; dividend = 100
+move 7   to bx                      ; divisor  = 7
+call divide_and_remainder           ; ax = 14 (quotient), bx = 2 (remainder)
+
+
+(* ---------------------------------------------------------------
+   Part 3: block with a local variable — checksum8
+   Accumulate a 16-bit checksum of 8 consecutive words starting at
+   [ds:si].  si is advanced past the 8 words on return.
+   Returns the 16-bit sum in ax.
+
+   Stack layout after prologue:
+     [bp+0]  saved bp
+     [bp+2]  return address
+     [bp-2]  sum  (word local — running total)
+   --------------------------------------------------------------- *)
+
+block checksum8 {
+    var sum as word
+
+    move 0 to sum                   ; sum = 0
+    move 8 to cx                    ; 8 words to process
+    repeat cx times {
+        add word [si] to sum        ; sum += memory word at [ds:si]
+        add 2 to si                 ; advance pointer to next word
+    }
+    move sum to ax                  ; return result in ax
+}                                   ; implicit RET (with frame epilogue)
+
+; Caller — point si at a data region, then call:
+call checksum8                      ; ax = 16-bit sum of 8 words at [ds:si]
