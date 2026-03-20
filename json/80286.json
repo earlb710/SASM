@@ -3,14 +3,19 @@
   "description": "Intel 80286 instruction additions. The 80286 introduced protected mode and a set of privileged system-management instructions. These instructions operate on descriptor tables, task registers, and protection-related CPU state. All are ring-0 (privileged) in protected mode.",
   "source_reference": "doc/instruction_8086.md",
   "instructions": [
-
     {
       "mnemonic": "CLTS",
       "sasm_phrase": "clear task switch",
       "category": "processor_control",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x0F 0x06", "form": "CLTS", "description": "Clear Task-Switched bit (TS) in CR0; used by OS to enable FPU context switching" }
+        {
+          "hex": "0x0F 0x06",
+          "form": "CLTS",
+          "description": "Clear Task-Switched bit (TS) in CR0; used by OS to enable FPU context switching",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
       ],
       "description": "Clear Task-Switched Flag: clears the TS bit in CR0. Used by OS kernel to enable FPU context switching.",
       "introduced": "80286",
@@ -20,14 +25,19 @@
       "available_64bit": true,
       "notes": "Requires ring-0."
     },
-
     {
       "mnemonic": "LGDT",
       "sasm_phrase": null,
       "category": "system",
       "operands": "mem",
       "opcodes": [
-        { "hex": "0x0F 0x01 /2", "form": "LGDT m16/32/64", "description": "Load Global Descriptor Table Register from memory (6-byte pseudo-descriptor)" }
+        {
+          "hex": "0x0F 0x01 /2",
+          "form": "LGDT m16/32/64",
+          "description": "Load Global Descriptor Table Register from memory (6-byte pseudo-descriptor)",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Load Global Descriptor Table Register (GDTR) from a 6-byte memory operand (limit:base).",
       "introduced": "80286",
@@ -37,14 +47,19 @@
       "available_64bit": true,
       "notes": "Requires ring-0."
     },
-
     {
       "mnemonic": "SGDT",
       "sasm_phrase": null,
       "category": "system",
       "operands": "mem",
       "opcodes": [
-        { "hex": "0x0F 0x01 /0", "form": "SGDT m16/32/64", "description": "Store Global Descriptor Table Register to memory" }
+        {
+          "hex": "0x0F 0x01 /0",
+          "form": "SGDT m16/32/64",
+          "description": "Store Global Descriptor Table Register to memory",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Store Global Descriptor Table Register (GDTR) to a 6-byte memory operand.",
       "introduced": "80286",
@@ -53,14 +68,19 @@
       "available_32bit": true,
       "available_64bit": true
     },
-
     {
       "mnemonic": "LIDT",
       "sasm_phrase": null,
       "category": "system",
       "operands": "mem",
       "opcodes": [
-        { "hex": "0x0F 0x01 /3", "form": "LIDT m16/32/64", "description": "Load Interrupt Descriptor Table Register from memory" }
+        {
+          "hex": "0x0F 0x01 /3",
+          "form": "LIDT m16/32/64",
+          "description": "Load Interrupt Descriptor Table Register from memory",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Load Interrupt Descriptor Table Register (IDTR) from a 6-byte memory operand (limit:base).",
       "introduced": "80286",
@@ -70,14 +90,19 @@
       "available_64bit": true,
       "notes": "Requires ring-0."
     },
-
     {
       "mnemonic": "SIDT",
       "sasm_phrase": null,
       "category": "system",
       "operands": "mem",
       "opcodes": [
-        { "hex": "0x0F 0x01 /1", "form": "SIDT m16/32/64", "description": "Store Interrupt Descriptor Table Register to memory" }
+        {
+          "hex": "0x0F 0x01 /1",
+          "form": "SIDT m16/32/64",
+          "description": "Store Interrupt Descriptor Table Register to memory",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Store Interrupt Descriptor Table Register (IDTR) to a 6-byte memory operand.",
       "introduced": "80286",
@@ -86,14 +111,19 @@
       "available_32bit": true,
       "available_64bit": true
     },
-
     {
       "mnemonic": "LLDT",
       "sasm_phrase": null,
       "category": "system",
       "operands": "r/m16",
       "opcodes": [
-        { "hex": "0x0F 0x00 /2", "form": "LLDT r/m16", "description": "Load Local Descriptor Table Register from selector in r/m16" }
+        {
+          "hex": "0x0F 0x00 /2",
+          "form": "LLDT r/m16",
+          "description": "Load Local Descriptor Table Register from selector in r/m16",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Load Local Descriptor Table Register (LDTR) from a 16-bit selector.",
       "introduced": "80286",
@@ -103,14 +133,19 @@
       "available_64bit": true,
       "notes": "Requires ring-0."
     },
-
     {
       "mnemonic": "SLDT",
       "sasm_phrase": null,
       "category": "system",
       "operands": "r/m16",
       "opcodes": [
-        { "hex": "0x0F 0x00 /0", "form": "SLDT r/m16", "description": "Store Local Descriptor Table Register selector to r/m16" }
+        {
+          "hex": "0x0F 0x00 /0",
+          "form": "SLDT r/m16",
+          "description": "Store Local Descriptor Table Register selector to r/m16",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Store Local Descriptor Table Register (LDTR) selector to a 16-bit register or memory.",
       "introduced": "80286",
@@ -119,14 +154,19 @@
       "available_32bit": true,
       "available_64bit": true
     },
-
     {
       "mnemonic": "LTR",
       "sasm_phrase": null,
       "category": "system",
       "operands": "r/m16",
       "opcodes": [
-        { "hex": "0x0F 0x00 /3", "form": "LTR r/m16", "description": "Load Task Register from selector in r/m16" }
+        {
+          "hex": "0x0F 0x00 /3",
+          "form": "LTR r/m16",
+          "description": "Load Task Register from selector in r/m16",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Load Task Register (TR) from a 16-bit selector; marks the TSS as busy.",
       "introduced": "80286",
@@ -136,14 +176,19 @@
       "available_64bit": true,
       "notes": "Requires ring-0."
     },
-
     {
       "mnemonic": "STR",
       "sasm_phrase": null,
       "category": "system",
       "operands": "r/m16",
       "opcodes": [
-        { "hex": "0x0F 0x00 /1", "form": "STR r/m16", "description": "Store Task Register selector to r/m16" }
+        {
+          "hex": "0x0F 0x00 /1",
+          "form": "STR r/m16",
+          "description": "Store Task Register selector to r/m16",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Store Task Register (TR) selector to a 16-bit register or memory.",
       "introduced": "80286",
@@ -152,14 +197,19 @@
       "available_32bit": true,
       "available_64bit": true
     },
-
     {
       "mnemonic": "VERR",
       "sasm_phrase": null,
       "category": "system",
       "operands": "r/m16",
       "opcodes": [
-        { "hex": "0x0F 0x00 /4", "form": "VERR r/m16", "description": "Verify segment selector for read access; ZF=1 if readable" }
+        {
+          "hex": "0x0F 0x00 /4",
+          "form": "VERR r/m16",
+          "description": "Verify segment selector for read access; ZF=1 if readable",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Verify segment selector for read access: sets ZF = 1 if the segment is readable at current privilege level.",
       "introduced": "80286",
@@ -168,14 +218,19 @@
       "available_32bit": true,
       "available_64bit": true
     },
-
     {
       "mnemonic": "VERW",
       "sasm_phrase": null,
       "category": "system",
       "operands": "r/m16",
       "opcodes": [
-        { "hex": "0x0F 0x00 /5", "form": "VERW r/m16", "description": "Verify segment selector for write access; ZF=1 if writable" }
+        {
+          "hex": "0x0F 0x00 /5",
+          "form": "VERW r/m16",
+          "description": "Verify segment selector for write access; ZF=1 if writable",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Verify segment selector for write access: sets ZF = 1 if the segment is writable at current privilege level.",
       "introduced": "80286",
@@ -184,14 +239,19 @@
       "available_32bit": true,
       "available_64bit": true
     },
-
     {
       "mnemonic": "LMSW",
       "sasm_phrase": null,
       "category": "system",
       "operands": "r/m16",
       "opcodes": [
-        { "hex": "0x0F 0x01 /6", "form": "LMSW r/m16", "description": "Load Machine Status Word (low 16 bits of CR0) from r/m16" }
+        {
+          "hex": "0x0F 0x01 /6",
+          "form": "LMSW r/m16",
+          "description": "Load Machine Status Word (low 16 bits of CR0) from r/m16",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Load Machine Status Word into the low 16 bits of CR0. Used to switch to protected mode on 80286.",
       "introduced": "80286",
@@ -201,14 +261,19 @@
       "available_64bit": true,
       "notes": "Requires ring-0. Superseded by MOV CR0 on 80386+."
     },
-
     {
       "mnemonic": "SMSW",
       "sasm_phrase": null,
       "category": "system",
       "operands": "r/m16",
       "opcodes": [
-        { "hex": "0x0F 0x01 /4", "form": "SMSW r/m16", "description": "Store Machine Status Word (low 16 bits of CR0) to r/m16" }
+        {
+          "hex": "0x0F 0x01 /4",
+          "form": "SMSW r/m16",
+          "description": "Store Machine Status Word (low 16 bits of CR0) to r/m16",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Store Machine Status Word (lower 16 bits of CR0) to a register or memory.",
       "introduced": "80286",
@@ -217,14 +282,19 @@
       "available_32bit": true,
       "available_64bit": true
     },
-
     {
       "mnemonic": "ARPL",
       "sasm_phrase": null,
       "category": "system",
       "operands": "r/m16, r16",
       "opcodes": [
-        { "hex": "0x63", "form": "ARPL r/m16, r16", "description": "Adjust RPL (Requested Privilege Level) of selector in r/m16 to match r16; sets ZF if adjusted" }
+        {
+          "hex": "0x63",
+          "form": "ARPL r/m16, r16",
+          "description": "Adjust RPL (Requested Privilege Level) of selector in r/m16 to match r16; sets ZF if adjusted",
+          "byte_length_min": 2,
+          "byte_length_max": 7
+        }
       ],
       "description": "Adjust Requested Privilege Level: adjusts the RPL field of a segment selector to the maximum of itself and r16.",
       "introduced": "80286",
@@ -234,6 +304,5 @@
       "available_64bit": false,
       "notes": "Opcode 0x63 is repurposed as MOVSXD in 64-bit long mode."
     }
-
   ]
 }

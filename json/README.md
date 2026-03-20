@@ -38,9 +38,11 @@ Each instruction entry:
   "operands":        "dst, src",
   "opcodes": [
     {
-      "hex":         "0x88",
-      "form":        "MOV r/m8, r8",
-      "description": "Move byte register to r/m8"
+      "hex":              "0x88",
+      "form":             "MOV r/m8, r8",
+      "description":      "Move byte register to r/m8",
+      "byte_length_min":  2,
+      "byte_length_max":  4
     }
   ],
   "description":     "Copies a byte or word from source to destination.",
@@ -66,6 +68,8 @@ Each instruction entry:
 | `opcodes[].hex` | string | Primary opcode byte(s) in hex (e.g., `"0x88"`, `"0x0F 0xAF"`, `"0x48 0x98"`) |
 | `opcodes[].form` | string | Full encoding form with operand types (e.g., `"MOV r/m8, r8"`) |
 | `opcodes[].description` | string | What this specific encoding does |
+| `opcodes[].byte_length_min` | integer | Minimum total byte length of this encoding (most compact form; for r/m operands this is the register–register case with no displacement) |
+| `opcodes[].byte_length_max` | integer | Maximum total byte length of this encoding (for r/m operands: includes ModRM + optional SIB + maximum displacement bytes; for fixed-size encodings equals `byte_length_min`) |
 | `description` | string | Instruction description |
 | `introduced` | string | Processor generation that introduced this instruction |
 | `status` | string | Current availability status (see below) |
@@ -73,6 +77,46 @@ Each instruction entry:
 | `available_32bit` | boolean | Valid in 32-bit protected mode |
 | `available_64bit` | boolean | Valid in 64-bit long mode |
 | `notes` | string | Optional additional notes |
+
+### Byte Length Calculation Rules
+
+`byte_length_min` and `byte_length_max` are computed according to the x86 encoding rules below.
+When `byte_length_min == byte_length_max` the instruction has a **fixed** size.
+
+**Components counted:**
+
+| Component | Bytes |
+|-----------|-------|
+| Each opcode byte (prefixes such as REX, mandatory `0xF3`/`0x66`, escape `0x0F`, actual opcode) | 1 each |
+| ModRM byte (present when form has `r/m`, or hex has `/0`–`/7` / `/r`) | 1 |
+| `imm8` / `rel8` immediate | 1 |
+| `imm16` / `rel16` immediate | 2 |
+| `imm32` / `rel32` immediate | 4 |
+| `imm64` immediate | 8 |
+| Direct memory address `moffs8` or `moffs16` | 2 |
+| Direct memory address `moffs32` | 4 |
+| Far pointer `ptr16:16` | 4 |
+| Far pointer `ptr16:32` | 6 |
+| `ENTER imm16, imm8` — two immediates | 3 |
+
+**Variable-length memory addressing** (adds to ModRM forms when `r/m` is present):
+
+| Mode | Min extra | Max extra | Notes |
+|------|-----------|-----------|-------|
+| 16-bit (`8086.json`, `80186.json`) | 0 | +2 (disp16) | No SIB byte in 16-bit mode |
+| 32/64-bit (all other files) | 0 | +5 (SIB + disp32) | SIB = 1 byte; disp32 = 4 bytes |
+
+**Fixed-size special cases (override all other rules):**
+
+| Instruction | Size | Reason |
+|-------------|------|--------|
+| `SFENCE`, `LFENCE`, `MFENCE` | 3 | ModRM encodes a fixed register-mode value; no memory form |
+| `SWAPGS` | 3 | All three bytes (`0x0F 0x01 0xF8`) are opcode bytes |
+| `PAUSE` | 2 | `0xF3` (prefix) + `0x90` (NOP) |
+| `INT 3` | 1 | The breakpoint vector `3` is encoded in the opcode itself |
+| `AAM` (`0xD4 0x0A`) | 2 | Both bytes are explicit in the encoding |
+| `AAD` (`0xD5 0x0A`) | 2 | Both bytes are explicit in the encoding |
+| VEX-encoded (e.g. `MULX`) | 4–8 | 2- or 3-byte VEX prefix + opcode + ModRM ± SIB ± disp32 |
 
 ### Status Values
 

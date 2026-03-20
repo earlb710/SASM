@@ -3,14 +3,19 @@
   "description": "Intel 80386 instruction additions. The 80386 was Intel's first 32-bit processor. It introduced 32-bit registers (EAX, EBX, etc.), paging, and a large set of new instructions including sign/zero-extend moves, bit operations, double-precision shifts, and additional segment-register load instructions.",
   "source_reference": "doc/instruction_8086.md",
   "instructions": [
-
     {
       "mnemonic": "LFS",
       "sasm_phrase": "load fs-ptr <mem> to <reg>",
       "category": "data_transfer",
       "operands": "reg, mem",
       "opcodes": [
-        { "hex": "0x0F 0xB4", "form": "LFS r16/32, m32/48", "description": "Load far pointer into FS:reg (FS = mem segment, reg = mem offset)" }
+        {
+          "hex": "0x0F 0xB4",
+          "form": "LFS r16/32, m32/48",
+          "description": "Load far pointer into FS:reg (FS = mem segment, reg = mem offset)",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Loads a far pointer from memory into FS:reg.",
       "introduced": "80386",
@@ -20,14 +25,19 @@
       "available_64bit": true,
       "notes": "Segmentation is not common in modern OSes."
     },
-
     {
       "mnemonic": "LGS",
       "sasm_phrase": "load gs-ptr <mem> to <reg>",
       "category": "data_transfer",
       "operands": "reg, mem",
       "opcodes": [
-        { "hex": "0x0F 0xB5", "form": "LGS r16/32, m32/48", "description": "Load far pointer into GS:reg (GS = mem segment, reg = mem offset)" }
+        {
+          "hex": "0x0F 0xB5",
+          "form": "LGS r16/32, m32/48",
+          "description": "Load far pointer into GS:reg (GS = mem segment, reg = mem offset)",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Loads a far pointer from memory into GS:reg.",
       "introduced": "80386",
@@ -36,14 +46,19 @@
       "available_32bit": true,
       "available_64bit": true
     },
-
     {
       "mnemonic": "LSS",
       "sasm_phrase": "load ss-ptr <mem> to <reg>",
       "category": "data_transfer",
       "operands": "reg, mem",
       "opcodes": [
-        { "hex": "0x0F 0xB2", "form": "LSS r16/32, m32/48", "description": "Load far pointer into SS:reg (SS = mem segment, reg = mem offset)" }
+        {
+          "hex": "0x0F 0xB2",
+          "form": "LSS r16/32, m32/48",
+          "description": "Load far pointer into SS:reg (SS = mem segment, reg = mem offset)",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Loads a far pointer from memory into SS:reg.",
       "introduced": "80386",
@@ -52,15 +67,26 @@
       "available_32bit": true,
       "available_64bit": true
     },
-
     {
       "mnemonic": "MOVSX",
       "sasm_phrase": "move signed <src> to <dst>",
       "category": "data_transfer",
       "operands": "dst, src",
       "opcodes": [
-        { "hex": "0x0F 0xBE", "form": "MOVSX r16/32, r/m8",  "description": "Sign-extend byte r/m8 into word/dword register" },
-        { "hex": "0x0F 0xBF", "form": "MOVSX r32, r/m16",    "description": "Sign-extend word r/m16 into dword register" }
+        {
+          "hex": "0x0F 0xBE",
+          "form": "MOVSX r16/32, r/m8",
+          "description": "Sign-extend byte r/m8 into word/dword register",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        },
+        {
+          "hex": "0x0F 0xBF",
+          "form": "MOVSX r32, r/m16",
+          "description": "Sign-extend word r/m16 into dword register",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Sign-extends a byte or word into a larger register (e.g., byte→word, word→dword).",
       "introduced": "80386",
@@ -70,15 +96,26 @@
       "available_64bit": true,
       "notes": "In 64-bit mode REX.W can extend the destination to 64 bits. MOVSXD (opcode 0x63) sign-extends 32-bit to 64-bit."
     },
-
     {
       "mnemonic": "MOVZX",
       "sasm_phrase": "move zero <src> to <dst>",
       "category": "data_transfer",
       "operands": "dst, src",
       "opcodes": [
-        { "hex": "0x0F 0xB6", "form": "MOVZX r16/32, r/m8",  "description": "Zero-extend byte r/m8 into word/dword register" },
-        { "hex": "0x0F 0xB7", "form": "MOVZX r32, r/m16",    "description": "Zero-extend word r/m16 into dword register" }
+        {
+          "hex": "0x0F 0xB6",
+          "form": "MOVZX r16/32, r/m8",
+          "description": "Zero-extend byte r/m8 into word/dword register",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        },
+        {
+          "hex": "0x0F 0xB7",
+          "form": "MOVZX r32, r/m16",
+          "description": "Zero-extend word r/m16 into dword register",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Zero-extends a byte or word into a larger register.",
       "introduced": "80386",
@@ -88,16 +125,33 @@
       "available_64bit": true,
       "notes": "In 64-bit mode REX.W can extend the destination to 64 bits."
     },
-
     {
       "mnemonic": "IMUL",
       "sasm_phrase": "signed multiply by <src>",
       "category": "arithmetic",
       "operands": "dst, src [, imm]",
       "opcodes": [
-        { "hex": "0x0F 0xAF", "form": "IMUL r16/32, r/m16/32",         "description": "Two-operand signed multiply: r16/32 *= r/m16/32" },
-        { "hex": "0x69",      "form": "IMUL r16/32, r/m16/32, imm16/32","description": "Three-operand signed multiply: r = r/m × imm16/32" },
-        { "hex": "0x6B",      "form": "IMUL r16/32, r/m16/32, imm8",    "description": "Three-operand signed multiply: r = r/m × sign-extended imm8" }
+        {
+          "hex": "0x0F 0xAF",
+          "form": "IMUL r16/32, r/m16/32",
+          "description": "Two-operand signed multiply: r16/32 *= r/m16/32",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        },
+        {
+          "hex": "0x69",
+          "form": "IMUL r16/32, r/m16/32, imm16/32",
+          "description": "Three-operand signed multiply: r = r/m × imm16/32",
+          "byte_length_min": 4,
+          "byte_length_max": 9
+        },
+        {
+          "hex": "0x6B",
+          "form": "IMUL r16/32, r/m16/32, imm8",
+          "description": "Three-operand signed multiply: r = r/m × sign-extended imm8",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Two- and three-operand forms of signed multiply added in 80386 (one-operand form existed in 8086).",
       "introduced": "80386",
@@ -106,15 +160,26 @@
       "available_32bit": true,
       "available_64bit": true
     },
-
     {
       "mnemonic": "BT",
       "sasm_phrase": "test bit <n> of <op>",
       "category": "logical",
       "operands": "op, bit",
       "opcodes": [
-        { "hex": "0x0F 0xA3",    "form": "BT r/m16/32, r16/32",  "description": "Bit Test: copy bit (r16/32) of r/m16/32 into CF" },
-        { "hex": "0x0F 0xBA /4", "form": "BT r/m16/32, imm8",    "description": "Bit Test: copy bit (imm8) of r/m16/32 into CF" }
+        {
+          "hex": "0x0F 0xA3",
+          "form": "BT r/m16/32, r16/32",
+          "description": "Bit Test: copy bit (r16/32) of r/m16/32 into CF",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        },
+        {
+          "hex": "0x0F 0xBA /4",
+          "form": "BT r/m16/32, imm8",
+          "description": "Bit Test: copy bit (imm8) of r/m16/32 into CF",
+          "byte_length_min": 4,
+          "byte_length_max": 9
+        }
       ],
       "description": "Bit Test: copies the specified bit of the source to CF.",
       "introduced": "80386",
@@ -123,15 +188,26 @@
       "available_32bit": true,
       "available_64bit": true
     },
-
     {
       "mnemonic": "BTS",
       "sasm_phrase": "set bit <n> of <op>",
       "category": "logical",
       "operands": "op, bit",
       "opcodes": [
-        { "hex": "0x0F 0xAB",    "form": "BTS r/m16/32, r16/32",  "description": "Bit Test and Set: copy bit to CF then set it to 1" },
-        { "hex": "0x0F 0xBA /5", "form": "BTS r/m16/32, imm8",    "description": "Bit Test and Set (immediate bit index)" }
+        {
+          "hex": "0x0F 0xAB",
+          "form": "BTS r/m16/32, r16/32",
+          "description": "Bit Test and Set: copy bit to CF then set it to 1",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        },
+        {
+          "hex": "0x0F 0xBA /5",
+          "form": "BTS r/m16/32, imm8",
+          "description": "Bit Test and Set (immediate bit index)",
+          "byte_length_min": 4,
+          "byte_length_max": 9
+        }
       ],
       "description": "Bit Test and Set: copies the specified bit to CF, then sets it to 1.",
       "introduced": "80386",
@@ -140,15 +216,26 @@
       "available_32bit": true,
       "available_64bit": true
     },
-
     {
       "mnemonic": "BTR",
       "sasm_phrase": "clear bit <n> of <op>",
       "category": "logical",
       "operands": "op, bit",
       "opcodes": [
-        { "hex": "0x0F 0xB3",    "form": "BTR r/m16/32, r16/32",  "description": "Bit Test and Reset: copy bit to CF then clear it to 0" },
-        { "hex": "0x0F 0xBA /6", "form": "BTR r/m16/32, imm8",    "description": "Bit Test and Reset (immediate bit index)" }
+        {
+          "hex": "0x0F 0xB3",
+          "form": "BTR r/m16/32, r16/32",
+          "description": "Bit Test and Reset: copy bit to CF then clear it to 0",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        },
+        {
+          "hex": "0x0F 0xBA /6",
+          "form": "BTR r/m16/32, imm8",
+          "description": "Bit Test and Reset (immediate bit index)",
+          "byte_length_min": 4,
+          "byte_length_max": 9
+        }
       ],
       "description": "Bit Test and Reset: copies the specified bit to CF, then clears it to 0.",
       "introduced": "80386",
@@ -157,15 +244,26 @@
       "available_32bit": true,
       "available_64bit": true
     },
-
     {
       "mnemonic": "BTC",
       "sasm_phrase": "flip bit <n> of <op>",
       "category": "logical",
       "operands": "op, bit",
       "opcodes": [
-        { "hex": "0x0F 0xBB",    "form": "BTC r/m16/32, r16/32",  "description": "Bit Test and Complement: copy bit to CF then complement it" },
-        { "hex": "0x0F 0xBA /7", "form": "BTC r/m16/32, imm8",    "description": "Bit Test and Complement (immediate bit index)" }
+        {
+          "hex": "0x0F 0xBB",
+          "form": "BTC r/m16/32, r16/32",
+          "description": "Bit Test and Complement: copy bit to CF then complement it",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        },
+        {
+          "hex": "0x0F 0xBA /7",
+          "form": "BTC r/m16/32, imm8",
+          "description": "Bit Test and Complement (immediate bit index)",
+          "byte_length_min": 4,
+          "byte_length_max": 9
+        }
       ],
       "description": "Bit Test and Complement: copies the specified bit to CF, then complements it.",
       "introduced": "80386",
@@ -174,14 +272,19 @@
       "available_32bit": true,
       "available_64bit": true
     },
-
     {
       "mnemonic": "BSF",
       "sasm_phrase": "scan forward <src> into <dst>",
       "category": "logical",
       "operands": "dst, src",
       "opcodes": [
-        { "hex": "0x0F 0xBC", "form": "BSF r16/32, r/m16/32", "description": "Bit Scan Forward: find lowest set bit in src; store index in dst; ZF=1 if src=0" }
+        {
+          "hex": "0x0F 0xBC",
+          "form": "BSF r16/32, r/m16/32",
+          "description": "Bit Scan Forward: find lowest set bit in src; store index in dst; ZF=1 if src=0",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Bit Scan Forward: scans src from bit 0 upward and stores the position of the first set bit in dst. Sets ZF if src is zero.",
       "introduced": "80386",
@@ -191,14 +294,19 @@
       "available_64bit": true,
       "notes": "Consider TZCNT (BMI1) on modern CPUs for well-defined zero-input behavior."
     },
-
     {
       "mnemonic": "BSR",
       "sasm_phrase": "scan reverse <src> into <dst>",
       "category": "logical",
       "operands": "dst, src",
       "opcodes": [
-        { "hex": "0x0F 0xBD", "form": "BSR r16/32, r/m16/32", "description": "Bit Scan Reverse: find highest set bit in src; store index in dst" }
+        {
+          "hex": "0x0F 0xBD",
+          "form": "BSR r16/32, r/m16/32",
+          "description": "Bit Scan Reverse: find highest set bit in src; store index in dst",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Bit Scan Reverse: scans src from the MSB downward and stores the position of the highest set bit in dst.",
       "introduced": "80386",
@@ -208,15 +316,26 @@
       "available_64bit": true,
       "notes": "Consider LZCNT (LZCNT feature flag) on modern CPUs."
     },
-
     {
       "mnemonic": "SHLD",
       "sasm_phrase": "shift left double <dst>, <src> by <n>",
       "category": "shift_and_rotate",
       "operands": "dst, src, count",
       "opcodes": [
-        { "hex": "0x0F 0xA4", "form": "SHLD r/m16/32, r16/32, imm8", "description": "Double-precision shift left: shift dst left by imm8, filling from MSB of src" },
-        { "hex": "0x0F 0xA5", "form": "SHLD r/m16/32, r16/32, CL",   "description": "Double-precision shift left by CL" }
+        {
+          "hex": "0x0F 0xA4",
+          "form": "SHLD r/m16/32, r16/32, imm8",
+          "description": "Double-precision shift left: shift dst left by imm8, filling from MSB of src",
+          "byte_length_min": 4,
+          "byte_length_max": 9
+        },
+        {
+          "hex": "0x0F 0xA5",
+          "form": "SHLD r/m16/32, r16/32, CL",
+          "description": "Double-precision shift left by CL",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Double Precision Shift Left: shifts dst left while shifting bits in from src (used for multi-precision shifts).",
       "introduced": "80386",
@@ -225,15 +344,26 @@
       "available_32bit": true,
       "available_64bit": true
     },
-
     {
       "mnemonic": "SHRD",
       "sasm_phrase": "shift right double <dst>, <src> by <n>",
       "category": "shift_and_rotate",
       "operands": "dst, src, count",
       "opcodes": [
-        { "hex": "0x0F 0xAC", "form": "SHRD r/m16/32, r16/32, imm8", "description": "Double-precision shift right: shift dst right by imm8, filling from LSB of src" },
-        { "hex": "0x0F 0xAD", "form": "SHRD r/m16/32, r16/32, CL",   "description": "Double-precision shift right by CL" }
+        {
+          "hex": "0x0F 0xAC",
+          "form": "SHRD r/m16/32, r16/32, imm8",
+          "description": "Double-precision shift right: shift dst right by imm8, filling from LSB of src",
+          "byte_length_min": 4,
+          "byte_length_max": 9
+        },
+        {
+          "hex": "0x0F 0xAD",
+          "form": "SHRD r/m16/32, r16/32, CL",
+          "description": "Double-precision shift right by CL",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Double Precision Shift Right: shifts dst right while shifting bits in from src.",
       "introduced": "80386",
@@ -242,6 +372,5 @@
       "available_32bit": true,
       "available_64bit": true
     }
-
   ]
 }

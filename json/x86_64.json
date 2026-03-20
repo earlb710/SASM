@@ -8,14 +8,19 @@
     "removed_instructions": "DAA, DAS, AAA, AAS, AAM, AAD, BOUND, INTO, LDS, LES, PUSHA/POPA are removed in 64-bit long mode."
   },
   "instructions": [
-
     {
       "mnemonic": "MOVSXD",
       "sasm_phrase": "move signed <src32> to <dst64>",
       "category": "data_transfer",
       "operands": "dst64, src32",
       "opcodes": [
-        { "hex": "0x48 0x63", "form": "MOVSXD r64, r/m32", "description": "Sign-extend 32-bit r/m32 into 64-bit register (REX.W + opcode 0x63)" }
+        {
+          "hex": "0x48 0x63",
+          "form": "MOVSXD r64, r/m32",
+          "description": "Sign-extend 32-bit r/m32 into 64-bit register (REX.W + opcode 0x63)",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
       ],
       "description": "Sign-extend a 32-bit register or memory operand into a 64-bit register. Distinct from MOVSX (which operates on 8/16-bit sources). Opcode 0x63 was ARPL in 32-bit mode.",
       "introduced": "x86-64",
@@ -25,14 +30,19 @@
       "available_64bit": true,
       "notes": "REX.W prefix (0x48) is required to distinguish from ARPL (0x63 in 32-bit mode)."
     },
-
     {
       "mnemonic": "PUSHFQ",
       "sasm_phrase": "push flags",
       "category": "data_transfer",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x9C", "form": "PUSHFQ", "description": "Push 64-bit RFLAGS register onto stack (default operand size is 64 bits in long mode)" }
+        {
+          "hex": "0x9C",
+          "form": "PUSHFQ",
+          "description": "Push 64-bit RFLAGS register onto stack (default operand size is 64 bits in long mode)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
       ],
       "description": "Push the 64-bit RFLAGS register onto the stack. In 64-bit mode opcode 0x9C pushes RFLAGS (64-bit) by default.",
       "introduced": "x86-64",
@@ -42,14 +52,19 @@
       "available_64bit": true,
       "notes": "Same opcode 0x9C as PUSHF/PUSHFD; the operand size is 64-bit by default in long mode."
     },
-
     {
       "mnemonic": "POPFQ",
       "sasm_phrase": "pop flags",
       "category": "data_transfer",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x9D", "form": "POPFQ", "description": "Pop 64-bit value from stack into RFLAGS (default operand size is 64 bits in long mode)" }
+        {
+          "hex": "0x9D",
+          "form": "POPFQ",
+          "description": "Pop 64-bit value from stack into RFLAGS (default operand size is 64 bits in long mode)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
       ],
       "description": "Pop a 64-bit value from the stack into RFLAGS. In 64-bit mode opcode 0x9D pops RFLAGS (64-bit) by default.",
       "introduced": "x86-64",
@@ -59,14 +74,19 @@
       "available_64bit": true,
       "notes": "Same opcode 0x9D as POPF/POPFD; the operand size is 64-bit by default in long mode."
     },
-
     {
       "mnemonic": "CDQE",
       "sasm_phrase": "extend double to quad",
       "category": "arithmetic",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x48 0x98", "form": "CDQE", "description": "Sign-extend EAX into RAX (REX.W + opcode 0x98); 64-bit rename of CWDE" }
+        {
+          "hex": "0x48 0x98",
+          "form": "CDQE",
+          "description": "Sign-extend EAX into RAX (REX.W + opcode 0x98); 64-bit rename of CWDE",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
       ],
       "description": "Sign-extend EAX into RAX. 64-bit rename of CWDE (which sign-extends AX into EAX in 32-bit mode). Same opcode 0x98 with REX.W prefix.",
       "introduced": "x86-64",
@@ -75,14 +95,19 @@
       "available_32bit": false,
       "available_64bit": true
     },
-
     {
       "mnemonic": "CQO",
       "sasm_phrase": "extend quad to double quad",
       "category": "arithmetic",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x48 0x99", "form": "CQO", "description": "Sign-extend RAX into RDX:RAX (REX.W + opcode 0x99); 64-bit rename of CDQ" }
+        {
+          "hex": "0x48 0x99",
+          "form": "CQO",
+          "description": "Sign-extend RAX into RDX:RAX (REX.W + opcode 0x99); 64-bit rename of CDQ",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
       ],
       "description": "Sign-extend RAX into RDX:RAX. 64-bit rename of CDQ (which sign-extends EAX into EDX:EAX in 32-bit mode). Used before 64-bit IDIV.",
       "introduced": "x86-64",
@@ -91,14 +116,19 @@
       "available_32bit": false,
       "available_64bit": true
     },
-
     {
       "mnemonic": "CMPXCHG16B",
       "sasm_phrase": "compare and swap 16 bytes at <mem>",
       "category": "data_transfer",
       "operands": "mem",
       "opcodes": [
-        { "hex": "0x48 0x0F 0xC7 /1", "form": "CMPXCHG16B m128", "description": "Compare RDX:RAX with 128-bit memory; if equal store RCX:RBX to memory; else load memory into RDX:RAX (REX.W required)" }
+        {
+          "hex": "0x48 0x0F 0xC7 /1",
+          "form": "CMPXCHG16B m128",
+          "description": "Compare RDX:RAX with 128-bit memory; if equal store RCX:RBX to memory; else load memory into RDX:RAX (REX.W required)",
+          "byte_length_min": 4,
+          "byte_length_max": 9
+        }
       ],
       "description": "Compare RDX:RAX with a 128-bit memory value; if equal, store RCX:RBX; otherwise load memory into RDX:RAX. Requires LOCK for atomicity.",
       "introduced": "x86-64",
@@ -108,14 +138,19 @@
       "available_64bit": true,
       "notes": "Requires the CMPXCHG16B feature flag (CPUID.01H:ECX.bit13=1). Use LOCK prefix for atomicity."
     },
-
     {
       "mnemonic": "SWAPGS",
       "sasm_phrase": null,
       "category": "system",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x0F 0x01 0xF8", "form": "SWAPGS", "description": "Exchange GS base register with IA32_KERNEL_GS_BASE MSR; used in OS kernel entry/exit" }
+        {
+          "hex": "0x0F 0x01 0xF8",
+          "form": "SWAPGS",
+          "description": "Exchange GS base register with IA32_KERNEL_GS_BASE MSR; used in OS kernel entry/exit",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        }
       ],
       "description": "Exchange the base of the GS register with the IA32_KERNEL_GS_BASE MSR. Used in OS kernel entry/exit to switch between user and kernel GS bases.",
       "introduced": "x86-64",
@@ -125,14 +160,19 @@
       "available_64bit": true,
       "notes": "Ring-0 only."
     },
-
     {
       "mnemonic": "SYSCALL",
       "sasm_phrase": "syscall",
       "category": "control_transfer",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x0F 0x05", "form": "SYSCALL", "description": "Transfer to OS kernel: save RIP→RCX, RFLAGS→R11; load RIP from LSTAR MSR; switch to ring-0" }
+        {
+          "hex": "0x0F 0x05",
+          "form": "SYSCALL",
+          "description": "Transfer to OS kernel: save RIP→RCX, RFLAGS→R11; load RIP from LSTAR MSR; switch to ring-0",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
       ],
       "description": "Fast system-call mechanism used in 64-bit mode; transfers control to the OS kernel using the LSTAR MSR. Saves RIP into RCX and RFLAGS into R11.",
       "introduced": "AMD K6 / x86-64",
@@ -142,15 +182,26 @@
       "available_64bit": true,
       "notes": "Preferred over INT 0x80 on x86-64. SYSCALL clobbers RCX and R11. Linux syscall ABI: rax=syscall number, rdi/rsi/rdx/r10/r8/r9=args."
     },
-
     {
       "mnemonic": "SYSRET",
       "sasm_phrase": "sysret",
       "category": "control_transfer",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x0F 0x07",      "form": "SYSRET",    "description": "Return from SYSCALL: restore RIP from RCX, RFLAGS from R11; switch to ring-3 (32-bit return)" },
-        { "hex": "0x48 0x0F 0x07", "form": "SYSRETQ",   "description": "Return from SYSCALL in 64-bit mode (REX.W + 0x0F 0x07); restores full 64-bit RIP from RCX" }
+        {
+          "hex": "0x0F 0x07",
+          "form": "SYSRET",
+          "description": "Return from SYSCALL: restore RIP from RCX, RFLAGS from R11; switch to ring-3 (32-bit return)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x48 0x0F 0x07",
+          "form": "SYSRETQ",
+          "description": "Return from SYSCALL in 64-bit mode (REX.W + 0x0F 0x07); restores full 64-bit RIP from RCX",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        }
       ],
       "description": "Companion return instruction for SYSCALL. Restores RIP from RCX and RFLAGS from R11.",
       "introduced": "AMD K6 / x86-64",
@@ -160,14 +211,19 @@
       "available_64bit": true,
       "notes": "Requires ring-0. Use SYSRETQ (REX.W form) to return to 64-bit user-mode code."
     },
-
     {
       "mnemonic": "IRETQ",
       "sasm_phrase": "return from interrupt",
       "category": "control_transfer",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x48 0xCF", "form": "IRETQ", "description": "64-bit interrupt return: pop RIP (8), CS (8), RFLAGS (8), RSP (8), SS (8) from stack (40 bytes total)" }
+        {
+          "hex": "0x48 0xCF",
+          "form": "IRETQ",
+          "description": "64-bit interrupt return: pop RIP (8), CS (8), RFLAGS (8), RSP (8), SS (8) from stack (40 bytes total)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
       ],
       "description": "64-bit Interrupt Return: pops 8-byte RIP, CS, RFLAGS, RSP, and SS from the stack (40 bytes). REX.W prefix (0x48) selects 64-bit form.",
       "introduced": "x86-64",
@@ -177,7 +233,6 @@
       "available_64bit": true,
       "notes": "Without REX.W, 0xCF in 64-bit mode pops a 32-bit CS:EIP frame. IRETQ is the standard form for 64-bit interrupt handlers."
     },
-
     {
       "mnemonic": "JRCXZ",
       "sasm_phrase": "goto <label> if rcx zero",
@@ -185,7 +240,13 @@
       "operands": "label",
       "condition": "RCX = 0",
       "opcodes": [
-        { "hex": "0xE3", "form": "JRCXZ rel8", "description": "Short jump if RCX=0 (in 64-bit mode with 64-bit address size; same opcode as JCXZ/JECXZ)" }
+        {
+          "hex": "0xE3",
+          "form": "JRCXZ rel8",
+          "description": "Short jump if RCX=0 (in 64-bit mode with 64-bit address size; same opcode as JCXZ/JECXZ)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
       ],
       "description": "Jump if RCX is Zero (flag-free test). The 64-bit form of JCXZ. Shares opcode 0xE3; which register is tested depends on address-size prefix.",
       "introduced": "x86-64",
@@ -195,14 +256,19 @@
       "available_64bit": true,
       "notes": "Short jump only. Address-size prefix 0x67 selects JECXZ (test ECX) instead of JRCXZ (test RCX)."
     },
-
     {
       "mnemonic": "MOVSQ",
       "sasm_phrase": "copy string quad",
       "category": "string",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x48 0xA5", "form": "MOVSQ", "description": "Copy qword from [RSI] to [RDI]; advance RSI and RDI by 8 (direction determined by DF)" }
+        {
+          "hex": "0x48 0xA5",
+          "form": "MOVSQ",
+          "description": "Copy qword from [RSI] to [RDI]; advance RSI and RDI by 8 (direction determined by DF)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
       ],
       "description": "Copy qword from [RSI] to [RDI]; advance RSI and RDI by 8 (direction flag controls sign). 64-bit quad variant of MOVSB/MOVSW/MOVSD.",
       "introduced": "x86-64",
@@ -212,14 +278,19 @@
       "available_64bit": true,
       "notes": "REX.W (0x48) + opcode 0xA5. Use with REP prefix (0xF3 0x48 0xA5) for REP MOVSQ."
     },
-
     {
       "mnemonic": "CMPSQ",
       "sasm_phrase": "compare strings quad",
       "category": "string",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x48 0xA7", "form": "CMPSQ", "description": "Compare qword at [RSI] with [RDI]; update flags; advance RSI and RDI by 8" }
+        {
+          "hex": "0x48 0xA7",
+          "form": "CMPSQ",
+          "description": "Compare qword at [RSI] with [RDI]; update flags; advance RSI and RDI by 8",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
       ],
       "description": "Compare qword at [RSI] with [RDI]; update flags; advance both pointers. 64-bit quad variant of CMPSB/CMPSW/CMPSD.",
       "introduced": "x86-64",
@@ -229,14 +300,19 @@
       "available_64bit": true,
       "notes": "REX.W (0x48) + opcode 0xA7. Use with REPE/REPNE for REPE CMPSQ / REPNE CMPSQ."
     },
-
     {
       "mnemonic": "SCASQ",
       "sasm_phrase": "scan string quad",
       "category": "string",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x48 0xAF", "form": "SCASQ", "description": "Compare RAX with qword at [RDI]; update flags; advance RDI by 8" }
+        {
+          "hex": "0x48 0xAF",
+          "form": "SCASQ",
+          "description": "Compare RAX with qword at [RDI]; update flags; advance RDI by 8",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
       ],
       "description": "Compare RAX with qword at [RDI]; update flags; advance RDI. 64-bit quad variant of SCASB/SCASW/SCASD.",
       "introduced": "x86-64",
@@ -246,14 +322,19 @@
       "available_64bit": true,
       "notes": "REX.W (0x48) + opcode 0xAF. Use with REPE/REPNE for searches."
     },
-
     {
       "mnemonic": "LODSQ",
       "sasm_phrase": "load string quad",
       "category": "string",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x48 0xAD", "form": "LODSQ", "description": "Load qword from [RSI] into RAX; advance RSI by 8" }
+        {
+          "hex": "0x48 0xAD",
+          "form": "LODSQ",
+          "description": "Load qword from [RSI] into RAX; advance RSI by 8",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
       ],
       "description": "Load qword from [RSI] into RAX; advance RSI. 64-bit quad variant of LODSB/LODSW/LODSD.",
       "introduced": "x86-64",
@@ -263,14 +344,19 @@
       "available_64bit": true,
       "notes": "REX.W (0x48) + opcode 0xAD."
     },
-
     {
       "mnemonic": "STOSQ",
       "sasm_phrase": "store string quad",
       "category": "string",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x48 0xAB", "form": "STOSQ", "description": "Store RAX into qword at [RDI]; advance RDI by 8" }
+        {
+          "hex": "0x48 0xAB",
+          "form": "STOSQ",
+          "description": "Store RAX into qword at [RDI]; advance RDI by 8",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
       ],
       "description": "Store RAX to qword at [RDI]; advance RDI. 64-bit quad variant of STOSB/STOSW/STOSD.",
       "introduced": "x86-64",
@@ -280,14 +366,19 @@
       "available_64bit": true,
       "notes": "REX.W (0x48) + opcode 0xAB. Use with REP prefix (0xF3 0x48 0xAB) for REP STOSQ to fill memory blocks."
     },
-
     {
       "mnemonic": "POPCNT",
       "sasm_phrase": null,
       "category": "arithmetic",
       "operands": "dst, src",
       "opcodes": [
-        { "hex": "0xF3 0x0F 0xB8", "form": "POPCNT r16/32/64, r/m16/32/64", "description": "Count number of set bits (population count) in src; store result in dst" }
+        {
+          "hex": "0xF3 0x0F 0xB8",
+          "form": "POPCNT r16/32/64, r/m16/32/64",
+          "description": "Count number of set bits (population count) in src; store result in dst",
+          "byte_length_min": 4,
+          "byte_length_max": 9
+        }
       ],
       "description": "Count the number of set bits (population count) in src; store result in dst.",
       "introduced": "x86-64 (Nehalem / Core i7+)",
@@ -297,14 +388,19 @@
       "available_64bit": true,
       "notes": "Requires POPCNT feature flag (CPUID.01H:ECX.bit23=1). Prefix 0xF3 is a mandatory encoding prefix, not REP."
     },
-
     {
       "mnemonic": "LZCNT",
       "sasm_phrase": null,
       "category": "arithmetic",
       "operands": "dst, src",
       "opcodes": [
-        { "hex": "0xF3 0x0F 0xBD", "form": "LZCNT r16/32/64, r/m16/32/64", "description": "Count leading zero bits in src; store result in dst; if src=0, result = operand size (e.g., 64 for 64-bit)" }
+        {
+          "hex": "0xF3 0x0F 0xBD",
+          "form": "LZCNT r16/32/64, r/m16/32/64",
+          "description": "Count leading zero bits in src; store result in dst; if src=0, result = operand size (e.g., 64 for 64-bit)",
+          "byte_length_min": 4,
+          "byte_length_max": 9
+        }
       ],
       "description": "Count leading zero bits in src; store in dst. If src = 0, result is the operand size (64 for 64-bit operands).",
       "introduced": "x86-64 (Haswell / Bulldozer+)",
@@ -314,14 +410,19 @@
       "available_64bit": true,
       "notes": "Requires LZCNT feature flag (CPUID.80000001H:ECX.bit5=1). Without the flag, 0xF3 is ignored and BSR is executed instead."
     },
-
     {
       "mnemonic": "TZCNT",
       "sasm_phrase": null,
       "category": "arithmetic",
       "operands": "dst, src",
       "opcodes": [
-        { "hex": "0xF3 0x0F 0xBC", "form": "TZCNT r16/32/64, r/m16/32/64", "description": "Count trailing zero bits in src; store result in dst; if src=0, result = operand size" }
+        {
+          "hex": "0xF3 0x0F 0xBC",
+          "form": "TZCNT r16/32/64, r/m16/32/64",
+          "description": "Count trailing zero bits in src; store result in dst; if src=0, result = operand size",
+          "byte_length_min": 4,
+          "byte_length_max": 9
+        }
       ],
       "description": "Count trailing zero bits in src; store in dst.",
       "introduced": "x86-64 (Haswell / BMI1)",
@@ -331,14 +432,19 @@
       "available_64bit": true,
       "notes": "Requires BMI1 feature flag (CPUID.07H:EBX.bit3=1). Without the flag, BSF is executed instead."
     },
-
     {
       "mnemonic": "ADCX",
       "sasm_phrase": null,
       "category": "arithmetic",
       "operands": "dst, src",
       "opcodes": [
-        { "hex": "0x66 0x0F 0x38 0xF6", "form": "ADCX r32/64, r/m32/64", "description": "Add with carry from CF: dst += src + CF; updates CF only (not OF)" }
+        {
+          "hex": "0x66 0x0F 0x38 0xF6",
+          "form": "ADCX r32/64, r/m32/64",
+          "description": "Add with carry from CF: dst += src + CF; updates CF only (not OF)",
+          "byte_length_min": 5,
+          "byte_length_max": 10
+        }
       ],
       "description": "Add with Carry (using CF): dst = dst + src + CF. Updates CF only; does not affect OF. Designed for multi-precision addition pipelines.",
       "introduced": "x86-64 (Broadwell / ADX)",
@@ -348,14 +454,19 @@
       "available_64bit": true,
       "notes": "Requires ADX feature flag (CPUID.07H:EBX.bit19=1). Prefix 0x66 is mandatory."
     },
-
     {
       "mnemonic": "ADOX",
       "sasm_phrase": null,
       "category": "arithmetic",
       "operands": "dst, src",
       "opcodes": [
-        { "hex": "0xF3 0x0F 0x38 0xF6", "form": "ADOX r32/64, r/m32/64", "description": "Add with carry from OF: dst += src + OF; updates OF only (not CF)" }
+        {
+          "hex": "0xF3 0x0F 0x38 0xF6",
+          "form": "ADOX r32/64, r/m32/64",
+          "description": "Add with carry from OF: dst += src + OF; updates OF only (not CF)",
+          "byte_length_min": 5,
+          "byte_length_max": 10
+        }
       ],
       "description": "Add with Overflow (using OF): dst = dst + src + OF. Updates OF only; does not affect CF. Designed for multi-precision addition pipelines.",
       "introduced": "x86-64 (Broadwell / ADX)",
@@ -365,15 +476,26 @@
       "available_64bit": true,
       "notes": "Requires ADX feature flag (CPUID.07H:EBX.bit19=1). Prefix 0xF3 is mandatory."
     },
-
     {
       "mnemonic": "MULX",
       "sasm_phrase": null,
       "category": "arithmetic",
       "operands": "dst_hi, dst_lo, src",
       "opcodes": [
-        { "hex": "VEX.LZ.F2.0F38.W0 0xF6",   "form": "MULX r32a, r32b, r/m32", "description": "Unsigned multiply: RDX × r/m32 → dst_hi:dst_lo (32-bit form, no flags)" },
-        { "hex": "VEX.LZ.F2.0F38.W1 0xF6",   "form": "MULX r64a, r64b, r/m64", "description": "Unsigned multiply: RDX × r/m64 → dst_hi:dst_lo (64-bit form, no flags)" }
+        {
+          "hex": "VEX.LZ.F2.0F38.W0 0xF6",
+          "form": "MULX r32a, r32b, r/m32",
+          "description": "Unsigned multiply: RDX × r/m32 → dst_hi:dst_lo (32-bit form, no flags)",
+          "byte_length_min": 4,
+          "byte_length_max": 8
+        },
+        {
+          "hex": "VEX.LZ.F2.0F38.W1 0xF6",
+          "form": "MULX r64a, r64b, r/m64",
+          "description": "Unsigned multiply: RDX × r/m64 → dst_hi:dst_lo (64-bit form, no flags)",
+          "byte_length_min": 4,
+          "byte_length_max": 8
+        }
       ],
       "description": "Unsigned multiply RDX × src → dst_hi:dst_lo, without modifying flags. Allows pipelining of multi-precision multiplication.",
       "introduced": "x86-64 (Haswell / BMI2)",
@@ -383,14 +505,19 @@
       "available_64bit": true,
       "notes": "Requires BMI2 feature flag (CPUID.07H:EBX.bit8=1). VEX-encoded; see Intel manual for full VEX byte encoding."
     },
-
     {
       "mnemonic": "DAA",
       "sasm_phrase": "decimal adjust after add",
       "category": "removed_in_64bit",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x27", "form": "DAA (invalid in 64-bit)", "description": "Opcode 0x27 conflicts with REX prefix space; raises #UD in long mode" }
+        {
+          "hex": "0x27",
+          "form": "DAA (invalid in 64-bit)",
+          "description": "Opcode 0x27 conflicts with REX prefix space; raises #UD in long mode",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
       ],
       "description": "REMOVED in 64-bit mode. Opcode 0x27 conflicts with the REX prefix. Decimal Adjust AL after Addition.",
       "introduced": "8086",
@@ -399,14 +526,19 @@
       "available_32bit": true,
       "available_64bit": false
     },
-
     {
       "mnemonic": "DAS",
       "sasm_phrase": "decimal adjust after subtract",
       "category": "removed_in_64bit",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x2F", "form": "DAS (invalid in 64-bit)", "description": "Opcode 0x2F conflicts with REX prefix space; raises #UD in long mode" }
+        {
+          "hex": "0x2F",
+          "form": "DAS (invalid in 64-bit)",
+          "description": "Opcode 0x2F conflicts with REX prefix space; raises #UD in long mode",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
       ],
       "description": "REMOVED in 64-bit mode. Decimal Adjust AL after Subtraction.",
       "introduced": "8086",
@@ -415,14 +547,19 @@
       "available_32bit": true,
       "available_64bit": false
     },
-
     {
       "mnemonic": "AAA",
       "sasm_phrase": "ascii adjust after add",
       "category": "removed_in_64bit",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x37", "form": "AAA (invalid in 64-bit)", "description": "Opcode 0x37 conflicts with REX prefix space; raises #UD in long mode" }
+        {
+          "hex": "0x37",
+          "form": "AAA (invalid in 64-bit)",
+          "description": "Opcode 0x37 conflicts with REX prefix space; raises #UD in long mode",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
       ],
       "description": "REMOVED in 64-bit mode. ASCII Adjust AL after Addition.",
       "introduced": "8086",
@@ -431,14 +568,19 @@
       "available_32bit": true,
       "available_64bit": false
     },
-
     {
       "mnemonic": "AAS",
       "sasm_phrase": "ascii adjust after subtract",
       "category": "removed_in_64bit",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x3F", "form": "AAS (invalid in 64-bit)", "description": "Opcode 0x3F conflicts with REX prefix space; raises #UD in long mode" }
+        {
+          "hex": "0x3F",
+          "form": "AAS (invalid in 64-bit)",
+          "description": "Opcode 0x3F conflicts with REX prefix space; raises #UD in long mode",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
       ],
       "description": "REMOVED in 64-bit mode. ASCII Adjust AL after Subtraction.",
       "introduced": "8086",
@@ -447,14 +589,19 @@
       "available_32bit": true,
       "available_64bit": false
     },
-
     {
       "mnemonic": "AAM",
       "sasm_phrase": "ascii adjust after multiply",
       "category": "removed_in_64bit",
       "operands": "—",
       "opcodes": [
-        { "hex": "0xD4", "form": "AAM (invalid in 64-bit)", "description": "Opcode 0xD4 conflicts with REX prefix space; raises #UD in long mode" }
+        {
+          "hex": "0xD4",
+          "form": "AAM (invalid in 64-bit)",
+          "description": "Opcode 0xD4 conflicts with REX prefix space; raises #UD in long mode",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
       ],
       "description": "REMOVED in 64-bit mode. ASCII Adjust AX after Multiplication.",
       "introduced": "8086",
@@ -463,14 +610,19 @@
       "available_32bit": true,
       "available_64bit": false
     },
-
     {
       "mnemonic": "AAD",
       "sasm_phrase": "ascii adjust before divide",
       "category": "removed_in_64bit",
       "operands": "—",
       "opcodes": [
-        { "hex": "0xD5", "form": "AAD (invalid in 64-bit)", "description": "Opcode 0xD5 conflicts with REX prefix space; raises #UD in long mode" }
+        {
+          "hex": "0xD5",
+          "form": "AAD (invalid in 64-bit)",
+          "description": "Opcode 0xD5 conflicts with REX prefix space; raises #UD in long mode",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
       ],
       "description": "REMOVED in 64-bit mode. ASCII Adjust AX before Division.",
       "introduced": "8086",
@@ -479,14 +631,19 @@
       "available_32bit": true,
       "available_64bit": false
     },
-
     {
       "mnemonic": "BOUND",
       "sasm_phrase": "check bounds <reg> within <mem>",
       "category": "removed_in_64bit",
       "operands": "reg, mem",
       "opcodes": [
-        { "hex": "0x62", "form": "BOUND (invalid in 64-bit)", "description": "Opcode 0x62 reassigned to EVEX prefix in 64-bit mode; raises #UD if used as BOUND" }
+        {
+          "hex": "0x62",
+          "form": "BOUND (invalid in 64-bit)",
+          "description": "Opcode 0x62 reassigned to EVEX prefix in 64-bit mode; raises #UD if used as BOUND",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
       ],
       "description": "REMOVED in 64-bit mode. Opcode 0x62 is the EVEX escape prefix. Check array index bounds.",
       "introduced": "80186",
@@ -495,14 +652,19 @@
       "available_32bit": true,
       "available_64bit": false
     },
-
     {
       "mnemonic": "INTO",
       "sasm_phrase": "interrupt on overflow",
       "category": "removed_in_64bit",
       "operands": "—",
       "opcodes": [
-        { "hex": "0xCE", "form": "INTO (invalid in 64-bit)", "description": "Opcode 0xCE reassigned in 64-bit mode; raises #UD" }
+        {
+          "hex": "0xCE",
+          "form": "INTO (invalid in 64-bit)",
+          "description": "Opcode 0xCE reassigned in 64-bit mode; raises #UD",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
       ],
       "description": "REMOVED in 64-bit mode. Opcode 0xCE reassigned. Interrupt on Overflow (generates INT 4 if OF=1).",
       "introduced": "8086",
@@ -511,14 +673,19 @@
       "available_32bit": true,
       "available_64bit": false
     },
-
     {
       "mnemonic": "LDS",
       "sasm_phrase": "load ds-ptr <mem> to <reg>",
       "category": "removed_in_64bit",
       "operands": "reg, mem",
       "opcodes": [
-        { "hex": "0xC5", "form": "LDS (invalid in 64-bit)", "description": "Opcode 0xC5 reassigned to VEX 3-byte escape prefix in 64-bit mode" }
+        {
+          "hex": "0xC5",
+          "form": "LDS (invalid in 64-bit)",
+          "description": "Opcode 0xC5 reassigned to VEX 3-byte escape prefix in 64-bit mode",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
       ],
       "description": "REMOVED in 64-bit mode. Opcode 0xC5 is the 2-byte VEX prefix. Load far pointer into DS:reg.",
       "introduced": "8086",
@@ -527,14 +694,19 @@
       "available_32bit": true,
       "available_64bit": false
     },
-
     {
       "mnemonic": "LES",
       "sasm_phrase": "load es-ptr <mem> to <reg>",
       "category": "removed_in_64bit",
       "operands": "reg, mem",
       "opcodes": [
-        { "hex": "0xC4", "form": "LES (invalid in 64-bit)", "description": "Opcode 0xC4 reassigned to VEX 3-byte escape prefix in 64-bit mode" }
+        {
+          "hex": "0xC4",
+          "form": "LES (invalid in 64-bit)",
+          "description": "Opcode 0xC4 reassigned to VEX 3-byte escape prefix in 64-bit mode",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
       ],
       "description": "REMOVED in 64-bit mode. Opcode 0xC4 is the 3-byte VEX prefix. Load far pointer into ES:reg.",
       "introduced": "8086",
@@ -543,15 +715,22 @@
       "available_32bit": true,
       "available_64bit": false
     },
-
     {
       "mnemonic": "PUSHA",
-      "aliases": ["PUSHAD"],
+      "aliases": [
+        "PUSHAD"
+      ],
       "sasm_phrase": "push all",
       "category": "removed_in_64bit",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x60", "form": "PUSHA/PUSHAD (invalid in 64-bit)", "description": "Opcode 0x60 is removed in 64-bit long mode; raises #UD" }
+        {
+          "hex": "0x60",
+          "form": "PUSHA/PUSHAD (invalid in 64-bit)",
+          "description": "Opcode 0x60 is removed in 64-bit long mode; raises #UD",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
       ],
       "description": "REMOVED in 64-bit mode. Push all general-purpose registers.",
       "introduced": "80186",
@@ -560,15 +739,22 @@
       "available_32bit": true,
       "available_64bit": false
     },
-
     {
       "mnemonic": "POPA",
-      "aliases": ["POPAD"],
+      "aliases": [
+        "POPAD"
+      ],
       "sasm_phrase": "pop all",
       "category": "removed_in_64bit",
       "operands": "—",
       "opcodes": [
-        { "hex": "0x61", "form": "POPA/POPAD (invalid in 64-bit)", "description": "Opcode 0x61 is removed in 64-bit long mode; raises #UD" }
+        {
+          "hex": "0x61",
+          "form": "POPA/POPAD (invalid in 64-bit)",
+          "description": "Opcode 0x61 is removed in 64-bit long mode; raises #UD",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
       ],
       "description": "REMOVED in 64-bit mode. Pop all general-purpose registers.",
       "introduced": "80186",
@@ -577,6 +763,5 @@
       "available_32bit": true,
       "available_64bit": false
     }
-
   ]
 }
