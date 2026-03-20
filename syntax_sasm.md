@@ -11,15 +11,16 @@
 3. [Memory References](#memory-references)
 4. [Code Block Structure](#code-block-structure)
 5. [Named Blocks and Parameter Passing](#named-blocks-and-parameter-passing)
-6. [Data Transfer](#data-transfer)
-7. [Arithmetic](#arithmetic)
-8. [Logical](#logical)
-9. [Shift and Rotate](#shift-and-rotate)
-10. [String Operations](#string-operations)
-11. [Control Transfer](#control-transfer)
-12. [Flag Control](#flag-control)
-13. [Processor Control](#processor-control)
-14. [Full Examples](#full-examples)
+6. [Data Declarations](#data-declarations)
+7. [Data Transfer](#data-transfer)
+8. [Arithmetic](#arithmetic)
+9. [Logical](#logical)
+10. [Shift and Rotate](#shift-and-rotate)
+11. [String Operations](#string-operations)
+12. [Control Transfer](#control-transfer)
+13. [Flag Control](#flag-control)
+14. [Processor Control](#processor-control)
+15. [Full Examples](#full-examples)
 
 > **See also:** [`doc/instruction_8086.md`](doc/instruction_8086.md) — comprehensive Intel 8086 instruction set reference with status, operands, and compatibility notes.
 
@@ -492,6 +493,173 @@ block checksum8 {
 
 ---
 
+## Data Declarations
+
+SASM provides two forms of array data declaration: **static** (resident in the data segment, available for the lifetime of the program) and **local** (stack-allocated, scoped to a `proc` or `block` body).
+
+---
+
+### Static Data Arrays
+
+A `data` declaration reserves a named array in the data segment. It must appear **outside** any `proc` or `block` body.
+
+**Syntax:**
+
+```sasm
+data <name> as <type>[<count>]                        ; zero-initialized array
+data <name> as <type> = <v1>, <v2>, ..., <vN>         ; initialized array (count inferred from list)
+```
+
+**Supported types:**
+
+| Type keyword | Element size | Assembly directive |
+|--------------|--------------|--------------------|
+| `byte`       | 1 byte       | `DB`               |
+| `word`       | 2 bytes      | `DW`               |
+| `dword`      | 4 bytes      | `DD`               |
+
+**Zero-initialized arrays** — element count is given in brackets; all elements start as zero:
+
+```sasm
+data buf    as byte[64]        ; 64 bytes, all zero
+data table  as word[16]        ; 16 words, all zero
+data coords as dword[4]        ; 4 dwords, all zero
+```
+
+*Equivalent ASM:*
+
+```asm
+buf:    DB 64 DUP (0)
+table:  DW 16 DUP (0)
+coords: DD  4 DUP (0)
+```
+
+**Initialized arrays** — element count is inferred from the comma-separated value list:
+
+```sasm
+data primes as byte  = 2, 3, 5, 7, 11, 13, 17, 19
+data lookup as word  = 0x0000, 0x00FF, 0xFF00, 0xFFFF
+data masks  as dword = 0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000
+```
+
+*Equivalent ASM:*
+
+```asm
+primes: DB 2, 3, 5, 7, 11, 13, 17, 19
+lookup: DW 0000h, 00FFh, FF00h, FFFFh
+masks:  DD 000000FFh, 0000FF00h, 00FF0000h, FF000000h
+```
+
+**Accessing static array elements:**
+
+Array names resolve to their data-segment address. Use the standard memory-reference syntax (see [Memory References](#memory-references)) with a byte-offset register to index into the array.
+
+```sasm
+; byte array — bx holds the element index (= byte offset)
+move byte [primes + bx] to al        ; al = primes[bx]
+move 0x99 to byte [primes + bx]      ; primes[bx] = 0x99
+
+; word array — si holds the byte offset (element index × 2)
+move word [lookup + si] to ax        ; ax = lookup[si/2]
+move ax to word [lookup + si]        ; lookup[si/2] = ax
+
+; dword array — ebx holds the byte offset (element index × 4)
+move dword [coords + ebx] to eax     ; eax = coords[ebx/4]
+move eax to dword [coords + ebx]     ; coords[ebx/4] = eax
+```
+
+**Rules:**
+
+* `data` declarations must appear **outside** any `proc` or `block` body — they are segment-level directives emitted into the data segment.
+* An array may use either the bracketed count form (zero-initialized) or the `= <list>` form (initialized), but not both on the same line.
+* When indexing word arrays, the register holds a **byte offset** (`index × 2`); for dword arrays the register holds `index × 4`.
+
+---
+
+### Local Array Variables
+
+A `var` declaration with a bracketed element count reserves a named, stack-allocated array inside a `proc` or `block` body.
+
+**Syntax:**
+
+```sasm
+proc <name> {
+    var <name> as byte[<count>]    ; <count> bytes reserved on the stack
+    var <name> as word[<count>]    ; 2 × <count> bytes reserved on the stack
+    var <name> as dword[<count>]   ; 4 × <count> bytes reserved on the stack
+    <body>
+}
+```
+
+The same form works inside a `block { }`.
+
+**Stack space and base address:**
+
+| Declaration              | Stack space   | Base address (lowest element)           |
+|--------------------------|---------------|-----------------------------------------|
+| `var n as byte[K]`       | K bytes       | `[bp-N]` … `[bp-N+K-1]`                |
+| `var n as word[K]`       | 2K bytes      | `[bp-N]` … `[bp-N+2K-2]` (step 2)      |
+| `var n as dword[K]`      | 4K bytes      | `[bp-N]` … `[bp-N+4K-4]` (step 4)      |
+
+**Rules:**
+
+* All `var` declarations must appear at the **top of the body**, before any executable statement.
+* The compiler expands the frame prologue (`SUB SP, <size>`) to include space for the full array.
+* The variable name resolves to the base address `[bp-N]`. To access element `i`, compute the byte offset in a register and write `byte [name + reg]`, `word [name + reg]`, or `dword [name + reg]`.
+* Local arrays are **uninitialized** on entry; write before reading.
+
+**Example — proc with a local byte array:**
+
+```sasm
+(* Reverse the bytes in the array at [ds:si] (length in cx, max 16 bytes).
+   Result is written to [es:di].
+   Uses a 16-byte local scratch buffer.                                     *)
+proc reverse_bytes {
+    var tmp as byte[16]
+
+    move 0 to bx                        ; bx = write index into tmp
+    repeat cx times {
+        load string byte                ; al = [ds:si], si++
+        move al to byte [tmp + bx]      ; tmp[bx] = al
+        increment bx
+    }
+    repeat {
+        decrement bx
+        move byte [tmp + bx] to al
+        store string byte               ; [es:di] = al, di++
+        compare bx with 0
+    } until equal
+}
+```
+
+*Equivalent ASM (prologue/epilogue only):*
+
+```asm
+reverse_bytes:
+    PUSH BP
+    MOV  BP, SP
+    SUB  SP, 16          ; 16-byte local array (tmp) at [BP-16]..[BP-1]
+    ...
+    MOV  SP, BP
+    POP  BP
+    RET
+```
+
+**Stack layout after prologue (16-byte local array):**
+
+```
+[bp+0]   saved bp
+[bp+2]   return address (near)
+[bp-1]   tmp[15]  (last byte)
+[bp-2]   tmp[14]
+  ...
+[bp-16]  tmp[0]   (first byte)
+```
+
+---
+
+## Data Transfer
+
 | SASM English Syntax | ASM Equivalent | Meaning |
 |---------------------|----------------|---------|
 | `move <src> to <dst>` | `MOV dst, src` | Copy value of `src` into `dst` |
@@ -770,6 +938,7 @@ Complete example source files live in the [`example/`](example/) directory. The 
 | [`example/09_named_blocks_register_params.sasm`](example/09_named_blocks_register_params.sasm) | Named blocks (`block name { }`, call-only) + register-based parameter passing |
 | [`example/10_named_blocks_stack_params.sasm`](example/10_named_blocks_stack_params.sasm) | Named blocks (`block name { }`, call-only) + stack-based parameter passing |
 | [`example/11_local_variables.sasm`](example/11_local_variables.sasm) | Local variables — `var <name> as <type>` inside `proc` and `block` |
+| [`example/12_arrays.sasm`](example/12_arrays.sasm) | Array declarations — static `data` arrays and local `var <name> as <type>[N]` arrays |
 
 ### Quick-reference snippets
 
@@ -939,3 +1108,45 @@ block checksum8 {
     move sum to ax
 }                       ; implicit RET (with frame epilogue)
 ```
+
+---
+
+#### Example 12 — Array Declarations
+
+`data <name> as <type>[<count>]` declares a zero-initialized static array in the data segment.  
+`data <name> as <type> = <v1>, <v2>, ...` declares an initialized static array.  
+`var <name> as <type>[<count>]` declares a stack-allocated local array inside a `proc` or `block`.
+
+```sasm
+(* Static arrays in the data segment. *)
+data scores  as byte[8]                     ; 8 zero-initialized bytes
+data weights as word  = 10, 20, 30, 40      ; 4 initialized words
+data offsets as dword = 0x00000000, 0x00001000, 0x00002000
+
+(* Read the third element (index 2) of the word array 'weights'.
+   Word index 2 → byte offset 4 (index × 2). *)
+move 4 to si
+move word [weights + si] to ax              ; ax = 30
+
+(* Write 99 into scores[5]. byte index 5 → byte offset 5. *)
+move 5 to bx
+move 99 to byte [scores + bx]              ; scores[5] = 99
+```
+
+```sasm
+(* Local byte array inside a proc — build a lookup table on the stack. *)
+proc build_squares {
+    var sq as byte[8]               ; 8-byte local array
+
+    move 0 to bx
+    move 0 to cx
+    repeat {
+        move cl to al
+        multiply by cl              ; ax = cl × cl
+        move al to byte [sq + bx]  ; sq[bx] = cl²
+        increment bx
+        increment cx
+        compare cx with 8
+    } until equal
+    ; sq[0..7] = 0, 1, 4, 9, 16, 25, 36, 49
+}
