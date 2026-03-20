@@ -240,6 +240,7 @@ call validate_range
 | Closing delimiter | `}` | `}` |
 | Implicit `RET` at closing delimiter | ✅ | ✅ |
 | Parameter declarations | ❌ | ✅ |
+| Local variable declarations | ✅ | ✅ |
 
 Use `block` for compact, self-contained routines that need no parameter contract. Use `proc` whenever caller and callee must agree on where arguments live.
 
@@ -381,7 +382,115 @@ For typical 8086 subroutines pass ≤ 4 values — **prefer register-based param
 
 ---
 
-## Data Transfer
+### Local Variables
+
+A `var` declaration reserves a named, stack-allocated local variable inside a `proc` or `block` body.
+
+**Syntax:**
+
+```sasm
+proc <name> {
+    var <name> as <type>    ; one declaration per line, before any executable statement
+    var <name> as <type>
+    <body — refer to locals by name>
+}
+```
+
+The same form works inside a `block { }`.
+
+**Supported types:**
+
+| Type | Size | Stack slot |
+|------|------|------------|
+| `byte` | 1 byte | `[bp-N]`, N advances by 1 |
+| `word` | 2 bytes | `[bp-N]`, N advances by 2 |
+| `dword` | 4 bytes | `[bp-N]`, N advances by 4 |
+
+**Rules:**
+
+* All `var` declarations **must appear at the top of the body**, before any executable statement.
+* The compiler emits a standard frame prologue — `PUSH BP / MOV BP, SP / SUB SP, <total-local-size>` — and resolves every variable name to its `[bp-N]` slot automatically.
+* Every `return` and the closing `}` emit the frame epilogue — `MOV SP, BP / POP BP` (LEAVE) — followed by `RET`.
+* Locals are **uninitialized** on entry; assign a value before reading.
+
+**Stack layout (near call, two word locals):**
+
+```
+[bp+0]  saved bp
+[bp+2]  return address (near)
+[bp-2]  first  word local
+[bp-4]  second word local
+```
+
+For a `proc uses stack` the parameter slots sit *above* `bp` and the locals *below*:
+
+```
+[bp+0]  saved bp
+[bp+2]  return address
+[bp+4]  p1   (pushed last by caller)
+[bp+6]  p2
+[bp-2]  first local
+[bp-4]  second local
+```
+
+**Example — `proc` with a local variable:**
+
+```sasm
+(* Find the minimum of three unsigned 16-bit values in ax, bx, cx.
+   Uses a local word 'best' to hold the running minimum.
+   Returns the result in ax.                                         *)
+proc min3 {
+    var best as word
+    move ax to best
+    compare bx with best
+    if below { move bx to best }
+    compare cx with best
+    if below { move cx to best }
+    move best to ax
+}
+```
+
+*Equivalent ASM:*
+
+```asm
+min3:
+    PUSH BP
+    MOV  BP, SP
+    SUB  SP, 2          ; one word local  (best)
+    MOV  [BP-2], AX     ; best = ax
+    CMP  BX, [BP-2]
+    JAE  .s1
+    MOV  [BP-2], BX     ; best = bx
+.s1:
+    CMP  CX, [BP-2]
+    JAE  .s2
+    MOV  [BP-2], CX     ; best = cx
+.s2:
+    MOV  AX, [BP-2]     ; result = best
+    MOV  SP, BP         ; epilogue (LEAVE)
+    POP  BP
+    RET
+```
+
+**Example — `block` with a local variable:**
+
+```sasm
+(* Accumulate a 16-bit checksum of 8 consecutive words starting at [ds:si].
+   si is advanced past the 8 words on return.
+   Returns the sum in ax.                                                    *)
+block checksum8 {
+    var sum as word
+    move 0 to sum
+    move 8 to cx
+    repeat cx times {
+        add word [si] to sum
+        add 2 to si
+    }
+    move sum to ax
+}                               ; implicit RET (with frame epilogue)
+```
+
+---
 
 | SASM English Syntax | ASM Equivalent | Meaning |
 |---------------------|----------------|---------|
@@ -660,6 +769,7 @@ Complete example source files live in the [`example/`](example/) directory. The 
 | [`example/08_zero_block.sasm`](example/08_zero_block.sasm) | Memory block fill — `repeat cx times` with `store string byte` |
 | [`example/09_named_blocks_register_params.sasm`](example/09_named_blocks_register_params.sasm) | Named blocks (`block name { }`, call-only) + register-based parameter passing |
 | [`example/10_named_blocks_stack_params.sasm`](example/10_named_blocks_stack_params.sasm) | Named blocks (`block name { }`, call-only) + stack-based parameter passing |
+| [`example/11_local_variables.sasm`](example/11_local_variables.sasm) | Local variables — `var <name> as <type>` inside `proc` and `block` |
 
 ### Quick-reference snippets
 
@@ -789,4 +899,43 @@ block call_print_substring {
 
 ; Invoke:
 call call_print_substring
+```
+
+---
+
+#### Example 11 — Local Variables
+
+`var <name> as <type>` declares a named, stack-allocated local. Declarations must come first in the body.
+
+```sasm
+(* proc with a local: find the minimum of ax, bx, cx; return in ax. *)
+proc min3 {
+    var best as word
+    move ax to best
+    compare bx with best
+    if below { move bx to best }
+    compare cx with best
+    if below { move cx to best }
+    move best to ax
+}
+
+; Caller:
+move 7  to ax
+move 3  to bx
+move 12 to cx
+call min3               ; ax = 3
+```
+
+```sasm
+(* block with a local: checksum of 8 words at [ds:si]; result in ax. *)
+block checksum8 {
+    var sum as word
+    move 0 to sum
+    move 8 to cx
+    repeat cx times {
+        add word [si] to sum
+        add 2 to si
+    }
+    move sum to ax
+}                       ; implicit RET (with frame epilogue)
 ```
