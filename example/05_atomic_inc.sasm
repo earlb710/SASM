@@ -2,9 +2,9 @@
 ; Safely increment a shared 16-bit counter in memory at [bx].
 ; The LOCK prefix ensures atomicity on multi-processor systems.
 
-proc atomic_inc:
+proc atomic_inc {
     atomic {
         increment word [bx]
     }
     return
-end proc
+}

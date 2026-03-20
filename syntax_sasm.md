@@ -98,9 +98,9 @@ dword [ebx]           ; force 32-bit access
 ### Procedures
 
 ```sasm
-proc <name>:
+proc <name> {
     <body>
-end proc
+}
 ```
 
 ### Named Blocks
@@ -237,7 +237,7 @@ call validate_range
 | Entered with `call` | ✅ | ✅ |
 | Entered by fall-through | ❌ | ❌ |
 | Entered by `goto` | ❌ | ❌ |
-| Closing delimiter | `}` | `end proc` |
+| Closing delimiter | `}` | `}` |
 | Implicit `RET` at closing delimiter | ✅ | ✅ |
 | Parameter declarations | ❌ | ✅ |
 
@@ -254,10 +254,10 @@ The simplest and most efficient method for the 8086 is to agree on which registe
 **Syntax:**
 
 ```sasm
-proc <name> ( in <reg> as <alias>, ..., out <reg> as <alias> ):
+proc <name> ( in <reg> as <alias>, ..., out <reg> as <alias> ) {
     <body — use aliases in place of raw register names>
     return
-end proc
+}
 ```
 
 * `in <reg> as <alias>` — declares that `<reg>` is an input parameter named `<alias>`.
@@ -271,7 +271,7 @@ end proc
 (* Clamp ax to [0, 255].
    in  ax as value
    out ax as result          *)
-proc clamp_byte ( in ax as value, out ax as result ):
+proc clamp_byte ( in ax as value, out ax as result ) {
     compare value with 0
     if less {
         move 0 to result
@@ -282,7 +282,7 @@ proc clamp_byte ( in ax as value, out ax as result ):
         move 255 to result
     }
     return
-end proc
+}
 ```
 
 **Caller:**
@@ -312,11 +312,11 @@ Use stack parameters when more than four values must be passed, when a standard 
 **Syntax:**
 
 ```sasm
-proc <name> uses stack ( <p1>, <p2>, ... ):
+proc <name> uses stack ( <p1>, <p2>, ... ) {
     (* p1 is [bp+4], p2 is [bp+6], p3 is [bp+8], … *)
     <body — refer to parameters by name>
     return
-end proc
+}
 ```
 
 * Arguments are pushed **right-to-left** by the caller before `call`.
@@ -342,7 +342,7 @@ end proc
      src_ptr — segment offset of the source string
      offset  — starting character index
      length  — number of characters to copy                          *)
-proc print_substring uses stack ( src_ptr, offset, length ):
+proc print_substring uses stack ( src_ptr, offset, length ) {
     move src_ptr to si
     add offset to si
     move length to cx
@@ -352,7 +352,7 @@ proc print_substring uses stack ( src_ptr, offset, length ):
         call emit_char
     }
     return
-end proc
+}
 ```
 
 **Caller:**
@@ -670,13 +670,13 @@ The inline examples below give a compact overview. For full annotated versions s
 #### Example 1 — Absolute Value
 
 ```sasm
-proc abs_ax:
+proc abs_ax {
     compare ax with 0
     if negative {
         negate ax
     }
     return
-end proc
+}
 ```
 
 *Equivalent ASM:*
@@ -690,13 +690,13 @@ abs_ax:  CMP AX,0 / JNS .done / NEG AX / .done: RET
 #### Example 2 — Count-Down Loop
 
 ```sasm
-proc process_ten:
+proc process_ten {
     move 10 to cx
     repeat cx times {
         call process_one_item
     }
     return
-end proc
+}
 ```
 
 ---
@@ -704,7 +704,7 @@ end proc
 #### Example 3 — String Copy (null-terminated)
 
 ```sasm
-proc strcpy:
+proc strcpy {
     clear direction
     repeat {
         load string byte
@@ -712,7 +712,7 @@ proc strcpy:
         test al and al
     } until equal
     return
-end proc
+}
 ```
 
 ---
@@ -753,13 +753,13 @@ fail:
 Register-parameter `proc` example (see file for full annotation):
 
 ```sasm
-proc clamp_byte ( in ax as value, out ax as result ):
+proc clamp_byte ( in ax as value, out ax as result ) {
     compare value with 0
     if less { move 0 to result / return }
     compare value with 255
     if greater { move 255 to result }
     return
-end proc
+}
 
 ; Caller:
 move 300 to ax
@@ -771,14 +771,14 @@ call clamp_byte         ; result → ax (= 255)
 #### Example 10 — Named Block with Stack Parameters
 
 ```sasm
-proc print_substring uses stack ( src_ptr, offset, length ):
+proc print_substring uses stack ( src_ptr, offset, length ) {
     move src_ptr to si
     add offset to si
     move length to cx
     clear direction
     repeat cx times { load string byte / call emit_char }
     return
-end proc
+}
 
 ; Caller wrapper (block — call-only, closing } emits RET):
 block call_print_substring {

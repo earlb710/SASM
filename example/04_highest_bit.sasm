@@ -3,7 +3,7 @@
 ; Returns the zero-based bit position in cx.
 ; If bx is 0 (no bits set), cx is set to 0xFFFF as a sentinel.
 
-proc highest_bit:
+proc highest_bit {
     test bx and bx
     if equal {
         move 0xFFFF to cx    ; signal: no bits set
@@ -11,4 +11,4 @@ proc highest_bit:
     }
     scan reverse bx into cx
     return
-end proc
+}

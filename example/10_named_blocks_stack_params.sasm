@@ -12,11 +12,11 @@
 ; The closing '}' emits an implicit RET.
 ;
 ; Stack-parameter proc syntax:
-;   proc <name> uses stack ( <p1>, <p2>, ... ):
+;   proc <name> uses stack ( <p1>, <p2>, ... ) {
 ;       (* p1 is at [bp+4], p2 at [bp+6], p3 at [bp+8], ... *)
 ;       <body using param names>
 ;       return
-;   end proc
+;   }
 ;
 ; The compiler / assembler is responsible for generating the standard
 ; BP-based frame (PUSH BP / MOV BP,SP) and for resolving each param
@@ -30,7 +30,7 @@
      [bp+6]  offset   — starting character index
      [bp+8]  length   — number of characters to copy               *)
 
-proc print_substring uses stack ( src_ptr, offset, length ):
+proc print_substring uses stack ( src_ptr, offset, length ) {
     ; Load parameters from stack by name (resolved to [bp+N] by the
     ; assembler).  Use si as the working source pointer.
     move src_ptr to si
@@ -43,7 +43,7 @@ proc print_substring uses stack ( src_ptr, offset, length ):
         call emit_char       ; output al to display
     }
     return
-end proc
+}
 
 
 (* --- call_print_substring: caller wrapper using block { } ---

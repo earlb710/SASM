@@ -2,7 +2,7 @@
 ; Categorize the signed 16-bit value in ax as negative, zero, or positive.
 ; Stores −1 (0xFFFF), 0, or +1 in bx respectively.
 
-proc sign_of_ax:
+proc sign_of_ax {
     compare ax with 0
     if less {
         move 0xFFFF to bx    ; -1 as a 16-bit two's complement word
@@ -12,4 +12,4 @@ proc sign_of_ax:
         move 1 to bx
     }
     return
-end proc
+}

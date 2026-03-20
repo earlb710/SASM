@@ -3,7 +3,7 @@
 ; Converts between big-endian and little-endian representations.
 ; Requires an 80486 or later processor (BSWAP instruction).
 
-proc swap_endian:
+proc swap_endian {
     swap bytes of eax
     return
-end proc
+}

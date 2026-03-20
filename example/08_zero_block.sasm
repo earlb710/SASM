@@ -2,7 +2,7 @@
 ; Fill 100 bytes starting at [es:di] with the value 0.
 ; Uses REP STOSB for efficient block clearing.
 
-proc zero_block:
+proc zero_block {
     move 0 to al
     move 100 to cx
     clear direction
@@ -10,4 +10,4 @@ proc zero_block:
         store string byte
     }
     return
-end proc
+}

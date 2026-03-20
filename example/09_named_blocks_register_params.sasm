@@ -16,10 +16,10 @@
 ; 'goto' may be used freely for internal branching inside the block.
 ;
 ; Register-parameter proc syntax:
-;   proc <name> ( in <reg> as <alias>, ..., out <reg> as <alias> ):
+;   proc <name> ( in <reg> as <alias>, ..., out <reg> as <alias> ) {
 ;       <body>
 ;       return
-;   end proc
+;   }
 
 (* ---------------------------------------------------------------
    Part 1: named block — validate_range
@@ -56,7 +56,7 @@ call validate_range          ; ax = 0xFFFF after return
    contract explicit in the source and is checked by the assembler.
    --------------------------------------------------------------- *)
 
-proc clamp_byte ( in ax as value, out ax as result ):
+proc clamp_byte ( in ax as value, out ax as result ) {
     compare value with 0
     if less {
         move 0 to result
@@ -67,7 +67,7 @@ proc clamp_byte ( in ax as value, out ax as result ):
         move 255 to result
     }
     return
-end proc
+}
 
 ; Caller:
 move 300 to ax          ; value = 300
