@@ -1,0 +1,60 @@
+; Example 09 — Named Blocks with Register Parameters
+; Demonstrates the SASM named-block and proc-with-register-params features.
+;
+; Design note: register-based parameter passing is the natural choice for
+; 8086 code because the processor has only a small set of general-purpose
+; registers. The caller loads the agreed registers before executing the
+; block; the callee documents which registers it reads (in) and writes (out).
+;
+; Syntax:
+;   proc <name> ( in <reg> as <alias>, ..., out <reg> as <alias> ):
+;       <body using aliases>
+;       return
+;   end proc
+;
+; Named blocks (no call/return, just a labeled code region):
+;   block <name>:
+;       <body>
+;   end block
+;
+; Caller jumps into a block with: goto <block-name>
+; Execution falls through past end block unless an explicit goto is used.
+
+(* --- Helper: clamp a value to [0, 255] using register params ---
+   in  ax  as  value      — the value to clamp
+   out ax  as  result     — clamped result in [0, 255]            *)
+
+proc clamp_byte ( in ax as value, out ax as result ):
+    compare value with 0
+    if less {
+        move 0 to result
+        return
+    }
+    compare value with 255
+    if greater {
+        move 255 to result
+    }
+    return
+end proc
+
+
+(* --- Named block: validate_range ---
+   A labeled guard region.  Jump here to verify that ax is in [bx, cx].
+   If the check fails, control is transferred to out_of_range.
+   If it passes, execution falls through to the next statement.       *)
+
+block validate_range:
+    compare ax with bx
+    goto out_of_range if below
+    compare ax with cx
+    goto out_of_range if above
+end block
+
+; ... normal path continues here ...
+goto done
+
+out_of_range:
+    move 0xFFFF to ax        ; sentinel: invalid
+
+done:
+    no op

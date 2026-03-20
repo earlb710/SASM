@@ -1,0 +1,11 @@
+; Example 01 — Absolute Value
+; Compute the absolute value of a signed 16-bit integer in ax.
+; Result is left in ax.
+
+proc abs_ax:
+    compare ax with 0
+    if negative {
+        negate ax
+    }
+    return
+end proc

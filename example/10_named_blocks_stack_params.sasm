@@ -1,0 +1,55 @@
+; Example 10 — Named Blocks with Stack Parameters
+; Demonstrates SASM's stack-based parameter passing convention.
+;
+; Design note: stack-based parameters are used when more than ~4 values
+; must be passed, or when a uniform ABI is needed (e.g., called from C).
+; The caller pushes arguments right-to-left, then calls the procedure.
+; The prologue saves BP and sets BP = SP so that named parameters can be
+; accessed as [bp + offset].  The callee cleans the stack via "return N"
+; (RETN N) or the caller pops after the call.
+;
+; Syntax:
+;   proc <name> uses stack ( <p1>, <p2>, ... ):
+;       (* p1 is at [bp+4], p2 at [bp+6], p3 at [bp+8], ... *)
+;       <body using param names>
+;       return
+;   end proc
+;
+; The compiler / assembler is responsible for generating the standard
+; BP-based frame (PUSH BP / MOV BP,SP) and for resolving each param
+; name to its [bp+N] address.
+
+(* --- print_substring: write a substring to a display buffer ---
+   Stack layout after prologue (16-bit near call):
+     [bp+0]  saved bp
+     [bp+2]  return address
+     [bp+4]  src_ptr  — segment offset of source string
+     [bp+6]  offset   — starting character index
+     [bp+8]  length   — number of characters to copy               *)
+
+proc print_substring uses stack ( src_ptr, offset, length ):
+    ; Load parameters from stack by name (resolved to [bp+N] by the
+    ; assembler).  Use si as the working source pointer.
+    move src_ptr to si
+    add offset to si
+    move length to cx
+
+    clear direction
+    repeat cx times {
+        load string byte     ; al = [ds:si], si++
+        call emit_char       ; output al to display
+    }
+    return
+end proc
+
+
+(* --- Caller example ---
+   Push args right-to-left, then call the procedure.               *)
+
+block call_print_substring:
+    push 5                   ; length  = 5
+    push 3                   ; offset  = 3  (zero-based)
+    push si                  ; src_ptr = address already in si
+    call print_substring
+    add 6 to sp              ; caller cleans 3 × 2-byte args
+end block

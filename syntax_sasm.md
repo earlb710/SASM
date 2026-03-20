@@ -10,15 +10,18 @@
 2. [Registers](#registers)
 3. [Memory References](#memory-references)
 4. [Code Block Structure](#code-block-structure)
-5. [Data Transfer](#data-transfer)
-6. [Arithmetic](#arithmetic)
-7. [Logical](#logical)
-8. [Shift and Rotate](#shift-and-rotate)
-9. [String Operations](#string-operations)
-10. [Control Transfer](#control-transfer)
-11. [Flag Control](#flag-control)
-12. [Processor Control](#processor-control)
-13. [Full Examples](#full-examples)
+5. [Named Blocks and Parameter Passing](#named-blocks-and-parameter-passing)
+6. [Data Transfer](#data-transfer)
+7. [Arithmetic](#arithmetic)
+8. [Logical](#logical)
+9. [Shift and Rotate](#shift-and-rotate)
+10. [String Operations](#string-operations)
+11. [Control Transfer](#control-transfer)
+12. [Flag Control](#flag-control)
+13. [Processor Control](#processor-control)
+14. [Full Examples](#full-examples)
+
+> **See also:** [`doc/instruction_8086.md`](doc/instruction_8086.md) — comprehensive Intel 8086 instruction set reference with status, operands, and compatibility notes.
 
 ---
 
@@ -175,6 +178,182 @@ atomic {
 ```
 
 Emits the `LOCK` prefix on the enclosed instruction to ensure bus-level atomicity.
+
+---
+
+## Named Blocks and Parameter Passing
+
+SASM supports two kinds of named code regions beyond simple `proc` procedures:
+
+1. **Named blocks** — labeled regions that mark a logical section of code without full call/return semantics. Execution falls through past `end block` unless an explicit `goto` redirects it.
+2. **Procedures with declared parameters** — `proc` extended with a parameter list so callers and callees agree on where arguments live.
+
+### Named Blocks
+
+A named block gives a label to a region of instructions. It is useful for guard checks, validation gates, and any code path that is reached via `goto` rather than `call`.
+
+```sasm
+block <name>:
+    <body>
+end block
+```
+
+Execution falls through to the statement immediately after `end block` unless the body contains an explicit `goto` or `return`.
+
+**Jumping into a block:**
+
+```sasm
+goto <block-name>           ; unconditional entry
+goto <block-name> if <condition>   ; conditional entry
+```
+
+**Example — range guard:**
+
+```sasm
+block validate_range:
+    compare ax with bx
+    goto out_of_range if below
+    compare ax with cx
+    goto out_of_range if above
+end block
+; normal path falls through here
+```
+
+---
+
+### Parameter Passing Conventions
+
+#### 1. Register-Based Parameters (recommended for 8086)
+
+The simplest and most efficient method for the 8086 is to agree on which registers carry each argument. SASM makes this contract explicit in the `proc` signature.
+
+**Syntax:**
+
+```sasm
+proc <name> ( in <reg> as <alias>, ..., out <reg> as <alias> ):
+    <body — use aliases in place of raw register names>
+    return
+end proc
+```
+
+* `in <reg> as <alias>` — declares that `<reg>` is an input parameter named `<alias>`.
+* `out <reg> as <alias>` — declares that `<reg>` holds a return value named `<alias>` on exit.
+* `in out <reg> as <alias>` — the register is both read on entry and written on exit.
+* Registers without an `in`/`out` qualifier that are modified **must** be saved and restored.
+
+**Example:**
+
+```sasm
+(* Clamp ax to [0, 255].
+   in  ax as value
+   out ax as result          *)
+proc clamp_byte ( in ax as value, out ax as result ):
+    compare value with 0
+    if less {
+        move 0 to result
+        return
+    }
+    compare value with 255
+    if greater {
+        move 255 to result
+    }
+    return
+end proc
+```
+
+**Caller:**
+
+```sasm
+move 300 to ax          ; value = 300
+call clamp_byte         ; result → ax (= 255)
+```
+
+**Recommended register roles for 8086:**
+
+| Register | Typical use as parameter |
+|----------|--------------------------|
+| `ax` | First integer arg / return value |
+| `bx` | Second integer arg / pointer |
+| `cx` | Count or third integer arg |
+| `dx` | Fourth integer arg / I/O port |
+| `si` | Source pointer |
+| `di` | Destination pointer |
+
+---
+
+#### 2. Stack-Based Parameters
+
+Use stack parameters when more than four values must be passed, when a standard ABI compatible with C is required, or when register allocation across nested calls is complex.
+
+**Syntax:**
+
+```sasm
+proc <name> uses stack ( <p1>, <p2>, ... ):
+    (* p1 is [bp+4], p2 is [bp+6], p3 is [bp+8], … *)
+    <body — refer to parameters by name>
+    return
+end proc
+```
+
+* Arguments are pushed **right-to-left** by the caller before `call`.
+* The SASM compiler emits a standard prologue (`PUSH BP` / `MOV BP, SP`) and resolves each parameter name to its `[bp+N]` address automatically.
+* The caller is responsible for restoring `sp` after the call (C convention): `add <2 × arg-count> to sp`.
+* If the callee should clean the stack instead, append the byte count to `return`: `return 6` (emits `RETN 6`).
+
+**Stack layout (16-bit near call, three parameters):**
+
+```
+[bp+0]  saved bp
+[bp+2]  return address (near)
+[bp+4]  p1   (pushed last)
+[bp+6]  p2
+[bp+8]  p3   (pushed first)
+```
+
+**Example:**
+
+```sasm
+(* Copy 'length' bytes from src_ptr+offset into the display buffer.
+   Stack params (right-to-left push order):
+     src_ptr — segment offset of the source string
+     offset  — starting character index
+     length  — number of characters to copy                          *)
+proc print_substring uses stack ( src_ptr, offset, length ):
+    move src_ptr to si
+    add offset to si
+    move length to cx
+    clear direction
+    repeat cx times {
+        load string byte     ; al = [ds:si], si++
+        call emit_char
+    }
+    return
+end proc
+```
+
+**Caller:**
+
+```sasm
+push 5                  ; length  (last arg pushed first on stack)
+push 3                  ; offset
+push si                 ; src_ptr
+call print_substring
+add 6 to sp             ; caller pops 3 × 2-byte args
+```
+
+---
+
+#### Choosing a Convention
+
+| Criterion | Register params | Stack params |
+|-----------|----------------|--------------|
+| Number of arguments | ≤ 6 | Any number |
+| Speed | ✅ Fastest — no memory access for args | Slower — args in memory |
+| Interop with C | ❌ Non-standard | ✅ cdecl / stdcall compatible |
+| Recursive calls | ⚠️ Requires saving registers on stack | ✅ Each frame is independent |
+| Readability | ✅ Register roles are visible in signature | ✅ Named params in signature |
+
+For typical 8086 subroutines pass ≤ 4 values — **prefer register-based parameters**. For library procedures that may be called from C, or for procedures with many arguments — **prefer stack-based parameters**.
 
 ---
 
@@ -443,11 +622,28 @@ if equal {
 
 ## Full Examples
 
-### Example 1 — Absolute Value
+Complete example source files live in the [`example/`](example/) directory. The table below summarises each file; click the filename to read the annotated source.
 
-Compute the absolute value of a signed 16-bit integer in `ax`.
+| File | What it demonstrates |
+|------|----------------------|
+| [`example/01_abs_ax.sasm`](example/01_abs_ax.sasm) | Absolute value — conditional negation of a signed 16-bit integer |
+| [`example/02_countdown_loop.sasm`](example/02_countdown_loop.sasm) | Count-down loop — `repeat cx times` driving 10 iterations |
+| [`example/03_strcpy.sasm`](example/03_strcpy.sasm) | String copy — `repeat { } until` loop with string primitives |
+| [`example/04_highest_bit.sasm`](example/04_highest_bit.sasm) | Highest set bit — `scan reverse` (BSR) with zero-input guard |
+| [`example/05_atomic_inc.sasm`](example/05_atomic_inc.sasm) | Atomic increment — `atomic { }` block emitting LOCK INC |
+| [`example/06_swap_endian.sasm`](example/06_swap_endian.sasm) | Endian conversion — `swap bytes of eax` (BSWAP) |
+| [`example/07_sign_of_ax.sasm`](example/07_sign_of_ax.sasm) | Sign function — `if / else if / else` comparison chain |
+| [`example/08_zero_block.sasm`](example/08_zero_block.sasm) | Memory block fill — `repeat cx times` with `store string byte` |
+| [`example/09_named_blocks_register_params.sasm`](example/09_named_blocks_register_params.sasm) | Named blocks + register-based parameter passing |
+| [`example/10_named_blocks_stack_params.sasm`](example/10_named_blocks_stack_params.sasm) | Named blocks + stack-based parameter passing |
 
-**SASM:**
+### Quick-reference snippets
+
+The inline examples below give a compact overview. For full annotated versions see the files above.
+
+---
+
+#### Example 1 — Absolute Value
 
 ```sasm
 proc abs_ax:
@@ -459,24 +655,15 @@ proc abs_ax:
 end proc
 ```
 
-**Equivalent ASM:**
+*Equivalent ASM:*
 
 ```asm
-abs_ax:
-    CMP  AX, 0
-    JNS  .done
-    NEG  AX
-.done:
-    RET
+abs_ax:  CMP AX,0 / JNS .done / NEG AX / .done: RET
 ```
 
 ---
 
-### Example 2 — Count-Down Loop
-
-Print (or process) 10 items using a count-down loop.
-
-**SASM:**
+#### Example 2 — Count-Down Loop
 
 ```sasm
 proc process_ten:
@@ -488,198 +675,54 @@ proc process_ten:
 end proc
 ```
 
-**Equivalent ASM:**
-
-```asm
-process_ten:
-    MOV  CX, 10
-.loop:
-    CALL process_one_item
-    LOOP .loop
-    RET
-```
-
 ---
 
-### Example 3 — String Copy (null-terminated)
-
-Copy a null-terminated byte string from `si` to `di`.
-
-**SASM:**
+#### Example 3 — String Copy (null-terminated)
 
 ```sasm
 proc strcpy:
-    clear direction          ; auto-increment si and di
-    repeat {
-        load string byte     ; al = [ds:si], si++
-        store string byte    ; [es:di] = al, di++
-        test al and al
-    } until equal            ; stop when al was 0
-    return
-end proc
-```
-
-**Equivalent ASM:**
-
-```asm
-strcpy:
-    CLD
-.loop:
-    LODSB
-    STOSB
-    TEST AL, AL
-    JNZ  .loop
-    RET
-```
-
----
-
-### Example 4 — Find Highest Set Bit
-
-Find the position of the most significant set bit in `bx`; return result in `cx`.
-
-**SASM:**
-
-```sasm
-proc highest_bit:
-    test bx and bx
-    if equal {
-        move 0xFFFF to cx    ; signal: no bits set
-        return
-    }
-    scan reverse bx into cx
-    return
-end proc
-```
-
-**Equivalent ASM:**
-
-```asm
-highest_bit:
-    TEST BX, BX
-    JNZ  .nonzero
-    MOV  CX, 0FFFFh
-    RET
-.nonzero:
-    BSR  CX, BX
-    RET
-```
-
----
-
-### Example 5 — Atomic Increment
-
-Safely increment a shared counter in memory (multi-processor safe).
-
-**SASM:**
-
-```sasm
-proc atomic_inc:
-    atomic {
-        increment word [bx]
-    }
-    return
-end proc
-```
-
-**Equivalent ASM:**
-
-```asm
-atomic_inc:
-    LOCK INC WORD PTR [BX]
-    RET
-```
-
----
-
-### Example 6 — Byte Swap (Endian Conversion)
-
-Swap the bytes of a 32-bit value in `eax` (big-endian ↔ little-endian).
-
-**SASM:**
-
-```sasm
-proc swap_endian:
-    swap bytes of eax
-    return
-end proc
-```
-
-**Equivalent ASM:**
-
-```asm
-swap_endian:
-    BSWAP EAX
-    RET
-```
-
----
-
-### Example 7 — Conditional Comparison Chain
-
-Categorize a value in `ax` as negative, zero, or positive and store the category (−1, 0, +1) in `bx`.
-
-**SASM:**
-
-```sasm
-proc sign_of_ax:
-    compare ax with 0
-    if less {
-        move 0xFFFF to bx    ; -1 as a 16-bit two's complement word
-    } else if equal {
-        move 0 to bx
-    } else {
-        move 1 to bx
-    }
-    return
-end proc
-```
-
-**Equivalent ASM:**
-
-```asm
-sign_of_ax:
-    CMP  AX, 0
-    JGE  .notneg
-    MOV  BX, 0FFFFh
-    JMP  .done
-.notneg:
-    JNE  .positive
-    MOV  BX, 0
-    JMP  .done
-.positive:
-    MOV  BX, 1
-.done:
-    RET
-```
-
----
-
-### Example 8 — Memory Block Fill
-
-Fill 100 bytes starting at `[es:di]` with the value `0`.
-
-**SASM:**
-
-```sasm
-proc zero_block:
-    move 0 to al
-    move 100 to cx
     clear direction
-    repeat cx times {
+    repeat {
+        load string byte
         store string byte
-    }
+        test al and al
+    } until equal
     return
 end proc
 ```
 
-**Equivalent ASM:**
+---
 
-```asm
-zero_block:
-    MOV  AL, 0
-    MOV  CX, 100
-    CLD
-    REP  STOSB
-    RET
+#### Example 9 — Named Block with Register Parameters
+
+```sasm
+proc clamp_byte ( in ax as value, out ax as result ):
+    compare value with 0
+    if less { move 0 to result / return }
+    compare value with 255
+    if greater { move 255 to result }
+    return
+end proc
+```
+
+---
+
+#### Example 10 — Named Block with Stack Parameters
+
+```sasm
+proc print_substring uses stack ( src_ptr, offset, length ):
+    move src_ptr to si
+    add offset to si
+    move length to cx
+    clear direction
+    repeat cx times { load string byte / call emit_char }
+    return
+end proc
+
+; Caller:
+block call_print_substring:
+    push 5 / push 3 / push si
+    call print_substring
+    add 6 to sp
+end block
 ```

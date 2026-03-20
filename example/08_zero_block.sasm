@@ -1,0 +1,13 @@
+; Example 08 — Memory Block Fill
+; Fill 100 bytes starting at [es:di] with the value 0.
+; Uses REP STOSB for efficient block clearing.
+
+proc zero_block:
+    move 0 to al
+    move 100 to cx
+    clear direction
+    repeat cx times {
+        store string byte
+    }
+    return
+end proc
