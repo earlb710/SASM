@@ -2,6 +2,9 @@
 
 A comprehensive reference of the Intel 8086/8088 instruction set, organized by category. Each entry includes a description of the instruction, the processor generation it was introduced in, its current compatibility status, and any modern replacements where applicable.
 
+> **See also:** [`instruction_x86_64.md`](instruction_x86_64.md) — x86-64 (64-bit) instruction set reference: new registers, new instructions, and instructions removed in 64-bit mode.  
+> **See also:** [`../syntax_sasm.md`](../syntax_sasm.md) — complete SASM syntax reference.
+
 ---
 
 ## Table of Contents
