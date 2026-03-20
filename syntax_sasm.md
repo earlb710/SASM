@@ -103,6 +103,16 @@ proc <name>:
 end proc
 ```
 
+### Named Blocks
+
+```sasm
+block <name> {
+    <body>
+}
+```
+
+A named block is a call-only code region delimited by curly braces. Like a `proc`, it can only be entered with `call <name>` and the closing `}` emits an implicit `RET`. Use `block` when no parameter declarations are needed; use `proc` when a parameter contract is required.
+
 ### Conditional Blocks
 
 ```sasm
@@ -183,75 +193,55 @@ Emits the `LOCK` prefix on the enclosed instruction to ensure bus-level atomicit
 
 ## Named Blocks and Parameter Passing
 
-SASM supports two kinds of named code regions beyond simple `proc` procedures:
+SASM provides two kinds of named callable code regions:
 
-1. **Named blocks** — labeled code regions with fall-through semantics. `end block` emits no instruction; execution flows in and out naturally. A `goto <block-name>` can also enter the block from elsewhere.
-2. **Procedures with declared parameters** — `proc` extended with a parameter list so callers and callees agree on where arguments live.
+1. **Named blocks** — `block name { }` — lightweight, call-only code region using curly-brace syntax; no parameter declarations.
+2. **Procedures with declared parameters** — `proc` with a parameter list so callers and callees agree on where arguments live.
+
+Both are entered **exclusively** with `call <name>`. Neither can be entered by fall-through or by `goto`.
 
 ### Named Blocks
 
-A named block is a **labeled code region with fall-through semantics**. It compiles to nothing more than an assembly label at the `block` header; `end block` emits no machine instruction at all — it is a purely documentary marker that tells the reader (and the assembler) where the named region ends.
-
 ```sasm
-block <name>:
+block <name> {
     <body>
-end block
+}
 ```
 
-**Fall-through semantics apply in both directions:**
+* Entered **only** via `call <name>`.
+* The closing `}` emits an implicit `RET` — no explicit `return` is needed at the end, though `return` may be used for early exits within the body.
+* `goto` may be used freely for internal branching *inside* the block body (e.g., to jump to a local label defined within the same block).
+* Cannot declare parameters; use `proc` when a parameter contract is required.
 
-* **Entry** — execution that reaches the `block` header falls straight into the body. No explicit jump is needed; the body is simply the next instruction.
-* **Exit** — execution that reaches `end block` falls straight through to the next statement, unless the body ends with an explicit `goto` or `return`.
-
-**`goto` entry** — a `goto <block-name>` (or its conditional form) jumps to the block's label from any point in the same procedure or translation unit:
-
-```sasm
-goto <block-name>                   ; unconditional jump to block start
-goto <block-name> if <condition>    ; conditional jump to block start
-```
-
-**Both entry modes shown together:**
+**Example — range validation block:**
 
 ```sasm
-(* --- check_bounds: verify ax ∈ [bx, cx] ---
-   Entry mode A — fall-through: the instruction before this block
-                  leads directly into it with no jump.
-   Entry mode B — goto:         any branch elsewhere can jump here.
-   Exit — falls through past 'end block' on success;
-          or jumps to out_of_range on failure.                     *)
-
-block check_bounds:
+block validate_range {
     compare ax with bx
-    goto out_of_range if below
+    goto fail if below
     compare ax with cx
-    goto out_of_range if above
-end block
-; ← execution arrives here on success (fall-through exit)
+    goto fail if above
+    return                      ; in-range: return to caller
+fail:
+    move 0xFFFF to ax           ; sentinel: out of range
+}                               ; implicit RET
 
-out_of_range:
-    move 0xFFFF to ax           ; sentinel: invalid
+; Caller:
+call validate_range
 ```
 
-A second code path that needs the same check simply jumps to the block by name:
-
-```sasm
-move [alternate_value] to ax
-goto check_bounds               ; enter the same block via goto
-```
-
-**When to use a named block vs a `proc`:**
+**`block` vs `proc`:**
 
 | Feature | `block` | `proc` |
 |---------|---------|--------|
-| Generates a label | ✅ | ✅ |
-| `end` emits an instruction | ❌ none | ✅ `RET` |
-| Entry by fall-through | ✅ | ❌ (entry is always via `call`) |
-| Entry by `goto` | ✅ | ❌ |
-| Entry by `call` | ❌ | ✅ |
-| Stack frame / return address | ❌ | ✅ |
-| Can declare parameters | ❌ | ✅ |
+| Entered with `call` | ✅ | ✅ |
+| Entered by fall-through | ❌ | ❌ |
+| Entered by `goto` | ❌ | ❌ |
+| Closing delimiter | `}` | `end proc` |
+| Implicit `RET` at closing delimiter | ✅ | ✅ |
+| Parameter declarations | ❌ | ✅ |
 
-Use `block` for guard regions, multi-entry sections, and any labeled code that is shared by fall-through and jump paths. Use `proc` whenever you need call/return semantics or declared parameters.
+Use `block` for compact, self-contained routines that need no parameter contract. Use `proc` whenever caller and callee must agree on where arguments live.
 
 ---
 
@@ -668,8 +658,8 @@ Complete example source files live in the [`example/`](example/) directory. The 
 | [`example/06_swap_endian.sasm`](example/06_swap_endian.sasm) | Endian conversion — `swap bytes of eax` (BSWAP) |
 | [`example/07_sign_of_ax.sasm`](example/07_sign_of_ax.sasm) | Sign function — `if / else if / else` comparison chain |
 | [`example/08_zero_block.sasm`](example/08_zero_block.sasm) | Memory block fill — `repeat cx times` with `store string byte` |
-| [`example/09_named_blocks_register_params.sasm`](example/09_named_blocks_register_params.sasm) | Named blocks — fall-through and `goto` entry modes; register-based parameter passing |
-| [`example/10_named_blocks_stack_params.sasm`](example/10_named_blocks_stack_params.sasm) | Named blocks — fall-through entry and exit; stack-based parameter passing |
+| [`example/09_named_blocks_register_params.sasm`](example/09_named_blocks_register_params.sasm) | Named blocks (`block name { }`, call-only) + register-based parameter passing |
+| [`example/10_named_blocks_stack_params.sasm`](example/10_named_blocks_stack_params.sasm) | Named blocks (`block name { }`, call-only) + stack-based parameter passing |
 
 ### Quick-reference snippets
 
@@ -727,43 +717,37 @@ end proc
 
 ---
 
-#### Example 9 — Named Block: fall-through and `goto` entry
+#### Example 9 — Named Block and Register Parameters
 
-A `block` is a **labeled code region with fall-through semantics**. `end block` emits no instruction. Execution enters via fall-through *or* via an explicit `goto`.
+A `block name { }` is a **call-only** code region. Entered exclusively with `call name`; closing `}` emits an implicit `RET`.
 
 ```sasm
-; --- Entry mode A: fall-through ---
-; Execution arriving here naturally flows straight into check_bounds.
-block check_bounds:
-    compare ax with bx              ; bx = lower bound
-    goto out_of_range if below
-    compare ax with cx              ; cx = upper bound
-    goto out_of_range if above
-end block
-; falls through here on success
+block validate_range {
+    compare ax with bx
+    goto fail if below
+    compare ax with cx
+    goto fail if above
+    return                      ; in-range
+fail:
+    move 0xFFFF to ax           ; sentinel: out of range
+}
 
-out_of_range:
-    move 0xFFFF to ax               ; sentinel: invalid
-
-; --- Entry mode B: goto from elsewhere ---
-move [other_value] to ax
-goto check_bounds                   ; jump to the same block
+; Caller:
+call validate_range
 ```
 
-*Equivalent ASM (the block compiles to only its label):*
+*Equivalent ASM:*
 
 ```asm
-check_bounds:
+validate_range:
     CMP  AX, BX
-    JB   out_of_range
+    JB   fail
     CMP  AX, CX
-    JA   out_of_range
-    ; falls through
-out_of_range:
+    JA   fail
+    RET
+fail:
     MOV  AX, 0FFFFh
-    ; ...
-    MOV  AX, [other_value]
-    JMP  check_bounds
+    RET  ; closing }
 ```
 
 Register-parameter `proc` example (see file for full annotation):
@@ -776,6 +760,10 @@ proc clamp_byte ( in ax as value, out ax as result ):
     if greater { move 255 to result }
     return
 end proc
+
+; Caller:
+move 300 to ax
+call clamp_byte         ; result → ax (= 255)
 ```
 
 ---
@@ -792,10 +780,13 @@ proc print_substring uses stack ( src_ptr, offset, length ):
     return
 end proc
 
-; Caller:
-block call_print_substring:
+; Caller wrapper (block — call-only, closing } emits RET):
+block call_print_substring {
     push 5 / push 3 / push si
     call print_substring
     add 6 to sp
-end block
+}
+
+; Invoke:
+call call_print_substring
 ```
