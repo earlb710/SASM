@@ -1,0 +1,135 @@
+{
+  "processor": "80186",
+  "description": "Intel 80186/80188 instruction additions. These instructions were introduced with the 80186 and are available in all subsequent x86 processors. Note: PUSHA/POPA are removed in 64-bit (x86-64) long mode.",
+  "source_reference": "doc/instruction_8086.md",
+  "instructions": [
+
+    {
+      "mnemonic": "PUSHA",
+      "aliases": ["PUSHAD"],
+      "sasm_phrase": "push all",
+      "category": "data_transfer",
+      "operands": "—",
+      "opcodes": [
+        { "hex": "0x60", "form": "PUSHA",  "description": "Push all 16-bit GP registers (AX, CX, DX, BX, SP, BP, SI, DI) in one operation (16-bit mode)" },
+        { "hex": "0x60", "form": "PUSHAD", "description": "Push all 32-bit GP registers (EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI) in one operation (32-bit mode)" }
+      ],
+      "description": "Pushes all general-purpose registers (AX, CX, DX, BX, SP, BP, SI, DI) onto the stack in one operation.",
+      "introduced": "80186",
+      "status": "removed_in_64bit",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": false,
+      "notes": "Opcode 0x60 is removed in 64-bit long mode."
+    },
+
+    {
+      "mnemonic": "POPA",
+      "aliases": ["POPAD"],
+      "sasm_phrase": "pop all",
+      "category": "data_transfer",
+      "operands": "—",
+      "opcodes": [
+        { "hex": "0x61", "form": "POPA",  "description": "Pop all 16-bit GP registers in reverse order (SP is discarded, not loaded)" },
+        { "hex": "0x61", "form": "POPAD", "description": "Pop all 32-bit GP registers in reverse order (ESP is discarded, not loaded)" }
+      ],
+      "description": "Pops all general-purpose registers from the stack in one operation (reverse of PUSHA/PUSHAD).",
+      "introduced": "80186",
+      "status": "removed_in_64bit",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": false,
+      "notes": "Opcode 0x61 is removed in 64-bit long mode."
+    },
+
+    {
+      "mnemonic": "BOUND",
+      "sasm_phrase": "check bounds <reg> within <mem>",
+      "category": "arithmetic",
+      "operands": "reg, mem",
+      "opcodes": [
+        { "hex": "0x62", "form": "BOUND r16, m16/m16", "description": "Check signed array index in r16 against lower/upper bounds at m16/m16; raise INT 5 if out of range" }
+      ],
+      "description": "Checks that a signed array index is within bounds specified by two words in memory; raises INT 5 if not.",
+      "introduced": "80186",
+      "status": "removed_in_64bit",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": false,
+      "notes": "Opcode 0x62 reassigned to EVEX prefix in 64-bit mode. Use explicit compare+jump instead."
+    },
+
+    {
+      "mnemonic": "ENTER",
+      "sasm_phrase": "begin frame <locals>, <level>",
+      "category": "arithmetic",
+      "operands": "imm16, imm8",
+      "opcodes": [
+        { "hex": "0xC8", "form": "ENTER imm16, imm8", "description": "Create stack frame: allocate imm16 bytes for locals; set nesting level imm8" }
+      ],
+      "description": "Creates a stack frame for a procedure, setting up BP/EBP and allocating local variables.",
+      "introduced": "80186",
+      "status": "rarely_used",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Compilers prefer explicit PUSH BP / MOV BP, SP / SUB SP, n sequences for performance."
+    },
+
+    {
+      "mnemonic": "LEAVE",
+      "sasm_phrase": "end frame",
+      "category": "arithmetic",
+      "operands": "—",
+      "opcodes": [
+        { "hex": "0xC9", "form": "LEAVE", "description": "Tear down stack frame: SP = BP; POP BP (reverses ENTER)" }
+      ],
+      "description": "Tears down a stack frame by setting SP=BP and popping BP. Reverses ENTER.",
+      "introduced": "80186",
+      "status": "rarely_used",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Compilers still emit LEAVE; equivalent to MOV SP, BP / POP BP."
+    },
+
+    {
+      "mnemonic": "INSB",
+      "aliases": ["INS", "INSW"],
+      "sasm_phrase": "input string byte / input string word / input string",
+      "category": "string",
+      "operands": "—",
+      "opcodes": [
+        { "hex": "0x6C", "form": "INSB", "description": "Read byte from I/O port DX into [ES:DI]; advance DI" },
+        { "hex": "0x6D", "form": "INSW", "description": "Read word from I/O port DX into [ES:DI]; advance DI by 2" }
+      ],
+      "description": "Reads a byte or word from I/O port DX into [ES:DI] and updates DI.",
+      "introduced": "80186",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Ring-0 / privileged. 0x6D also encodes INSD (dword) in 32-bit mode."
+    },
+
+    {
+      "mnemonic": "OUTSB",
+      "aliases": ["OUTS", "OUTSW"],
+      "sasm_phrase": "output string byte / output string word / output string",
+      "category": "string",
+      "operands": "—",
+      "opcodes": [
+        { "hex": "0x6E", "form": "OUTSB", "description": "Write byte from [DS:SI] to I/O port DX; advance SI" },
+        { "hex": "0x6F", "form": "OUTSW", "description": "Write word from [DS:SI] to I/O port DX; advance SI by 2" }
+      ],
+      "description": "Writes a byte or word from [DS:SI] to I/O port DX and updates SI.",
+      "introduced": "80186",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Ring-0 / privileged. 0x6F also encodes OUTSD (dword) in 32-bit mode."
+    }
+
+  ]
+}

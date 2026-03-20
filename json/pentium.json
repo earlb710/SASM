@@ -1,0 +1,207 @@
+{
+  "processor": "pentium",
+  "description": "Pentium and P6-era instruction additions, covering the original Pentium (1993), Pentium Pro / P6 (1995), and SSE/SSE2 extensions (Pentium III / Pentium 4). Includes CPUID, RDTSC, CMPXCHG8B, fast system-call instructions (SYSENTER/SYSEXIT), memory-fence instructions, PAUSE, and UD2.",
+  "source_reference": "doc/instruction_8086.md",
+  "instructions": [
+
+    {
+      "mnemonic": "CPUID",
+      "sasm_phrase": "read cpu id",
+      "category": "processor_control",
+      "operands": "—",
+      "opcodes": [
+        { "hex": "0x0F 0xA2", "form": "CPUID", "description": "Query processor identification and feature information; input in EAX (and ECX for sub-leaves); output in EAX, EBX, ECX, EDX" }
+      ],
+      "description": "Returns processor identification and feature information based on the value of EAX (and sometimes ECX) into EAX, EBX, ECX, and EDX.",
+      "introduced": "Pentium (some 486 SL)",
+      "status": "still_in_use",
+      "available_16bit": false,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+
+    {
+      "mnemonic": "RDTSC",
+      "sasm_phrase": "read timestamp",
+      "category": "processor_control",
+      "operands": "—",
+      "opcodes": [
+        { "hex": "0x0F 0x31", "form": "RDTSC", "description": "Read 64-bit Time-Stamp Counter into EDX:EAX (or RDX:RAX in 64-bit mode)" }
+      ],
+      "description": "Read Time-Stamp Counter: loads the 64-bit timestamp counter into EDX:EAX (or RDX:RAX in 64-bit mode).",
+      "introduced": "Pentium",
+      "status": "still_in_use",
+      "available_16bit": false,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "May require RDTSCP (0x0F 0x01 0xF9) for serialized reads on modern CPUs."
+    },
+
+    {
+      "mnemonic": "CMPXCHG8B",
+      "sasm_phrase": "compare and swap 8 bytes at <mem>",
+      "category": "data_transfer",
+      "operands": "mem",
+      "opcodes": [
+        { "hex": "0x0F 0xC7 /1", "form": "CMPXCHG8B m64", "description": "Compare EDX:EAX with 64-bit memory; if equal store ECX:EBX to memory, else load memory into EDX:EAX" }
+      ],
+      "description": "Compares EDX:EAX with a 64-bit memory value; if equal, stores ECX:EBX; otherwise loads the memory value into EDX:EAX.",
+      "introduced": "Pentium",
+      "status": "still_in_use",
+      "available_16bit": false,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Use LOCK prefix for atomicity. On x86-64, CMPXCHG16B (REX.W + 0x0F 0xC7 /1) compares RDX:RAX with 128-bit memory."
+    },
+
+    {
+      "mnemonic": "RDMSR",
+      "sasm_phrase": "read msr",
+      "category": "processor_control",
+      "operands": "—",
+      "opcodes": [
+        { "hex": "0x0F 0x32", "form": "RDMSR", "description": "Read Model-Specific Register ECX into EDX:EAX" }
+      ],
+      "description": "Read Model-Specific Register: reads the MSR specified by ECX into EDX:EAX. Requires ring-0.",
+      "introduced": "Pentium",
+      "status": "still_in_use",
+      "available_16bit": false,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Requires ring-0."
+    },
+
+    {
+      "mnemonic": "WRMSR",
+      "sasm_phrase": "write msr",
+      "category": "processor_control",
+      "operands": "—",
+      "opcodes": [
+        { "hex": "0x0F 0x30", "form": "WRMSR", "description": "Write EDX:EAX into Model-Specific Register ECX" }
+      ],
+      "description": "Write Model-Specific Register: writes EDX:EAX into the MSR specified by ECX. Requires ring-0.",
+      "introduced": "Pentium",
+      "status": "still_in_use",
+      "available_16bit": false,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Requires ring-0."
+    },
+
+    {
+      "mnemonic": "SYSENTER",
+      "sasm_phrase": "sysenter",
+      "category": "control_transfer",
+      "operands": "—",
+      "opcodes": [
+        { "hex": "0x0F 0x34", "form": "SYSENTER", "description": "Fast 32-bit system call using MSRs SYSENTER_CS/ESP/EIP; transfers to ring-0" }
+      ],
+      "description": "Fast 32-bit system-call instruction using MSRs (SYSENTER_CS, SYSENTER_ESP, SYSENTER_EIP).",
+      "introduced": "Pentium Pro",
+      "status": "still_in_use",
+      "available_16bit": false,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Superseded by SYSCALL on x86-64 platforms. Still used on some 32-bit systems."
+    },
+
+    {
+      "mnemonic": "SYSEXIT",
+      "sasm_phrase": "sysexit",
+      "category": "control_transfer",
+      "operands": "—",
+      "opcodes": [
+        { "hex": "0x0F 0x35", "form": "SYSEXIT", "description": "Return from fast 32-bit system call (companion to SYSENTER); transfers to ring-3" }
+      ],
+      "description": "Companion return instruction for SYSENTER.",
+      "introduced": "Pentium Pro",
+      "status": "still_in_use",
+      "available_16bit": false,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Used on 32-bit systems. Requires ring-0."
+    },
+
+    {
+      "mnemonic": "UD2",
+      "sasm_phrase": "trap",
+      "category": "processor_control",
+      "operands": "—",
+      "opcodes": [
+        { "hex": "0x0F 0x0B", "form": "UD2", "description": "Undefined Instruction: guaranteed to raise Invalid Opcode exception (#UD)" }
+      ],
+      "description": "Undefined Instruction: guaranteed to raise an Invalid Opcode exception (#UD). Used for deliberate fault generation and as a trap in testing/debugging.",
+      "introduced": "Pentium Pro (P6) formally; 80286 informally",
+      "status": "still_in_use",
+      "available_16bit": false,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+
+    {
+      "mnemonic": "SFENCE",
+      "sasm_phrase": "store fence",
+      "category": "processor_control",
+      "operands": "—",
+      "opcodes": [
+        { "hex": "0x0F 0xAE /7", "form": "SFENCE", "description": "Store fence: all preceding store operations complete before any following stores (serializes stores)" }
+      ],
+      "description": "Store Fence: ensures all preceding store operations are completed before any following stores.",
+      "introduced": "SSE (Pentium III)",
+      "status": "still_in_use",
+      "available_16bit": false,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+
+    {
+      "mnemonic": "LFENCE",
+      "sasm_phrase": "load fence",
+      "category": "processor_control",
+      "operands": "—",
+      "opcodes": [
+        { "hex": "0x0F 0xAE /5", "form": "LFENCE", "description": "Load fence: all preceding load operations complete before any following loads (serializes loads)" }
+      ],
+      "description": "Load Fence: ensures all preceding load operations are completed before any following loads.",
+      "introduced": "SSE2 (Pentium 4)",
+      "status": "still_in_use",
+      "available_16bit": false,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+
+    {
+      "mnemonic": "MFENCE",
+      "sasm_phrase": "memory fence",
+      "category": "processor_control",
+      "operands": "—",
+      "opcodes": [
+        { "hex": "0x0F 0xAE /6", "form": "MFENCE", "description": "Memory fence: all preceding memory operations (loads and stores) complete before any following ones" }
+      ],
+      "description": "Memory Fence: ensures all preceding memory operations are completed before any following ones (full store/load fence).",
+      "introduced": "SSE2 (Pentium 4)",
+      "status": "still_in_use",
+      "available_16bit": false,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+
+    {
+      "mnemonic": "PAUSE",
+      "sasm_phrase": "pause",
+      "category": "processor_control",
+      "operands": "—",
+      "opcodes": [
+        { "hex": "0xF3 0x90", "form": "PAUSE", "description": "Spin-wait hint: reduces power consumption and improves SMT performance in spin loops; decoded as REP NOP on older CPUs" }
+      ],
+      "description": "Hint to the processor that it is executing a spin-wait loop, reducing power consumption and improving performance on HyperThreading/SMT systems.",
+      "introduced": "SSE2 (Pentium 4)",
+      "status": "still_in_use",
+      "available_16bit": false,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Encoded as REP prefix (0xF3) + NOP (0x90). Decoded as NOP on CPUs that do not support PAUSE semantics."
+    }
+
+  ]
+}
