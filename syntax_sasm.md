@@ -383,6 +383,153 @@ For typical 8086 subroutines pass ≤ 4 values — **prefer register-based param
 
 ---
 
+### Passing Arrays as Parameters
+
+Arrays in SASM (and in x86 assembly generally) are **always passed by pointer** — the caller passes the address of the first element, not a copy of the data. The callee then uses that pointer together with a length (element count) to traverse the array.
+
+#### Why pointers, not values
+
+An array may be arbitrarily large; pushing its raw bytes onto the stack would be impractical and would break the fixed-size slot model used by `proc uses stack`. Instead, the 16-bit segment offset of the array's first element fits in a single register or stack word and is all the callee needs.
+
+#### Passing a static array by pointer (register parameters)
+
+Load the address of a `data` array into a pointer register before the call and declare that register as `in` (or `in out` if the callee may update elements).
+
+```sasm
+data scores as byte[8]
+
+(* Fill every element of a byte array with a given value.
+   in  si as arr_ptr   — address of the first element
+   in  cx as length    — number of elements
+   in  al as fill_val  — value to write                  *)
+proc fill_byte ( in si as arr_ptr, in cx as length, in al as fill_val ) {
+    move 0 to bx                        ; bx = byte index
+    repeat cx times {
+        move fill_val to byte [arr_ptr + bx]
+        increment bx
+    }
+    return
+}
+
+; Caller — pass address of 'scores' in si:
+address of scores to si                 ; si = &scores[0]  (LEA SI, scores)
+move 8  to cx                           ; length = 8
+move 0  to al                           ; fill value = 0
+call fill_byte
+```
+
+*Equivalent ASM (caller side):*
+
+```asm
+    LEA  SI, scores     ; si = address of scores array
+    MOV  CX, 8
+    MOV  AL, 0
+    CALL fill_byte
+```
+
+#### Passing a local array by pointer (register parameters)
+
+Use `address of` to load the address of a local array variable into a register before passing it to another `proc`.
+
+```sasm
+proc process_local_buf {
+    var buf as byte[16]
+
+    (* Obtain the address of buf[0] and pass it to fill_byte. *)
+    address of buf to si                ; si = &buf[0]  (LEA SI, [BP-16])
+    move 16 to cx
+    move 0xFF to al
+    call fill_byte                      ; fills buf[0..15] with 0xFF
+}
+```
+
+*Equivalent ASM:*
+
+```asm
+process_local_buf:
+    PUSH BP
+    MOV  BP, SP
+    SUB  SP, 16         ; local array buf at [BP-16]..[BP-1]
+    LEA  SI, [BP-16]    ; si = &buf[0]
+    MOV  CX, 16
+    MOV  AL, 0FFh
+    CALL fill_byte
+    MOV  SP, BP
+    POP  BP
+    RET
+```
+
+#### Passing an array pointer via stack parameters
+
+Push the array address (and separately the length) onto the stack before the call.
+
+```sasm
+data table as word[4] = 10, 20, 30, 40
+
+(* Sum N words starting at arr_ptr; return total in ax.
+   Stack parameters (right-to-left push order):
+     arr_ptr — segment offset of the first word element
+     length  — number of word elements to sum              *)
+proc sum_words uses stack ( arr_ptr, length ) {
+    move arr_ptr to si
+    move length  to cx
+    move 0 to ax
+    move 0 to bx
+    repeat cx times {
+        add word [si + bx] to ax
+        add 2 to bx
+    }
+    return
+}
+
+; Caller — push length first (rightmost), then address:
+move 4 to cx
+push cx                                 ; length = 4
+address of table to si
+push si                                 ; arr_ptr = &table[0]
+call sum_words                          ; ax = 10+20+30+40 = 100
+add 4 to sp                             ; caller cleans 2 × 2-byte args
+```
+
+#### Returning an array pointer
+
+Declare the pointer register as `out` in the `proc` signature. The callee sets that register to the address of the array before returning.
+
+```sasm
+data result_buf as byte[64]
+
+(* Return the address of the module-level result buffer.
+   out si as buf_ptr — segment offset of result_buf[0]   *)
+proc get_result_buf ( out si as buf_ptr ) {
+    address of result_buf to buf_ptr    ; buf_ptr = &result_buf[0]
+    return
+}
+
+; Caller:
+call get_result_buf                     ; si = &result_buf[0]
+move 8 to cx
+move 0 to al
+call fill_byte                          ; zero the first 8 bytes
+```
+
+#### Convention summary
+
+| What to pass             | Register convention         | Stack convention                        |
+|--------------------------|-----------------------------|-----------------------------------------|
+| Array base address (in)  | `in si as arr_ptr`          | `push si` (after `address of arr to si`) |
+| Array length (in)        | `in cx as length`           | `push cx`                               |
+| Array base address (out) | `out si as arr_ptr`         | Return in a named register; not on stack |
+| Element type             | Implied by access size qualifier (`byte`/`word`/`dword`) | Same |
+
+**Rules:**
+
+* The callee receives a **pointer** (a 16-bit segment offset on 8086); it never owns a copy of the array data.
+* If the callee modifies array elements, declare the pointer register `in out` (register convention) or document the mutation clearly (stack convention).
+* When passing a **local** array's address, ensure the callee finishes using the pointer **before** the frame that owns the local is torn down (i.e., do not store the pointer past the owning `proc`'s return).
+* For far-pointer (segment:offset) arrays, use `load ds-ptr` / `load es-ptr` with a 32-bit memory operand to load segment and offset simultaneously.
+
+---
+
 ### Local Variables
 
 A `var` declaration reserves a named, stack-allocated local variable inside a `proc` or `block` body.
@@ -939,6 +1086,7 @@ Complete example source files live in the [`example/`](example/) directory. The 
 | [`example/10_named_blocks_stack_params.sasm`](example/10_named_blocks_stack_params.sasm) | Named blocks (`block name { }`, call-only) + stack-based parameter passing |
 | [`example/11_local_variables.sasm`](example/11_local_variables.sasm) | Local variables — `var <name> as <type>` inside `proc` and `block` |
 | [`example/12_arrays.sasm`](example/12_arrays.sasm) | Array declarations — static `data` arrays and local `var <name> as <type>[N]` arrays |
+| [`example/13_array_params.sasm`](example/13_array_params.sasm) | Arrays as parameters — passing and returning array pointers via register and stack conventions |
 
 ### Quick-reference snippets
 
@@ -1150,3 +1298,44 @@ proc build_squares {
     } until equal
     ; sq[0..7] = 0, 1, 4, 9, 16, 25, 36, 49
 }
+
+---
+
+#### Example 13 — Arrays as Parameters
+
+Arrays are always passed by pointer. Use `address of <arr> to <reg>` (emits `LEA`) to obtain the address, then pass the register as an `in` parameter. Declare it `in out` if the callee may modify elements.
+
+```sasm
+data scores as byte[8]
+
+(* fill_byte: write fill_val into every element of a byte array.
+   in si as arr_ptr — address of the first element
+   in cx as length  — number of bytes to fill
+   in al as fill_val *)
+proc fill_byte ( in si as arr_ptr, in cx as length, in al as fill_val ) {
+    move 0 to bx
+    repeat cx times {
+        move fill_val to byte [arr_ptr + bx]
+        increment bx
+    }
+    return
+}
+
+; Caller — pass address of static array 'scores':
+address of scores to si     ; si = &scores[0]  (LEA SI, scores)
+move 8  to cx
+move 0  to al
+call fill_byte
+```
+
+```sasm
+(* Returning an array pointer via an out register. *)
+data result_buf as byte[64]
+
+proc get_result_buf ( out si as buf_ptr ) {
+    address of result_buf to buf_ptr
+    return
+}
+
+call get_result_buf          ; si = &result_buf[0] on return
+```
