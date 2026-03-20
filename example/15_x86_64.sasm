@@ -1,0 +1,306 @@
+; Example 15 — x86-64 (64-bit) Mode
+; Demonstrates SASM syntax for x86-64: 64-bit registers, qword data types,
+; RIP-relative global variables, 64-bit calling conventions, and the
+; Linux SYSCALL interface.
+;
+; KEY DIFFERENCES from 8086/16-bit SASM:
+;   * Use 64-bit register names: rax, rbx, rcx, rdx, rsi, rdi, rsp, rbp, r8-r15.
+;   * Use 'qword' as the 8-byte size qualifier and data type.
+;   * Stack slots for local variables are 8 bytes each for 'qword' locals;
+;     frame pointer is rbp; return address is 8 bytes wide.
+;   * Stack must be 16-byte aligned at the point of a CALL.
+;   * Segment overrides (ds:, es:) are not used — the address space is flat.
+;   * Far calls / far returns and LDS/LES are invalid in 64-bit mode.
+;   * Several 16-bit-era instructions are removed (DAA, AAA, BOUND, INTO, etc.)
+;     See doc/instruction_x86_64.md for the complete list.
+;
+; CALLING CONVENTIONS (two ABIs documented here):
+;
+;   System V AMD64 (Linux, macOS, BSD):
+;     Arguments:  rdi, rsi, rdx, rcx, r8, r9  (first 6 integer/pointer args)
+;     Return:     rax (and rdx for a second 64-bit word)
+;     Callee-saves: rbx, rbp, r12-r15
+;     Caller-saves: rax, rcx, rdx, rsi, rdi, r8-r11
+;     Red zone:   128 bytes below rsp usable by leaf procs
+;
+;   Windows x64:
+;     Arguments:  rcx, rdx, r8, r9  (first 4 integer/pointer args)
+;     Return:     rax
+;     Caller must allocate 32-byte shadow space before CALL
+;     Callee-saves: rbx, rbp, rdi, rsi, r12-r15
+;
+; LINUX SYSCALL INTERFACE:
+;     rax = syscall number; args in rdi, rsi, rdx, r10, r8, r9
+;     'syscall' instruction (SYSCALL opcode)
+;     Return value in rax (negative = error)
+
+
+(* ---------------------------------------------------------------
+   Part 1: 64-bit global static variables and data arrays
+
+   'var <name> as qword' at module level emits a DQ label.
+   'data <name> as qword[N]' emits N × DQ 0 entries.
+
+   Assembly equivalents:
+     tick_count:   DQ 0
+     byte_total:   DQ 0
+     timestamps:   DQ 0, 0, 0, 0
+   --------------------------------------------------------------- *)
+
+var tick_count  as qword = 0          ; DQ 0
+var byte_total  as qword              ; DQ 0  (zero-initialized)
+data timestamps as qword[4]           ; 4 × DQ 0 (zero-initialized)
+
+(* Mixed type globals — all are fine in the same source file. *)
+var flag        as byte  = 0          ; DB 0
+var status_word as word  = 0xFFFF     ; DW FFFFh
+var error_code  as dword = 0          ; DD 0
+var big_mask    as qword = 0xFFFFFFFF00000000  ; DQ FFFFFFFF00000000h
+
+
+(* ---------------------------------------------------------------
+   Part 2: Reading and writing 64-bit globals
+
+   Accessing a qword global uses its name as a plain memory operand —
+   the compiler emits a RIP-relative MOV/INC/ADD/CMP.
+   --------------------------------------------------------------- *)
+
+; Write a 64-bit immediate to a global:
+move 42 to tick_count                 ; MOV QWORD [RIP+tick_count], 42
+
+; Read a global into a 64-bit register:
+move tick_count to rax                ; MOV RAX, [RIP+tick_count]
+
+; Arithmetic on a 64-bit global:
+increment tick_count                  ; INC QWORD [tick_count]
+add 100 to tick_count                 ; ADD QWORD [tick_count], 100
+
+; Store a computed result back:
+move tick_count to rax
+add byte_total to rax
+move rax to tick_count                ; tick_count += byte_total
+
+
+(* ---------------------------------------------------------------
+   Part 3: 64-bit proc with register parameters
+   System V AMD64 ABI: first two integer arguments in rdi and rsi;
+   return value in rax.
+
+   proc add64: return rdi + rsi in rax.
+   --------------------------------------------------------------- *)
+
+(* Add two 64-bit unsigned integers.
+   System V AMD64 ABI:
+     in  rdi as a      — first addend
+     in  rsi as b      — second addend
+     out rax as result — sum                *)
+proc add64 ( in rdi as a, in rsi as b, out rax as result ) {
+    move a to rax                     ; result = a
+    add  b to rax                     ; result += b
+}
+
+; Caller (System V):
+move 1000000000 to rdi                ; a = 1,000,000,000
+move 2000000000 to rsi                ; b = 2,000,000,000
+call add64                            ; rax = 3,000,000,000
+
+
+(* ---------------------------------------------------------------
+   Part 4: 64-bit proc with a local qword variable
+
+   Stack layout after prologue (16-bit near call):
+     [rbp+0]  saved rbp
+     [rbp+8]  return address (64-bit)
+     [rbp-8]  temp  (qword local)
+
+   The compiler must keep rsp 16-byte aligned:
+     SUB RSP, 16  (rounds 8-byte qword up to next 16-byte boundary)
+   --------------------------------------------------------------- *)
+
+(* Compute (a × b) + c using a local qword to hold the product.
+   in  rdi as a, in rsi as b, in rdx as c
+   out rax as result
+   NOTE: 'signed multiply by rsi' clobbers rdx (high half of product),
+   so we save parameter c into a local before the multiply. *)
+proc fused_mul_add ( in rdi as a, in rsi as b, in rdx as c ) {
+    var saved_c as qword
+    var product as qword
+
+    move rdx to saved_c               ; save c before multiply clobbers rdx
+    move rdi to rax                   ; rax = a
+    signed multiply by rsi            ; rdx:rax = a × b (signed); rdx is now high half
+    move rax to product               ; save low 64 bits of product
+    add  saved_c to product           ; product += c  (using saved copy)
+    move product to rax               ; return result in rax
+}
+
+; Caller:
+move 7   to rdi                       ; a = 7
+move 6   to rsi                       ; b = 6
+move 100 to rdx                       ; c = 100
+call fused_mul_add                    ; rax = 7*6 + 100 = 142
+
+
+(* ---------------------------------------------------------------
+   Part 5: 64-bit local qword array
+
+   'var buf as qword[4]' reserves 32 bytes on the stack.
+   Stack layout:
+     [rbp+0]   saved rbp
+     [rbp+8]   return address
+     [rbp-8]   buf[3]  (highest element — last allocated)
+     [rbp-16]  buf[2]
+     [rbp-24]  buf[1]
+     [rbp-32]  buf[0]  (lowest element — base address)
+
+   Access: qword [buf + rbx]  where rbx = element_index × 8
+   --------------------------------------------------------------- *)
+
+(* Fill a 4-element local qword array with 0, 8, 16, 24 (index × 8).
+   Returns the sum of all elements in rax.                          *)
+proc fill_qword_array {
+    var buf as qword[4]
+
+    move 0  to rbx                    ; rbx = byte index
+    move 0  to rcx                    ; rcx = element counter
+    repeat {
+        move rbx to qword [buf + rbx] ; buf[i] = i × 8
+        add 8   to rbx                ; next qword (byte offset += 8)
+        increment rcx
+        compare rcx with 4
+    } until equal
+
+    ; Sum all elements: 0 + 8 + 16 + 24 = 48
+    move 0  to rax
+    move 0  to rbx
+    move 4  to rcx
+    repeat rcx times {
+        add qword [buf + rbx] to rax
+        add 8 to rbx
+    }
+    ; rax = 48
+}
+
+; Caller:
+call fill_qword_array                 ; rax = 48 after return
+
+
+(* ---------------------------------------------------------------
+   Part 6: 64-bit string operations (STOSQ / MOVSQ)
+
+   Use 'store string quad' (STOSQ) and 'copy string quad' (MOVSQ)
+   with 64-bit registers rdi (destination), rsi (source), rcx (count).
+   Direction flag must be clear for auto-increment (use 'clear direction').
+   --------------------------------------------------------------- *)
+
+data src_buf as qword[8]              ; source: 8 qwords
+data dst_buf as qword[8]              ; destination: 8 qwords
+
+(* Zero-fill dst_buf using REP STOSQ. *)
+proc zero_dst_buf {
+    address of dst_buf to rdi         ; rdi = &dst_buf[0]  (LEA RDI, [RIP+dst_buf])
+    move 0   to rax                   ; fill value = 0
+    move 8   to rcx                   ; 8 qwords
+    clear direction
+    repeat store string quad          ; REP STOSQ — writes 64 bytes
+}
+
+(* Copy src_buf into dst_buf using REP MOVSQ. *)
+proc copy_buf {
+    address of src_buf to rsi         ; rsi = &src_buf[0]
+    address of dst_buf to rdi         ; rdi = &dst_buf[0]
+    move 8   to rcx                   ; 8 qwords = 64 bytes
+    clear direction
+    repeat copy string quad           ; REP MOVSQ
+}
+
+; Callers:
+call zero_dst_buf
+call copy_buf
+
+
+(* ---------------------------------------------------------------
+   Part 7: Linux SYSCALL interface
+
+   On Linux x86-64:
+     rax = syscall number
+     rdi = arg1, rsi = arg2, rdx = arg3, r10 = arg4, r8 = arg5, r9 = arg6
+   SYSCALL clobbers rcx and r11.
+   Return value (or negative errno) is in rax.
+
+   Common syscall numbers:
+     1  = sys_write (rdi=fd, rsi=buf, rdx=len)
+     60 = sys_exit  (rdi=status)
+
+   The 'syscall' SASM keyword emits the SYSCALL opcode.
+   --------------------------------------------------------------- *)
+
+var hello_msg as byte = 0             ; placeholder — real code uses .rodata
+
+(* write(1, hello_msg, 13) — write 13 bytes to stdout. *)
+proc linux_write_hello {
+    move 1   to rax                   ; syscall: sys_write
+    move 1   to rdi                   ; fd = stdout (1)
+    address of hello_msg to rsi       ; rsi = &hello_msg  (LEA RSI, [RIP+hello_msg])
+    move 13  to rdx                   ; len = 13 bytes
+    syscall                           ; SYSCALL
+}
+
+(* exit(0) — terminate the process. *)
+proc linux_exit_clean {
+    move 60  to rax                   ; syscall: sys_exit
+    move 0   to rdi                   ; status = 0
+    syscall                           ; SYSCALL — does not return
+}
+
+; Main entry sequence (if this were a standalone 64-bit ELF):
+call linux_write_hello
+call linux_exit_clean
+
+
+(* ---------------------------------------------------------------
+   Part 8: Windows x64 calling convention
+
+   On Windows x64, the first four integer arguments go in
+   rcx, rdx, r8, r9.  The caller must allocate 32 bytes of shadow
+   space before CALL and reclaim it afterward.
+   Callee-saved: rbx, rbp, rdi, rsi, r12-r15.
+   --------------------------------------------------------------- *)
+
+(* Multiply two 64-bit values under the Windows x64 ABI.
+   in  rcx as a, in rdx as b, out rax as product *)
+proc win64_mul ( in rcx as a, in rdx as b, out rax as product ) {
+    move rcx to rax
+    signed multiply by rdx            ; rdx:rax = a × b (64-bit result in rax)
+}
+
+; Windows x64 caller pattern:
+subtract 32 from rsp                  ; allocate shadow space (32 bytes)
+move 6 to rcx                         ; 1st arg
+move 7 to rdx                         ; 2nd arg
+call win64_mul                        ; rax = 42
+add 32 to rsp                         ; reclaim shadow space
+
+
+(* ---------------------------------------------------------------
+   Part 9: CDQE and CQO (64-bit sign-extension)
+
+   CDQE: sign-extend EAX into RAX  (64-bit rename of CWDE)
+   CQO:  sign-extend RAX into RDX:RAX  (used before 64-bit IDIV)
+   --------------------------------------------------------------- *)
+
+(* Divide a signed 64-bit dividend in rax by a signed 64-bit divisor in rbx.
+   Returns: quotient in rax, remainder in rdx. *)
+proc signed_div64 {
+    extend quad to double quad        ; CQO: sign-extend rax -> rdx:rax
+    signed divide by rbx              ; IDIV rbx: rax=quot, rdx=rem
+}
+
+; Caller:
+move -1000 to rax                     ; dividend = -1000
+move    7  to rbx                     ; divisor  = 7
+call signed_div64                     ; rax = -142, rdx = -6  (truncated toward zero)
+
+; Sign-extend a 32-bit result into 64 bits:
+move 0x80000000 to eax                ; eax = 0x80000000 (32-bit)
+extend double to quad                 ; CDQE: rax = 0xFFFFFFFF80000000 (sign-extended)

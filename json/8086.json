@@ -1,0 +1,3260 @@
+{
+  "processor": "8086",
+  "description": "Intel 8086/8088 baseline instruction set (16-bit real mode). All instructions in this file were introduced with the original Intel 8086 processor and are available in 16-bit, 32-bit, and 64-bit modes unless otherwise noted.",
+  "source_reference": "doc/instruction_8086.md",
+  "instructions": [
+    {
+      "mnemonic": "MOV",
+      "sasm_phrase": "move <src> to <dst>",
+      "category": "data_transfer",
+      "operands": "dst, src",
+      "opcodes": [
+        {
+          "hex": "0x88",
+          "form": "MOV r/m8, r8",
+          "description": "Move byte register to r/m8",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x89",
+          "form": "MOV r/m16, r16",
+          "description": "Move word register to r/m16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x8A",
+          "form": "MOV r8, r/m8",
+          "description": "Move r/m8 to byte register",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x8B",
+          "form": "MOV r16, r/m16",
+          "description": "Move r/m16 to word register",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x8C",
+          "form": "MOV r/m16, Sreg",
+          "description": "Move segment register to r/m16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x8E",
+          "form": "MOV Sreg, r/m16",
+          "description": "Move r/m16 to segment register",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xA0",
+          "form": "MOV AL, moffs8",
+          "description": "Move byte at seg:offset to AL",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        },
+        {
+          "hex": "0xA1",
+          "form": "MOV AX, moffs16",
+          "description": "Move word at seg:offset to AX",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        },
+        {
+          "hex": "0xA2",
+          "form": "MOV moffs8, AL",
+          "description": "Move AL to seg:offset",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        },
+        {
+          "hex": "0xA3",
+          "form": "MOV moffs16, AX",
+          "description": "Move AX to seg:offset",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        },
+        {
+          "hex": "0xB0-0xB7",
+          "form": "MOV r8, imm8",
+          "description": "Move imm8 to byte register (short encoding)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0xB8-0xBF",
+          "form": "MOV r16, imm16",
+          "description": "Move imm16 to word register (short encoding)",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        },
+        {
+          "hex": "0xC6 /0",
+          "form": "MOV r/m8, imm8",
+          "description": "Move imm8 to r/m8",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        },
+        {
+          "hex": "0xC7 /0",
+          "form": "MOV r/m16, imm16",
+          "description": "Move imm16 to r/m16",
+          "byte_length_min": 4,
+          "byte_length_max": 6
+        }
+      ],
+      "description": "Copies a byte or word from source to destination. The most fundamental data transfer instruction.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "PUSH",
+      "sasm_phrase": "push <src>",
+      "category": "data_transfer",
+      "operands": "src",
+      "opcodes": [
+        {
+          "hex": "0x50-0x57",
+          "form": "PUSH r16",
+          "description": "Push 16-bit register (short encoding)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        },
+        {
+          "hex": "0x6A",
+          "form": "PUSH imm8",
+          "description": "Push sign-extended imm8 onto stack",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x68",
+          "form": "PUSH imm16",
+          "description": "Push imm16 onto stack",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        },
+        {
+          "hex": "0xFF /6",
+          "form": "PUSH r/m16",
+          "description": "Push r/m16 onto stack",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Decrements SP by 2 and stores a 16-bit value on the stack.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "POP",
+      "sasm_phrase": "pop <dst>",
+      "category": "data_transfer",
+      "operands": "dst",
+      "opcodes": [
+        {
+          "hex": "0x58-0x5F",
+          "form": "POP r16",
+          "description": "Pop 16-bit register (short encoding)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        },
+        {
+          "hex": "0x8F /0",
+          "form": "POP r/m16",
+          "description": "Pop r/m16 from stack",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Loads a 16-bit value from the top of the stack into the destination, then increments SP by 2.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "XCHG",
+      "sasm_phrase": "swap <op1> and <op2>",
+      "category": "data_transfer",
+      "operands": "op1, op2",
+      "opcodes": [
+        {
+          "hex": "0x86",
+          "form": "XCHG r/m8, r8",
+          "description": "Exchange byte register with r/m8",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x87",
+          "form": "XCHG r/m16, r16",
+          "description": "Exchange word register with r/m16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x90-0x97",
+          "form": "XCHG AX, r16",
+          "description": "Exchange AX with word register (short encoding; 0x90=NOP)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Swaps the contents of two registers or a register and a memory location atomically.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "XLAT",
+      "aliases": [
+        "XLATB"
+      ],
+      "sasm_phrase": "translate",
+      "category": "data_transfer",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0xD7",
+          "form": "XLAT",
+          "description": "Set AL = [BX + AL] — byte table lookup",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Translates a byte in AL using a lookup table pointed to by BX. Sets AL to the value at [BX+AL].",
+      "introduced": "8086",
+      "status": "rarely_used",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "IN",
+      "sasm_phrase": "read byte from <port> to al / read word from <port> to ax",
+      "category": "data_transfer",
+      "operands": "AL/AX, port",
+      "opcodes": [
+        {
+          "hex": "0xE4",
+          "form": "IN AL, imm8",
+          "description": "Read byte from I/O port (imm8 address) into AL",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0xE5",
+          "form": "IN AX, imm8",
+          "description": "Read word from I/O port (imm8 address) into AX",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0xEC",
+          "form": "IN AL, DX",
+          "description": "Read byte from I/O port (DX address) into AL",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        },
+        {
+          "hex": "0xED",
+          "form": "IN AX, DX",
+          "description": "Read word from I/O port (DX address) into AX",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Reads a byte or word from an I/O port into AL or AX.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Ring-0 / privileged in protected and long mode."
+    },
+    {
+      "mnemonic": "OUT",
+      "sasm_phrase": "write byte from al to <port> / write word from ax to <port>",
+      "category": "data_transfer",
+      "operands": "port, AL/AX",
+      "opcodes": [
+        {
+          "hex": "0xE6",
+          "form": "OUT imm8, AL",
+          "description": "Write byte from AL to I/O port (imm8 address)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0xE7",
+          "form": "OUT imm8, AX",
+          "description": "Write word from AX to I/O port (imm8 address)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0xEE",
+          "form": "OUT DX, AL",
+          "description": "Write byte from AL to I/O port (DX address)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        },
+        {
+          "hex": "0xEF",
+          "form": "OUT DX, AX",
+          "description": "Write word from AX to I/O port (DX address)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Writes a byte or word from AL or AX to an I/O port.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Ring-0 / privileged in protected and long mode."
+    },
+    {
+      "mnemonic": "LEA",
+      "sasm_phrase": "address of <mem> to <dst>",
+      "category": "data_transfer",
+      "operands": "dst, mem",
+      "opcodes": [
+        {
+          "hex": "0x8D",
+          "form": "LEA r16, m",
+          "description": "Load effective address of mem into 16-bit register (no memory read)",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Loads the effective address of a memory operand into a register (no memory access performed).",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "LDS",
+      "sasm_phrase": "load ds-ptr <mem> to <reg>",
+      "category": "data_transfer",
+      "operands": "reg, mem",
+      "opcodes": [
+        {
+          "hex": "0xC5",
+          "form": "LDS r16, m32",
+          "description": "Load far pointer: DS = mem[2], reg = mem[0]",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Loads a far pointer from memory into DS:reg (DS gets the segment, reg gets the offset).",
+      "introduced": "8086",
+      "status": "obsolete",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": false,
+      "notes": "Removed in 64-bit mode; opcode 0xC5 repurposed as VEX prefix."
+    },
+    {
+      "mnemonic": "LES",
+      "sasm_phrase": "load es-ptr <mem> to <reg>",
+      "category": "data_transfer",
+      "operands": "reg, mem",
+      "opcodes": [
+        {
+          "hex": "0xC4",
+          "form": "LES r16, m32",
+          "description": "Load far pointer: ES = mem[2], reg = mem[0]",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Loads a far pointer from memory into ES:reg (ES gets the segment, reg gets the offset).",
+      "introduced": "8086",
+      "status": "obsolete",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": false,
+      "notes": "Removed in 64-bit mode; opcode 0xC4 repurposed as VEX prefix."
+    },
+    {
+      "mnemonic": "LAHF",
+      "sasm_phrase": "save flags to ah",
+      "category": "data_transfer",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0x9F",
+          "form": "LAHF",
+          "description": "Load AH from lower byte of FLAGS (SF, ZF, AF, PF, CF)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Copies the low byte of the FLAGS register (SF, ZF, AF, PF, CF) into AH.",
+      "introduced": "8086",
+      "status": "rarely_used",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "SAHF",
+      "sasm_phrase": "load flags from ah",
+      "category": "data_transfer",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0x9E",
+          "form": "SAHF",
+          "description": "Store AH into lower byte of FLAGS (SF, ZF, AF, PF, CF)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Copies AH into the low byte of the FLAGS register, setting SF, ZF, AF, PF, and CF.",
+      "introduced": "8086",
+      "status": "rarely_used",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "PUSHF",
+      "sasm_phrase": "push flags",
+      "category": "data_transfer",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0x9C",
+          "form": "PUSHF",
+          "description": "Push FLAGS (16-bit) register onto stack; 32-bit: PUSHFD (EFLAGS); 64-bit: PUSHFQ (RFLAGS)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Pushes the FLAGS (16-bit) register onto the stack.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "In 32-bit mode: PUSHFD. In 64-bit mode: PUSHFQ. All share opcode 0x9C."
+    },
+    {
+      "mnemonic": "POPF",
+      "sasm_phrase": "pop flags",
+      "category": "data_transfer",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0x9D",
+          "form": "POPF",
+          "description": "Pop FLAGS (16-bit) register from stack; 32-bit: POPFD (EFLAGS); 64-bit: POPFQ (RFLAGS)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Pops a 16-bit value from the stack into the FLAGS register.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "In 32-bit mode: POPFD. In 64-bit mode: POPFQ. All share opcode 0x9D."
+    },
+    {
+      "mnemonic": "ADD",
+      "sasm_phrase": "add <src> to <dst>",
+      "category": "arithmetic",
+      "operands": "dst, src",
+      "opcodes": [
+        {
+          "hex": "0x00",
+          "form": "ADD r/m8, r8",
+          "description": "Add r8 to r/m8",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x01",
+          "form": "ADD r/m16, r16",
+          "description": "Add r16 to r/m16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x02",
+          "form": "ADD r8, r/m8",
+          "description": "Add r/m8 to r8",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x03",
+          "form": "ADD r16, r/m16",
+          "description": "Add r/m16 to r16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x04",
+          "form": "ADD AL, imm8",
+          "description": "Add imm8 to AL",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x05",
+          "form": "ADD AX, imm16",
+          "description": "Add imm16 to AX",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        },
+        {
+          "hex": "0x80 /0",
+          "form": "ADD r/m8, imm8",
+          "description": "Add imm8 to r/m8",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        },
+        {
+          "hex": "0x81 /0",
+          "form": "ADD r/m16, imm16",
+          "description": "Add imm16 to r/m16",
+          "byte_length_min": 4,
+          "byte_length_max": 6
+        },
+        {
+          "hex": "0x83 /0",
+          "form": "ADD r/m16, imm8",
+          "description": "Add sign-extended imm8 to r/m16",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        }
+      ],
+      "description": "Adds src to dst; result stored in dst. Updates CF, OF, ZF, SF, PF, AF.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "ADC",
+      "sasm_phrase": "add <src> with carry to <dst>",
+      "category": "arithmetic",
+      "operands": "dst, src",
+      "opcodes": [
+        {
+          "hex": "0x10",
+          "form": "ADC r/m8, r8",
+          "description": "Add r8 + CF to r/m8",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x11",
+          "form": "ADC r/m16, r16",
+          "description": "Add r16 + CF to r/m16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x12",
+          "form": "ADC r8, r/m8",
+          "description": "Add r/m8 + CF to r8",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x13",
+          "form": "ADC r16, r/m16",
+          "description": "Add r/m16 + CF to r16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x14",
+          "form": "ADC AL, imm8",
+          "description": "Add imm8 + CF to AL",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x15",
+          "form": "ADC AX, imm16",
+          "description": "Add imm16 + CF to AX",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        },
+        {
+          "hex": "0x80 /2",
+          "form": "ADC r/m8, imm8",
+          "description": "Add imm8 + CF to r/m8",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        },
+        {
+          "hex": "0x81 /2",
+          "form": "ADC r/m16, imm16",
+          "description": "Add imm16 + CF to r/m16",
+          "byte_length_min": 4,
+          "byte_length_max": 6
+        },
+        {
+          "hex": "0x83 /2",
+          "form": "ADC r/m16, imm8",
+          "description": "Add sign-extended imm8 + CF to r/m16",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        }
+      ],
+      "description": "Adds src plus the Carry Flag to dst. Used for multi-precision addition.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "SUB",
+      "sasm_phrase": "subtract <src> from <dst>",
+      "category": "arithmetic",
+      "operands": "dst, src",
+      "opcodes": [
+        {
+          "hex": "0x28",
+          "form": "SUB r/m8, r8",
+          "description": "Subtract r8 from r/m8",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x29",
+          "form": "SUB r/m16, r16",
+          "description": "Subtract r16 from r/m16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x2A",
+          "form": "SUB r8, r/m8",
+          "description": "Subtract r/m8 from r8",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x2B",
+          "form": "SUB r16, r/m16",
+          "description": "Subtract r/m16 from r16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x2C",
+          "form": "SUB AL, imm8",
+          "description": "Subtract imm8 from AL",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x2D",
+          "form": "SUB AX, imm16",
+          "description": "Subtract imm16 from AX",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        },
+        {
+          "hex": "0x80 /5",
+          "form": "SUB r/m8, imm8",
+          "description": "Subtract imm8 from r/m8",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        },
+        {
+          "hex": "0x81 /5",
+          "form": "SUB r/m16, imm16",
+          "description": "Subtract imm16 from r/m16",
+          "byte_length_min": 4,
+          "byte_length_max": 6
+        },
+        {
+          "hex": "0x83 /5",
+          "form": "SUB r/m16, imm8",
+          "description": "Subtract sign-extended imm8 from r/m16",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        }
+      ],
+      "description": "Subtracts src from dst; result stored in dst. Updates CF, OF, ZF, SF, PF, AF.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "SBB",
+      "sasm_phrase": "subtract <src> with borrow from <dst>",
+      "category": "arithmetic",
+      "operands": "dst, src",
+      "opcodes": [
+        {
+          "hex": "0x18",
+          "form": "SBB r/m8, r8",
+          "description": "Subtract r8 + CF from r/m8",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x19",
+          "form": "SBB r/m16, r16",
+          "description": "Subtract r16 + CF from r/m16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x1A",
+          "form": "SBB r8, r/m8",
+          "description": "Subtract r/m8 + CF from r8",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x1B",
+          "form": "SBB r16, r/m16",
+          "description": "Subtract r/m16 + CF from r16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x1C",
+          "form": "SBB AL, imm8",
+          "description": "Subtract imm8 + CF from AL",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x1D",
+          "form": "SBB AX, imm16",
+          "description": "Subtract imm16 + CF from AX",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        },
+        {
+          "hex": "0x80 /3",
+          "form": "SBB r/m8, imm8",
+          "description": "Subtract imm8 + CF from r/m8",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        },
+        {
+          "hex": "0x81 /3",
+          "form": "SBB r/m16, imm16",
+          "description": "Subtract imm16 + CF from r/m16",
+          "byte_length_min": 4,
+          "byte_length_max": 6
+        },
+        {
+          "hex": "0x83 /3",
+          "form": "SBB r/m16, imm8",
+          "description": "Subtract sign-extended imm8 + CF from r/m16",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        }
+      ],
+      "description": "Subtracts src and the Carry Flag from dst. Used for multi-precision subtraction.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "INC",
+      "sasm_phrase": "increment <dst>",
+      "category": "arithmetic",
+      "operands": "dst",
+      "opcodes": [
+        {
+          "hex": "0x40-0x47",
+          "form": "INC r16",
+          "description": "Increment 16-bit register (short encoding; bytes 0x40-0x47 are REX prefixes in 64-bit mode)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        },
+        {
+          "hex": "0xFE /0",
+          "form": "INC r/m8",
+          "description": "Increment r/m8 by 1",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xFF /0",
+          "form": "INC r/m16",
+          "description": "Increment r/m16 by 1",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Increments dst by 1. Does not affect CF.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Short register forms 0x40–0x47 are REX prefix bytes in 64-bit mode; use 0xFF /0 there."
+    },
+    {
+      "mnemonic": "DEC",
+      "sasm_phrase": "decrement <dst>",
+      "category": "arithmetic",
+      "operands": "dst",
+      "opcodes": [
+        {
+          "hex": "0x48-0x4F",
+          "form": "DEC r16",
+          "description": "Decrement 16-bit register (short encoding; bytes 0x48-0x4F are REX prefixes in 64-bit mode)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        },
+        {
+          "hex": "0xFE /1",
+          "form": "DEC r/m8",
+          "description": "Decrement r/m8 by 1",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xFF /1",
+          "form": "DEC r/m16",
+          "description": "Decrement r/m16 by 1",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Decrements dst by 1. Does not affect CF.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Short register forms 0x48–0x4F are REX prefix bytes in 64-bit mode; use 0xFF /1 there."
+    },
+    {
+      "mnemonic": "MUL",
+      "sasm_phrase": "multiply by <src>",
+      "category": "arithmetic",
+      "operands": "src",
+      "opcodes": [
+        {
+          "hex": "0xF6 /4",
+          "form": "MUL r/m8",
+          "description": "Unsigned: AX = AL × r/m8",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xF7 /4",
+          "form": "MUL r/m16",
+          "description": "Unsigned: DX:AX = AX × r/m16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Unsigned multiply: AX = AL × src (byte) or DX:AX = AX × src (word).",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "IMUL",
+      "sasm_phrase": "signed multiply by <src>",
+      "category": "arithmetic",
+      "operands": "src",
+      "opcodes": [
+        {
+          "hex": "0xF6 /5",
+          "form": "IMUL r/m8",
+          "description": "Signed: AX = AL × r/m8 (1-operand form)",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xF7 /5",
+          "form": "IMUL r/m16",
+          "description": "Signed: DX:AX = AX × r/m16 (1-operand form)",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Signed multiply. In the 8086, AX = AL × src or DX:AX = AX × src.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Two-operand (0x0F 0xAF) and three-operand (0x69/0x6B) forms added in 80386."
+    },
+    {
+      "mnemonic": "DIV",
+      "sasm_phrase": "divide by <src>",
+      "category": "arithmetic",
+      "operands": "src",
+      "opcodes": [
+        {
+          "hex": "0xF6 /6",
+          "form": "DIV r/m8",
+          "description": "Unsigned: AL = AX ÷ r/m8; AH = remainder",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xF7 /6",
+          "form": "DIV r/m16",
+          "description": "Unsigned: AX = DX:AX ÷ r/m16; DX = remainder",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Unsigned divide: AL = AX ÷ src, AH = remainder (byte); or AX = DX:AX ÷ src, DX = remainder (word).",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "IDIV",
+      "sasm_phrase": "signed divide by <src>",
+      "category": "arithmetic",
+      "operands": "src",
+      "opcodes": [
+        {
+          "hex": "0xF6 /7",
+          "form": "IDIV r/m8",
+          "description": "Signed: AL = AX ÷ r/m8; AH = remainder",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xF7 /7",
+          "form": "IDIV r/m16",
+          "description": "Signed: AX = DX:AX ÷ r/m16; DX = remainder",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Signed divide; same structure as DIV but for signed integers.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "NEG",
+      "sasm_phrase": "negate <dst>",
+      "category": "arithmetic",
+      "operands": "dst",
+      "opcodes": [
+        {
+          "hex": "0xF6 /3",
+          "form": "NEG r/m8",
+          "description": "Two's complement negation of r/m8",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xF7 /3",
+          "form": "NEG r/m16",
+          "description": "Two's complement negation of r/m16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Negates dst (two's complement: dst = 0 − dst).",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "CMP",
+      "sasm_phrase": "compare <op1> with <op2>",
+      "category": "arithmetic",
+      "operands": "op1, op2",
+      "opcodes": [
+        {
+          "hex": "0x38",
+          "form": "CMP r/m8, r8",
+          "description": "Compare r8 with r/m8 (set flags for r/m8 - r8)",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x39",
+          "form": "CMP r/m16, r16",
+          "description": "Compare r16 with r/m16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x3A",
+          "form": "CMP r8, r/m8",
+          "description": "Compare r/m8 with r8 (set flags for r8 - r/m8)",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x3B",
+          "form": "CMP r16, r/m16",
+          "description": "Compare r/m16 with r16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x3C",
+          "form": "CMP AL, imm8",
+          "description": "Compare imm8 with AL",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x3D",
+          "form": "CMP AX, imm16",
+          "description": "Compare imm16 with AX",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        },
+        {
+          "hex": "0x80 /7",
+          "form": "CMP r/m8, imm8",
+          "description": "Compare imm8 with r/m8",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        },
+        {
+          "hex": "0x81 /7",
+          "form": "CMP r/m16, imm16",
+          "description": "Compare imm16 with r/m16",
+          "byte_length_min": 4,
+          "byte_length_max": 6
+        },
+        {
+          "hex": "0x83 /7",
+          "form": "CMP r/m16, imm8",
+          "description": "Compare sign-extended imm8 with r/m16",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        }
+      ],
+      "description": "Subtracts op2 from op1 and discards the result, only updating FLAGS. Used before conditional jumps.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "CBW",
+      "sasm_phrase": "extend byte to word",
+      "category": "arithmetic",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0x98",
+          "form": "CBW",
+          "description": "Sign-extend AL into AX (16-bit); CWDE in 32-bit (AX→EAX); CDQE in 64-bit (EAX→RAX)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Sign-extends AL into AX (byte→word).",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Same opcode 0x98. In 32-bit mode: CWDE (sign-extends AX→EAX). In 64-bit mode with REX.W: CDQE (sign-extends EAX→RAX)."
+    },
+    {
+      "mnemonic": "CWD",
+      "sasm_phrase": "extend word to double",
+      "category": "arithmetic",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0x99",
+          "form": "CWD",
+          "description": "Sign-extend AX into DX:AX (16-bit); CDQ in 32-bit (EAX→EDX:EAX); CQO in 64-bit (RAX→RDX:RAX)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Sign-extends AX into DX:AX (word→doubleword). Used before IDIV.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Same opcode 0x99. In 32-bit mode: CDQ (EAX→EDX:EAX). In 64-bit mode with REX.W: CQO (RAX→RDX:RAX)."
+    },
+    {
+      "mnemonic": "DAA",
+      "sasm_phrase": "decimal adjust after add",
+      "category": "arithmetic",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0x27",
+          "form": "DAA",
+          "description": "Decimal adjust AL after BCD addition",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Decimal Adjust AL after Addition. Converts AL to packed BCD format after an ADD/ADC.",
+      "introduced": "8086",
+      "status": "removed_in_64bit",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": false,
+      "notes": "Opcode 0x27 conflicts with REX prefix space in 64-bit mode."
+    },
+    {
+      "mnemonic": "DAS",
+      "sasm_phrase": "decimal adjust after subtract",
+      "category": "arithmetic",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0x2F",
+          "form": "DAS",
+          "description": "Decimal adjust AL after BCD subtraction",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Decimal Adjust AL after Subtraction. Converts AL to packed BCD format after a SUB/SBB.",
+      "introduced": "8086",
+      "status": "removed_in_64bit",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": false
+    },
+    {
+      "mnemonic": "AAA",
+      "sasm_phrase": "ascii adjust after add",
+      "category": "arithmetic",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0x37",
+          "form": "AAA",
+          "description": "ASCII adjust AL after unpacked BCD addition",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "ASCII Adjust AL after Addition. Adjusts AL for unpacked BCD addition.",
+      "introduced": "8086",
+      "status": "removed_in_64bit",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": false
+    },
+    {
+      "mnemonic": "AAS",
+      "sasm_phrase": "ascii adjust after subtract",
+      "category": "arithmetic",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0x3F",
+          "form": "AAS",
+          "description": "ASCII adjust AL after unpacked BCD subtraction",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "ASCII Adjust AL after Subtraction. Adjusts AL for unpacked BCD subtraction.",
+      "introduced": "8086",
+      "status": "removed_in_64bit",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": false
+    },
+    {
+      "mnemonic": "AAM",
+      "sasm_phrase": "ascii adjust after multiply",
+      "category": "arithmetic",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0xD4 0x0A",
+          "form": "AAM",
+          "description": "ASCII adjust AX after unpacked BCD multiply (imm8=0x0A for decimal)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
+      ],
+      "description": "ASCII Adjust AX after Multiplication. Converts AX to unpacked BCD after a MUL byte instruction.",
+      "introduced": "8086",
+      "status": "removed_in_64bit",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": false
+    },
+    {
+      "mnemonic": "AAD",
+      "sasm_phrase": "ascii adjust before divide",
+      "category": "arithmetic",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0xD5 0x0A",
+          "form": "AAD",
+          "description": "ASCII adjust AX before unpacked BCD divide (imm8=0x0A for decimal)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
+      ],
+      "description": "ASCII Adjust AX before Division. Converts two unpacked BCD digits in AH:AL to binary in AL before a DIV.",
+      "introduced": "8086",
+      "status": "removed_in_64bit",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": false
+    },
+    {
+      "mnemonic": "AND",
+      "sasm_phrase": "and <src> into <dst>",
+      "category": "logical",
+      "operands": "dst, src",
+      "opcodes": [
+        {
+          "hex": "0x20",
+          "form": "AND r/m8, r8",
+          "description": "AND r8 into r/m8",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x21",
+          "form": "AND r/m16, r16",
+          "description": "AND r16 into r/m16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x22",
+          "form": "AND r8, r/m8",
+          "description": "AND r/m8 into r8",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x23",
+          "form": "AND r16, r/m16",
+          "description": "AND r/m16 into r16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x24",
+          "form": "AND AL, imm8",
+          "description": "AND imm8 into AL",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x25",
+          "form": "AND AX, imm16",
+          "description": "AND imm16 into AX",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        },
+        {
+          "hex": "0x80 /4",
+          "form": "AND r/m8, imm8",
+          "description": "AND imm8 into r/m8",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        },
+        {
+          "hex": "0x81 /4",
+          "form": "AND r/m16, imm16",
+          "description": "AND imm16 into r/m16",
+          "byte_length_min": 4,
+          "byte_length_max": 6
+        },
+        {
+          "hex": "0x83 /4",
+          "form": "AND r/m16, imm8",
+          "description": "AND sign-extended imm8 into r/m16",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        }
+      ],
+      "description": "Bitwise AND of dst and src; result in dst. Clears OF and CF.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "OR",
+      "sasm_phrase": "or <src> into <dst>",
+      "category": "logical",
+      "operands": "dst, src",
+      "opcodes": [
+        {
+          "hex": "0x08",
+          "form": "OR r/m8, r8",
+          "description": "OR r8 into r/m8",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x09",
+          "form": "OR r/m16, r16",
+          "description": "OR r16 into r/m16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x0A",
+          "form": "OR r8, r/m8",
+          "description": "OR r/m8 into r8",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x0B",
+          "form": "OR r16, r/m16",
+          "description": "OR r/m16 into r16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x0C",
+          "form": "OR AL, imm8",
+          "description": "OR imm8 into AL",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x0D",
+          "form": "OR AX, imm16",
+          "description": "OR imm16 into AX",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        },
+        {
+          "hex": "0x80 /1",
+          "form": "OR r/m8, imm8",
+          "description": "OR imm8 into r/m8",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        },
+        {
+          "hex": "0x81 /1",
+          "form": "OR r/m16, imm16",
+          "description": "OR imm16 into r/m16",
+          "byte_length_min": 4,
+          "byte_length_max": 6
+        },
+        {
+          "hex": "0x83 /1",
+          "form": "OR r/m16, imm8",
+          "description": "OR sign-extended imm8 into r/m16",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        }
+      ],
+      "description": "Bitwise OR of dst and src; result in dst. Clears OF and CF.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "XOR",
+      "sasm_phrase": "xor <src> into <dst>",
+      "category": "logical",
+      "operands": "dst, src",
+      "opcodes": [
+        {
+          "hex": "0x30",
+          "form": "XOR r/m8, r8",
+          "description": "XOR r8 into r/m8",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x31",
+          "form": "XOR r/m16, r16",
+          "description": "XOR r16 into r/m16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x32",
+          "form": "XOR r8, r/m8",
+          "description": "XOR r/m8 into r8",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x33",
+          "form": "XOR r16, r/m16",
+          "description": "XOR r/m16 into r16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x34",
+          "form": "XOR AL, imm8",
+          "description": "XOR imm8 into AL",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x35",
+          "form": "XOR AX, imm16",
+          "description": "XOR imm16 into AX",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        },
+        {
+          "hex": "0x80 /6",
+          "form": "XOR r/m8, imm8",
+          "description": "XOR imm8 into r/m8",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        },
+        {
+          "hex": "0x81 /6",
+          "form": "XOR r/m16, imm16",
+          "description": "XOR imm16 into r/m16",
+          "byte_length_min": 4,
+          "byte_length_max": 6
+        },
+        {
+          "hex": "0x83 /6",
+          "form": "XOR r/m16, imm8",
+          "description": "XOR sign-extended imm8 into r/m16",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        }
+      ],
+      "description": "Bitwise XOR of dst and src; result in dst. Commonly used to zero a register (XOR AX, AX).",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "NOT",
+      "sasm_phrase": "not <dst>",
+      "category": "logical",
+      "operands": "dst",
+      "opcodes": [
+        {
+          "hex": "0xF6 /2",
+          "form": "NOT r/m8",
+          "description": "One's complement negation of r/m8",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xF7 /2",
+          "form": "NOT r/m16",
+          "description": "One's complement negation of r/m16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Bitwise complement of dst (one's complement). Does not affect FLAGS.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "TEST",
+      "sasm_phrase": "test <op1> and <op2>",
+      "category": "logical",
+      "operands": "op1, op2",
+      "opcodes": [
+        {
+          "hex": "0x84",
+          "form": "TEST r/m8, r8",
+          "description": "AND r8 with r/m8; set ZF, SF, PF; discard result",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x85",
+          "form": "TEST r/m16, r16",
+          "description": "AND r16 with r/m16; set flags; discard result",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xA8",
+          "form": "TEST AL, imm8",
+          "description": "AND imm8 with AL; set flags",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0xA9",
+          "form": "TEST AX, imm16",
+          "description": "AND imm16 with AX; set flags",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        },
+        {
+          "hex": "0xF6 /0",
+          "form": "TEST r/m8, imm8",
+          "description": "AND imm8 with r/m8; set flags",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        },
+        {
+          "hex": "0xF7 /0",
+          "form": "TEST r/m16, imm16",
+          "description": "AND imm16 with r/m16; set flags",
+          "byte_length_min": 4,
+          "byte_length_max": 6
+        }
+      ],
+      "description": "Bitwise AND of op1 and op2; discards the result, only updating ZF, SF, PF. Used before conditional jumps.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "SHL",
+      "aliases": [
+        "SAL"
+      ],
+      "sasm_phrase": "shift left <dst> by <n>",
+      "category": "shift_and_rotate",
+      "operands": "dst, count",
+      "opcodes": [
+        {
+          "hex": "0xD0 /4",
+          "form": "SHL r/m8, 1",
+          "description": "Shift r/m8 left by 1",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD1 /4",
+          "form": "SHL r/m16, 1",
+          "description": "Shift r/m16 left by 1",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD2 /4",
+          "form": "SHL r/m8, CL",
+          "description": "Shift r/m8 left by CL",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD3 /4",
+          "form": "SHL r/m16, CL",
+          "description": "Shift r/m16 left by CL",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xC0 /4",
+          "form": "SHL r/m8, imm8",
+          "description": "Shift r/m8 left by imm8 (80186+)",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        },
+        {
+          "hex": "0xC1 /4",
+          "form": "SHL r/m16, imm8",
+          "description": "Shift r/m16 left by imm8 (80186+)",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        }
+      ],
+      "description": "Logical/arithmetic left shift; zeros fill LSB; MSB → CF.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Immediate-count forms 0xC0/0xC1 require 80186 or later."
+    },
+    {
+      "mnemonic": "SHR",
+      "sasm_phrase": "shift right <dst> by <n>",
+      "category": "shift_and_rotate",
+      "operands": "dst, count",
+      "opcodes": [
+        {
+          "hex": "0xD0 /5",
+          "form": "SHR r/m8, 1",
+          "description": "Shift r/m8 right by 1 (logical)",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD1 /5",
+          "form": "SHR r/m16, 1",
+          "description": "Shift r/m16 right by 1 (logical)",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD2 /5",
+          "form": "SHR r/m8, CL",
+          "description": "Shift r/m8 right by CL (logical)",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD3 /5",
+          "form": "SHR r/m16, CL",
+          "description": "Shift r/m16 right by CL (logical)",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xC0 /5",
+          "form": "SHR r/m8, imm8",
+          "description": "Shift r/m8 right by imm8 (80186+)",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        },
+        {
+          "hex": "0xC1 /5",
+          "form": "SHR r/m16, imm8",
+          "description": "Shift r/m16 right by imm8 (80186+)",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        }
+      ],
+      "description": "Logical right shift; zeros fill MSB; LSB → CF.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "SAR",
+      "sasm_phrase": "shift right signed <dst> by <n>",
+      "category": "shift_and_rotate",
+      "operands": "dst, count",
+      "opcodes": [
+        {
+          "hex": "0xD0 /7",
+          "form": "SAR r/m8, 1",
+          "description": "Arithmetic shift r/m8 right by 1 (sign preserved)",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD1 /7",
+          "form": "SAR r/m16, 1",
+          "description": "Arithmetic shift r/m16 right by 1 (sign preserved)",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD2 /7",
+          "form": "SAR r/m8, CL",
+          "description": "Arithmetic shift r/m8 right by CL",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD3 /7",
+          "form": "SAR r/m16, CL",
+          "description": "Arithmetic shift r/m16 right by CL",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xC0 /7",
+          "form": "SAR r/m8, imm8",
+          "description": "Arithmetic shift r/m8 right by imm8 (80186+)",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        },
+        {
+          "hex": "0xC1 /7",
+          "form": "SAR r/m16, imm8",
+          "description": "Arithmetic shift r/m16 right by imm8 (80186+)",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        }
+      ],
+      "description": "Arithmetic right shift; sign bit preserved (MSB replicated).",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "ROL",
+      "sasm_phrase": "rotate left <dst> by <n>",
+      "category": "shift_and_rotate",
+      "operands": "dst, count",
+      "opcodes": [
+        {
+          "hex": "0xD0 /0",
+          "form": "ROL r/m8, 1",
+          "description": "Rotate r/m8 left by 1; MSB wraps to LSB and CF",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD1 /0",
+          "form": "ROL r/m16, 1",
+          "description": "Rotate r/m16 left by 1",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD2 /0",
+          "form": "ROL r/m8, CL",
+          "description": "Rotate r/m8 left by CL",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD3 /0",
+          "form": "ROL r/m16, CL",
+          "description": "Rotate r/m16 left by CL",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xC0 /0",
+          "form": "ROL r/m8, imm8",
+          "description": "Rotate r/m8 left by imm8 (80186+)",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        },
+        {
+          "hex": "0xC1 /0",
+          "form": "ROL r/m16, imm8",
+          "description": "Rotate r/m16 left by imm8 (80186+)",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        }
+      ],
+      "description": "Rotate bits left; MSB wraps to LSB and CF.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "ROR",
+      "sasm_phrase": "rotate right <dst> by <n>",
+      "category": "shift_and_rotate",
+      "operands": "dst, count",
+      "opcodes": [
+        {
+          "hex": "0xD0 /1",
+          "form": "ROR r/m8, 1",
+          "description": "Rotate r/m8 right by 1; LSB wraps to MSB and CF",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD1 /1",
+          "form": "ROR r/m16, 1",
+          "description": "Rotate r/m16 right by 1",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD2 /1",
+          "form": "ROR r/m8, CL",
+          "description": "Rotate r/m8 right by CL",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD3 /1",
+          "form": "ROR r/m16, CL",
+          "description": "Rotate r/m16 right by CL",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xC0 /1",
+          "form": "ROR r/m8, imm8",
+          "description": "Rotate r/m8 right by imm8 (80186+)",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        },
+        {
+          "hex": "0xC1 /1",
+          "form": "ROR r/m16, imm8",
+          "description": "Rotate r/m16 right by imm8 (80186+)",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        }
+      ],
+      "description": "Rotate bits right; LSB wraps to MSB and CF.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "RCL",
+      "sasm_phrase": "rotate left carry <dst> by <n>",
+      "category": "shift_and_rotate",
+      "operands": "dst, count",
+      "opcodes": [
+        {
+          "hex": "0xD0 /2",
+          "form": "RCL r/m8, 1",
+          "description": "Rotate r/m8 left through CF by 1",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD1 /2",
+          "form": "RCL r/m16, 1",
+          "description": "Rotate r/m16 left through CF by 1",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD2 /2",
+          "form": "RCL r/m8, CL",
+          "description": "Rotate r/m8 left through CF by CL",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD3 /2",
+          "form": "RCL r/m16, CL",
+          "description": "Rotate r/m16 left through CF by CL",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xC0 /2",
+          "form": "RCL r/m8, imm8",
+          "description": "Rotate r/m8 left through CF by imm8 (80186+)",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        },
+        {
+          "hex": "0xC1 /2",
+          "form": "RCL r/m16, imm8",
+          "description": "Rotate r/m16 left through CF by imm8 (80186+)",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        }
+      ],
+      "description": "Rotate left through Carry: like ROL but uses CF as an extra bit in the rotation.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "RCR",
+      "sasm_phrase": "rotate right carry <dst> by <n>",
+      "category": "shift_and_rotate",
+      "operands": "dst, count",
+      "opcodes": [
+        {
+          "hex": "0xD0 /3",
+          "form": "RCR r/m8, 1",
+          "description": "Rotate r/m8 right through CF by 1",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD1 /3",
+          "form": "RCR r/m16, 1",
+          "description": "Rotate r/m16 right through CF by 1",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD2 /3",
+          "form": "RCR r/m8, CL",
+          "description": "Rotate r/m8 right through CF by CL",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xD3 /3",
+          "form": "RCR r/m16, CL",
+          "description": "Rotate r/m16 right through CF by CL",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xC0 /3",
+          "form": "RCR r/m8, imm8",
+          "description": "Rotate r/m8 right through CF by imm8 (80186+)",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        },
+        {
+          "hex": "0xC1 /3",
+          "form": "RCR r/m16, imm8",
+          "description": "Rotate r/m16 right through CF by imm8 (80186+)",
+          "byte_length_min": 3,
+          "byte_length_max": 5
+        }
+      ],
+      "description": "Rotate right through Carry: like ROR but uses CF as an extra bit in the rotation.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "REP",
+      "sasm_phrase": "repeat <string-op>",
+      "category": "string",
+      "operands": "prefix",
+      "opcodes": [
+        {
+          "hex": "0xF3",
+          "form": "REP",
+          "description": "Repeat string operation CX/ECX/RCX times",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Repeat prefix: repeats the following string instruction CX times, decrementing CX each iteration.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "REPE",
+      "aliases": [
+        "REPZ"
+      ],
+      "sasm_phrase": "repeat while equal <string-op>",
+      "category": "string",
+      "operands": "prefix",
+      "opcodes": [
+        {
+          "hex": "0xF3",
+          "form": "REPE / REPZ",
+          "description": "Repeat string operation while CX!=0 and ZF=1; same prefix byte as REP",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Repeat while equal/zero: repeats while CX ≠ 0 and ZF = 1. Used with CMPS and SCAS.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Shares opcode 0xF3 with REP; semantics differ for CMPS/SCAS vs. MOVS/STOS."
+    },
+    {
+      "mnemonic": "REPNE",
+      "aliases": [
+        "REPNZ"
+      ],
+      "sasm_phrase": "repeat while not equal <string-op>",
+      "category": "string",
+      "operands": "prefix",
+      "opcodes": [
+        {
+          "hex": "0xF2",
+          "form": "REPNE / REPNZ",
+          "description": "Repeat string operation while CX!=0 and ZF=0",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Repeat while not equal/not zero: repeats while CX ≠ 0 and ZF = 0. Used with CMPS and SCAS.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "MOVSB",
+      "aliases": [
+        "MOVS",
+        "MOVSW"
+      ],
+      "sasm_phrase": "copy string byte / copy string word / copy string",
+      "category": "string",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0xA4",
+          "form": "MOVSB",
+          "description": "Copy byte from [DS:SI] to [ES:DI]; advance SI and DI",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        },
+        {
+          "hex": "0xA5",
+          "form": "MOVSW",
+          "description": "Copy word from [DS:SI] to [ES:DI]; advance SI and DI by 2",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Copies a byte or word from [DS:SI] to [ES:DI] and updates SI and DI (direction determined by DF).",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "0xA5 also encodes MOVSD (dword) in 32-bit mode and MOVSQ (qword) in 64-bit mode with REX.W."
+    },
+    {
+      "mnemonic": "CMPSB",
+      "aliases": [
+        "CMPS",
+        "CMPSW"
+      ],
+      "sasm_phrase": "compare strings byte / compare strings word / compare strings",
+      "category": "string",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0xA6",
+          "form": "CMPSB",
+          "description": "Compare byte at [DS:SI] with [ES:DI]; advance SI and DI",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        },
+        {
+          "hex": "0xA7",
+          "form": "CMPSW",
+          "description": "Compare word at [DS:SI] with [ES:DI]; advance SI and DI by 2",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Compares a byte or word at [DS:SI] with [ES:DI] and updates SI and DI. Sets FLAGS without storing a result.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "0xA7 also encodes CMPSD (dword) in 32-bit mode and CMPSQ (qword) in 64-bit mode with REX.W."
+    },
+    {
+      "mnemonic": "SCASB",
+      "aliases": [
+        "SCAS",
+        "SCASW"
+      ],
+      "sasm_phrase": "scan string byte / scan string word / scan string",
+      "category": "string",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0xAE",
+          "form": "SCASB",
+          "description": "Scan: compare AL with byte at [ES:DI]; advance DI",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        },
+        {
+          "hex": "0xAF",
+          "form": "SCASW",
+          "description": "Scan: compare AX with word at [ES:DI]; advance DI by 2",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Scans a byte or word at [ES:DI] against AL or AX; updates DI. Used to search memory for a value.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "0xAF also encodes SCASD (dword) in 32-bit mode and SCASQ (qword) in 64-bit mode with REX.W."
+    },
+    {
+      "mnemonic": "LODSB",
+      "aliases": [
+        "LODS",
+        "LODSW"
+      ],
+      "sasm_phrase": "load string byte / load string word / load string",
+      "category": "string",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0xAC",
+          "form": "LODSB",
+          "description": "Load byte from [DS:SI] into AL; advance SI",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        },
+        {
+          "hex": "0xAD",
+          "form": "LODSW",
+          "description": "Load word from [DS:SI] into AX; advance SI by 2",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Loads a byte or word from [DS:SI] into AL or AX and updates SI.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "0xAD also encodes LODSD (dword) in 32-bit mode and LODSQ (qword) in 64-bit mode with REX.W."
+    },
+    {
+      "mnemonic": "STOSB",
+      "aliases": [
+        "STOS",
+        "STOSW"
+      ],
+      "sasm_phrase": "store string byte / store string word / store string",
+      "category": "string",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0xAA",
+          "form": "STOSB",
+          "description": "Store AL into byte at [ES:DI]; advance DI",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        },
+        {
+          "hex": "0xAB",
+          "form": "STOSW",
+          "description": "Store AX into word at [ES:DI]; advance DI by 2",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Stores AL or AX into [ES:DI] and updates DI. Used with REP to fill a memory block.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "0xAB also encodes STOSD (dword) in 32-bit mode and STOSQ (qword) in 64-bit mode with REX.W."
+    },
+    {
+      "mnemonic": "JMP",
+      "sasm_phrase": "goto <label>",
+      "category": "control_transfer",
+      "operands": "label/reg/mem",
+      "opcodes": [
+        {
+          "hex": "0xEB",
+          "form": "JMP rel8",
+          "description": "Short jump: IP += sign-extended imm8",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0xE9",
+          "form": "JMP rel16",
+          "description": "Near jump: IP += sign-extended imm16",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        },
+        {
+          "hex": "0xFF /4",
+          "form": "JMP r/m16",
+          "description": "Near indirect jump through r/m16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0xEA",
+          "form": "JMP ptr16:16",
+          "description": "Far jump (seg:off) — not valid in 64-bit mode",
+          "byte_length_min": 5,
+          "byte_length_max": 5
+        },
+        {
+          "hex": "0xFF /5",
+          "form": "JMP m16:16",
+          "description": "Far indirect jump through memory — not valid in 64-bit mode",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
+      ],
+      "description": "Unconditional jump to the target address (short, near, or far).",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Far forms 0xEA are not encodable in 64-bit long mode."
+    },
+    {
+      "mnemonic": "CALL",
+      "sasm_phrase": "call <label>",
+      "category": "control_transfer",
+      "operands": "label/reg/mem",
+      "opcodes": [
+        {
+          "hex": "0xE8",
+          "form": "CALL rel16",
+          "description": "Near call: push IP, IP += sign-extended imm16",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        },
+        {
+          "hex": "0xFF /2",
+          "form": "CALL r/m16",
+          "description": "Near indirect call through r/m16",
+          "byte_length_min": 2,
+          "byte_length_max": 4
+        },
+        {
+          "hex": "0x9A",
+          "form": "CALL ptr16:16",
+          "description": "Far call (seg:off) — not valid in 64-bit mode",
+          "byte_length_min": 5,
+          "byte_length_max": 5
+        },
+        {
+          "hex": "0xFF /3",
+          "form": "CALL m16:16",
+          "description": "Far indirect call through memory",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
+      ],
+      "description": "Pushes the return address (IP or CS:IP) onto the stack and jumps to the target (near or far call).",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Far call form 0x9A is not valid in 64-bit long mode."
+    },
+    {
+      "mnemonic": "RET",
+      "aliases": [
+        "RETN"
+      ],
+      "sasm_phrase": "return",
+      "category": "control_transfer",
+      "operands": "[imm16]",
+      "opcodes": [
+        {
+          "hex": "0xC3",
+          "form": "RET",
+          "description": "Near return: pop IP from stack",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        },
+        {
+          "hex": "0xC2",
+          "form": "RET imm16",
+          "description": "Near return and pop imm16 bytes from stack",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        }
+      ],
+      "description": "Returns from a near call: pops IP from the stack. Optional immediate pops additional bytes from the stack.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "RETF",
+      "sasm_phrase": "far return",
+      "category": "control_transfer",
+      "operands": "[imm16]",
+      "opcodes": [
+        {
+          "hex": "0xCB",
+          "form": "RETF",
+          "description": "Far return: pop IP then CS from stack",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        },
+        {
+          "hex": "0xCA",
+          "form": "RETF imm16",
+          "description": "Far return and pop imm16 bytes",
+          "byte_length_min": 3,
+          "byte_length_max": 3
+        }
+      ],
+      "description": "Returns from a far call: pops IP then CS from the stack.",
+      "introduced": "8086",
+      "status": "rarely_used",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Rarely used in modern flat-memory OSes; segmentation is largely unused."
+    },
+    {
+      "mnemonic": "JE",
+      "aliases": [
+        "JZ"
+      ],
+      "sasm_phrase": "goto <label> if equal / if equal { }",
+      "category": "conditional_jump",
+      "operands": "label",
+      "condition": "ZF = 1",
+      "opcodes": [
+        {
+          "hex": "0x74",
+          "form": "JE rel8",
+          "description": "Short jump if equal (ZF=1)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x0F 0x84",
+          "form": "JE rel16",
+          "description": "Near jump if equal (ZF=1)",
+          "byte_length_min": 4,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Jump if Equal / Zero (ZF = 1).",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "JNE",
+      "aliases": [
+        "JNZ"
+      ],
+      "sasm_phrase": "goto <label> if not equal / if not equal { }",
+      "category": "conditional_jump",
+      "operands": "label",
+      "condition": "ZF = 0",
+      "opcodes": [
+        {
+          "hex": "0x75",
+          "form": "JNE rel8",
+          "description": "Short jump if not equal (ZF=0)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x0F 0x85",
+          "form": "JNE rel16",
+          "description": "Near jump if not equal (ZF=0)",
+          "byte_length_min": 4,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Jump if Not Equal / Not Zero (ZF = 0).",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "JA",
+      "aliases": [
+        "JNBE"
+      ],
+      "sasm_phrase": "goto <label> if above / if above { }",
+      "category": "conditional_jump",
+      "operands": "label",
+      "condition": "CF=0 and ZF=0",
+      "opcodes": [
+        {
+          "hex": "0x77",
+          "form": "JA rel8",
+          "description": "Short jump if above unsigned (CF=0 and ZF=0)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x0F 0x87",
+          "form": "JA rel16",
+          "description": "Near jump if above unsigned",
+          "byte_length_min": 4,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Jump if Above (unsigned greater than): CF = 0 and ZF = 0.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "JAE",
+      "aliases": [
+        "JNB",
+        "JNC"
+      ],
+      "sasm_phrase": "goto <label> if above or equal / if above or equal { }",
+      "category": "conditional_jump",
+      "operands": "label",
+      "condition": "CF = 0",
+      "opcodes": [
+        {
+          "hex": "0x73",
+          "form": "JAE rel8",
+          "description": "Short jump if above or equal unsigned (CF=0)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x0F 0x83",
+          "form": "JAE rel16",
+          "description": "Near jump if above or equal unsigned",
+          "byte_length_min": 4,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Jump if Above or Equal / No Carry (unsigned ≥): CF = 0.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "JB",
+      "aliases": [
+        "JNAE",
+        "JC"
+      ],
+      "sasm_phrase": "goto <label> if below / if below { }",
+      "category": "conditional_jump",
+      "operands": "label",
+      "condition": "CF = 1",
+      "opcodes": [
+        {
+          "hex": "0x72",
+          "form": "JB rel8",
+          "description": "Short jump if below unsigned (CF=1)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x0F 0x82",
+          "form": "JB rel16",
+          "description": "Near jump if below unsigned",
+          "byte_length_min": 4,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Jump if Below / Carry (unsigned less than): CF = 1.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "JBE",
+      "aliases": [
+        "JNA"
+      ],
+      "sasm_phrase": "goto <label> if below or equal / if below or equal { }",
+      "category": "conditional_jump",
+      "operands": "label",
+      "condition": "CF=1 or ZF=1",
+      "opcodes": [
+        {
+          "hex": "0x76",
+          "form": "JBE rel8",
+          "description": "Short jump if below or equal unsigned (CF=1 or ZF=1)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x0F 0x86",
+          "form": "JBE rel16",
+          "description": "Near jump if below or equal unsigned",
+          "byte_length_min": 4,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Jump if Below or Equal (unsigned ≤): CF = 1 or ZF = 1.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "JG",
+      "aliases": [
+        "JNLE"
+      ],
+      "sasm_phrase": "goto <label> if greater / if greater { }",
+      "category": "conditional_jump",
+      "operands": "label",
+      "condition": "ZF=0 and SF=OF",
+      "opcodes": [
+        {
+          "hex": "0x7F",
+          "form": "JG rel8",
+          "description": "Short jump if greater signed (ZF=0 and SF=OF)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x0F 0x8F",
+          "form": "JG rel16",
+          "description": "Near jump if greater signed",
+          "byte_length_min": 4,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Jump if Greater (signed greater than): ZF = 0 and SF = OF.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "JGE",
+      "aliases": [
+        "JNL"
+      ],
+      "sasm_phrase": "goto <label> if greater or equal / if greater or equal { }",
+      "category": "conditional_jump",
+      "operands": "label",
+      "condition": "SF = OF",
+      "opcodes": [
+        {
+          "hex": "0x7D",
+          "form": "JGE rel8",
+          "description": "Short jump if greater or equal signed (SF=OF)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x0F 0x8D",
+          "form": "JGE rel16",
+          "description": "Near jump if greater or equal signed",
+          "byte_length_min": 4,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Jump if Greater or Equal (signed ≥): SF = OF.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "JL",
+      "aliases": [
+        "JNGE"
+      ],
+      "sasm_phrase": "goto <label> if less / if less { }",
+      "category": "conditional_jump",
+      "operands": "label",
+      "condition": "SF != OF",
+      "opcodes": [
+        {
+          "hex": "0x7C",
+          "form": "JL rel8",
+          "description": "Short jump if less signed (SF!=OF)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x0F 0x8C",
+          "form": "JL rel16",
+          "description": "Near jump if less signed",
+          "byte_length_min": 4,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Jump if Less (signed less than): SF ≠ OF.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "JLE",
+      "aliases": [
+        "JNG"
+      ],
+      "sasm_phrase": "goto <label> if less or equal / if less or equal { }",
+      "category": "conditional_jump",
+      "operands": "label",
+      "condition": "ZF=1 or SF!=OF",
+      "opcodes": [
+        {
+          "hex": "0x7E",
+          "form": "JLE rel8",
+          "description": "Short jump if less or equal signed (ZF=1 or SF!=OF)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x0F 0x8E",
+          "form": "JLE rel16",
+          "description": "Near jump if less or equal signed",
+          "byte_length_min": 4,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Jump if Less or Equal (signed ≤): ZF = 1 or SF ≠ OF.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "JO",
+      "sasm_phrase": "goto <label> if overflow / if overflow { }",
+      "category": "conditional_jump",
+      "operands": "label",
+      "condition": "OF = 1",
+      "opcodes": [
+        {
+          "hex": "0x70",
+          "form": "JO rel8",
+          "description": "Short jump if overflow (OF=1)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x0F 0x80",
+          "form": "JO rel16",
+          "description": "Near jump if overflow",
+          "byte_length_min": 4,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Jump if Overflow: OF = 1.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "JNO",
+      "sasm_phrase": "goto <label> if no overflow / if no overflow { }",
+      "category": "conditional_jump",
+      "operands": "label",
+      "condition": "OF = 0",
+      "opcodes": [
+        {
+          "hex": "0x71",
+          "form": "JNO rel8",
+          "description": "Short jump if no overflow (OF=0)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x0F 0x81",
+          "form": "JNO rel16",
+          "description": "Near jump if no overflow",
+          "byte_length_min": 4,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Jump if No Overflow: OF = 0.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "JS",
+      "sasm_phrase": "goto <label> if negative / if negative { }",
+      "category": "conditional_jump",
+      "operands": "label",
+      "condition": "SF = 1",
+      "opcodes": [
+        {
+          "hex": "0x78",
+          "form": "JS rel8",
+          "description": "Short jump if sign/negative (SF=1)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x0F 0x88",
+          "form": "JS rel16",
+          "description": "Near jump if sign/negative",
+          "byte_length_min": 4,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Jump if Sign (negative): SF = 1.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "JNS",
+      "sasm_phrase": "goto <label> if positive / if positive { }",
+      "category": "conditional_jump",
+      "operands": "label",
+      "condition": "SF = 0",
+      "opcodes": [
+        {
+          "hex": "0x79",
+          "form": "JNS rel8",
+          "description": "Short jump if no sign/non-negative (SF=0)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x0F 0x89",
+          "form": "JNS rel16",
+          "description": "Near jump if no sign/non-negative",
+          "byte_length_min": 4,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Jump if No Sign (non-negative): SF = 0.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "JP",
+      "aliases": [
+        "JPE"
+      ],
+      "sasm_phrase": "goto <label> if parity even / if parity even { }",
+      "category": "conditional_jump",
+      "operands": "label",
+      "condition": "PF = 1",
+      "opcodes": [
+        {
+          "hex": "0x7A",
+          "form": "JP rel8",
+          "description": "Short jump if parity even (PF=1)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x0F 0x8A",
+          "form": "JP rel16",
+          "description": "Near jump if parity even",
+          "byte_length_min": 4,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Jump if Parity / Parity Even: PF = 1.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "JNP",
+      "aliases": [
+        "JPO"
+      ],
+      "sasm_phrase": "goto <label> if parity odd / if parity odd { }",
+      "category": "conditional_jump",
+      "operands": "label",
+      "condition": "PF = 0",
+      "opcodes": [
+        {
+          "hex": "0x7B",
+          "form": "JNP rel8",
+          "description": "Short jump if parity odd (PF=0)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        },
+        {
+          "hex": "0x0F 0x8B",
+          "form": "JNP rel16",
+          "description": "Near jump if parity odd",
+          "byte_length_min": 4,
+          "byte_length_max": 4
+        }
+      ],
+      "description": "Jump if No Parity / Parity Odd: PF = 0.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "JCXZ",
+      "sasm_phrase": "goto <label> if cx zero",
+      "category": "conditional_jump",
+      "operands": "label",
+      "condition": "CX = 0",
+      "opcodes": [
+        {
+          "hex": "0xE3",
+          "form": "JCXZ rel8",
+          "description": "Short jump if CX=0; in 32-bit mode JECXZ (ECX=0); in 64-bit mode JRCXZ (RCX=0)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
+      ],
+      "description": "Jump if CX is Zero (flag-free test). In 32-bit: JECXZ. In 64-bit: JRCXZ.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Short jump only. Same opcode 0xE3; register tested (CX/ECX/RCX) depends on address-size prefix."
+    },
+    {
+      "mnemonic": "LOOP",
+      "sasm_phrase": "repeat cx times { }",
+      "category": "loop",
+      "operands": "label",
+      "opcodes": [
+        {
+          "hex": "0xE2",
+          "form": "LOOP rel8",
+          "description": "Decrement CX; short jump if CX != 0",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
+      ],
+      "description": "Decrements CX; jumps to the short label if CX ≠ 0.",
+      "introduced": "8086",
+      "status": "rarely_used",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Compilers prefer DEC + JNZ for performance on modern CPUs."
+    },
+    {
+      "mnemonic": "LOOPE",
+      "aliases": [
+        "LOOPZ"
+      ],
+      "sasm_phrase": "repeat cx times while equal { }",
+      "category": "loop",
+      "operands": "label",
+      "opcodes": [
+        {
+          "hex": "0xE1",
+          "form": "LOOPE rel8",
+          "description": "Decrement CX; short jump if CX!=0 and ZF=1",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
+      ],
+      "description": "Decrements CX; jumps if CX ≠ 0 and ZF = 1.",
+      "introduced": "8086",
+      "status": "rarely_used",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "LOOPNE",
+      "aliases": [
+        "LOOPNZ"
+      ],
+      "sasm_phrase": "repeat cx times while not equal { }",
+      "category": "loop",
+      "operands": "label",
+      "opcodes": [
+        {
+          "hex": "0xE0",
+          "form": "LOOPNE rel8",
+          "description": "Decrement CX; short jump if CX!=0 and ZF=0",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
+      ],
+      "description": "Decrements CX; jumps if CX ≠ 0 and ZF = 0.",
+      "introduced": "8086",
+      "status": "rarely_used",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "INT",
+      "sasm_phrase": "interrupt <n>",
+      "category": "interrupt",
+      "operands": "n",
+      "opcodes": [
+        {
+          "hex": "0xCC",
+          "form": "INT 3",
+          "description": "Breakpoint interrupt (1-byte special encoding)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        },
+        {
+          "hex": "0xCD",
+          "form": "INT imm8",
+          "description": "Software interrupt: push FLAGS, CS, IP; jump to vector n",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
+      ],
+      "description": "Software interrupt: pushes FLAGS, CS, and IP, then jumps to the interrupt vector n.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "INTO",
+      "sasm_phrase": "interrupt on overflow",
+      "category": "interrupt",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0xCE",
+          "form": "INTO",
+          "description": "Generate INT 4 if OF=1",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Interrupt on Overflow: generates INT 4 if OF = 1.",
+      "introduced": "8086",
+      "status": "removed_in_64bit",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": false,
+      "notes": "Opcode 0xCE reassigned in 64-bit long mode."
+    },
+    {
+      "mnemonic": "IRET",
+      "sasm_phrase": "return from interrupt",
+      "category": "interrupt",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0xCF",
+          "form": "IRET",
+          "description": "Interrupt return: pop IP, CS, FLAGS from stack; in 32-bit: IRETD; in 64-bit: IRETQ",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Interrupt Return: pops IP, CS, and FLAGS from the stack. Returns from an interrupt handler.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "In 32-bit mode: IRETD. In 64-bit mode with REX.W: IRETQ (pops 40 bytes)."
+    },
+    {
+      "mnemonic": "CLC",
+      "sasm_phrase": "clear carry",
+      "category": "flag_control",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0xF8",
+          "form": "CLC",
+          "description": "Clear Carry Flag: CF = 0",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Clear Carry Flag: sets CF = 0.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "STC",
+      "sasm_phrase": "set carry",
+      "category": "flag_control",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0xF9",
+          "form": "STC",
+          "description": "Set Carry Flag: CF = 1",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Set Carry Flag: sets CF = 1.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "CMC",
+      "sasm_phrase": "flip carry",
+      "category": "flag_control",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0xF5",
+          "form": "CMC",
+          "description": "Complement Carry Flag: CF = ~CF",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Complement Carry Flag: inverts CF.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "CLD",
+      "sasm_phrase": "clear direction",
+      "category": "flag_control",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0xFC",
+          "form": "CLD",
+          "description": "Clear Direction Flag: DF = 0 (string ops auto-increment SI/DI)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Clear Direction Flag: sets DF = 0 so string operations auto-increment SI/DI.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "STD",
+      "sasm_phrase": "set direction",
+      "category": "flag_control",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0xFD",
+          "form": "STD",
+          "description": "Set Direction Flag: DF = 1 (string ops auto-decrement SI/DI)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Set Direction Flag: sets DF = 1 so string operations auto-decrement SI/DI.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "CLI",
+      "sasm_phrase": "disable interrupts",
+      "category": "flag_control",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0xFA",
+          "form": "CLI",
+          "description": "Clear Interrupt Flag: IF = 0 (disable maskable hardware interrupts)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Clear Interrupt Flag: disables maskable hardware interrupts (IF = 0). Requires privilege.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Requires ring-0 in protected/long mode."
+    },
+    {
+      "mnemonic": "STI",
+      "sasm_phrase": "enable interrupts",
+      "category": "flag_control",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0xFB",
+          "form": "STI",
+          "description": "Set Interrupt Flag: IF = 1 (enable maskable hardware interrupts)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Set Interrupt Flag: enables maskable hardware interrupts (IF = 1). Requires privilege.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Requires ring-0 in protected/long mode."
+    },
+    {
+      "mnemonic": "NOP",
+      "sasm_phrase": "no op",
+      "category": "processor_control",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0x90",
+          "form": "NOP",
+          "description": "No operation (encoded as XCHG AX, AX on 8086)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "No Operation: does nothing for one bus cycle. Often used for padding, timing, or pipeline alignment.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Multi-byte NOP forms available (0x0F 0x1F + ModRM) from P6 onward for alignment padding."
+    },
+    {
+      "mnemonic": "HLT",
+      "sasm_phrase": "halt",
+      "category": "processor_control",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0xF4",
+          "form": "HLT",
+          "description": "Halt: suspend until next interrupt or reset",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Halt: stops instruction execution until a hardware interrupt or reset occurs. Requires privilege (ring-0).",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Requires ring-0."
+    },
+    {
+      "mnemonic": "WAIT",
+      "aliases": [
+        "FWAIT"
+      ],
+      "sasm_phrase": "wait for coprocessor",
+      "category": "processor_control",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0x9B",
+          "form": "WAIT / FWAIT",
+          "description": "Wait until FPU not busy (TEST pin asserted)",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Wait: suspends CPU execution until the FPU (8087) signals completion via the TEST pin.",
+      "introduced": "8086",
+      "status": "rarely_used",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Modern CPUs integrate the FPU; synchronization is handled internally."
+    },
+    {
+      "mnemonic": "LOCK",
+      "sasm_phrase": "atomic { <op> }",
+      "category": "processor_control",
+      "operands": "prefix",
+      "opcodes": [
+        {
+          "hex": "0xF0",
+          "form": "LOCK",
+          "description": "Assert LOCK# bus signal for the following memory-modifying instruction",
+          "byte_length_min": 1,
+          "byte_length_max": 1
+        }
+      ],
+      "description": "Prefix that asserts the bus LOCK# signal for the duration of the following memory-modifying instruction, ensuring atomicity.",
+      "introduced": "8086",
+      "status": "still_in_use",
+      "available_16bit": true,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Valid with XCHG, ADD, ADC, SUB, SBB, AND, OR, XOR, NOT, NEG, INC, DEC, BTS, BTR, BTC, CMPXCHG, CMPXCHG8B, XADD."
+    }
+  ]
+}

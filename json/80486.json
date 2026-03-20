@@ -1,0 +1,151 @@
+{
+  "processor": "80486",
+  "description": "Intel 80486 instruction additions. The 80486 integrated an on-chip FPU and cache controller and added byte-swap, compare-and-exchange, and cache-control instructions.",
+  "source_reference": "doc/instruction_8086.md",
+  "instructions": [
+    {
+      "mnemonic": "BSWAP",
+      "sasm_phrase": "swap bytes of <reg>",
+      "category": "data_transfer",
+      "operands": "reg",
+      "opcodes": [
+        {
+          "hex": "0x0F 0xC8+rd",
+          "form": "BSWAP r32",
+          "description": "Reverse byte order of 32-bit register: byte[3]↔byte[0], byte[2]↔byte[1]",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
+      ],
+      "description": "Reverses the byte order of a 32-bit (or 64-bit with REX.W) register for endian conversion.",
+      "introduced": "80486",
+      "status": "still_in_use",
+      "available_16bit": false,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Opcodes 0x0F 0xC8–0x0F 0xCF encode BSWAP for each of the 8 registers (rd = register number 0–7). With REX.W, operates on 64-bit register."
+    },
+    {
+      "mnemonic": "XADD",
+      "sasm_phrase": "exchange and add <dst>, <src>",
+      "category": "data_transfer",
+      "operands": "dst, src",
+      "opcodes": [
+        {
+          "hex": "0x0F 0xC0",
+          "form": "XADD r/m8, r8",
+          "description": "Exchange r8 with r/m8, then store sum in r/m8; src receives original dst",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        },
+        {
+          "hex": "0x0F 0xC1",
+          "form": "XADD r/m16/32, r16/32",
+          "description": "Exchange r16/32 with r/m16/32, then store sum in r/m16/32",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
+      ],
+      "description": "Exchange and Add: exchanges dst and src, then stores the sum into dst. Used for atomic increment with LOCK prefix.",
+      "introduced": "80486",
+      "status": "still_in_use",
+      "available_16bit": false,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "CMPXCHG",
+      "sasm_phrase": "compare and swap <mem>, <reg>",
+      "category": "data_transfer",
+      "operands": "mem/reg, reg",
+      "opcodes": [
+        {
+          "hex": "0x0F 0xB0",
+          "form": "CMPXCHG r/m8, r8",
+          "description": "Compare AL with r/m8; if equal store r8 in r/m8, else load r/m8 into AL",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        },
+        {
+          "hex": "0x0F 0xB1",
+          "form": "CMPXCHG r/m16/32, r16/32",
+          "description": "Compare AX/EAX with r/m16/32; if equal store r16/32 in r/m16/32, else load into AX/EAX",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
+      ],
+      "description": "Compares AL/AX/EAX with the destination; if equal, stores the source register; otherwise loads the destination into AL/AX/EAX. Used for lock-free synchronization.",
+      "introduced": "80486",
+      "status": "still_in_use",
+      "available_16bit": false,
+      "available_32bit": true,
+      "available_64bit": true
+    },
+    {
+      "mnemonic": "INVD",
+      "sasm_phrase": "invalidate cache",
+      "category": "processor_control",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0x0F 0x08",
+          "form": "INVD",
+          "description": "Invalidate internal caches without writing back to memory (data loss possible)",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
+      ],
+      "description": "Invalidate Internal Caches: flushes internal caches without writing back to memory. Requires ring-0.",
+      "introduced": "80486",
+      "status": "rarely_used",
+      "available_16bit": false,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Requires ring-0. WBINVD is preferred to avoid data loss."
+    },
+    {
+      "mnemonic": "WBINVD",
+      "sasm_phrase": "flush cache",
+      "category": "processor_control",
+      "operands": "—",
+      "opcodes": [
+        {
+          "hex": "0x0F 0x09",
+          "form": "WBINVD",
+          "description": "Write back all modified cache lines to memory, then flush all caches",
+          "byte_length_min": 2,
+          "byte_length_max": 2
+        }
+      ],
+      "description": "Write Back and Invalidate Cache: writes back all modified cache lines to memory, then flushes all caches. Requires ring-0.",
+      "introduced": "80486",
+      "status": "still_in_use",
+      "available_16bit": false,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Requires ring-0."
+    },
+    {
+      "mnemonic": "INVLPG",
+      "sasm_phrase": "invalidate page <addr>",
+      "category": "processor_control",
+      "operands": "mem",
+      "opcodes": [
+        {
+          "hex": "0x0F 0x01 /7",
+          "form": "INVLPG m",
+          "description": "Invalidate TLB entry for the virtual address in the memory operand",
+          "byte_length_min": 3,
+          "byte_length_max": 8
+        }
+      ],
+      "description": "Invalidate TLB Entry: invalidates the TLB entry for the specified virtual address. Requires ring-0.",
+      "introduced": "80486",
+      "status": "still_in_use",
+      "available_16bit": false,
+      "available_32bit": true,
+      "available_64bit": true,
+      "notes": "Requires ring-0."
+    }
+  ]
+}

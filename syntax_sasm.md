@@ -11,17 +11,20 @@
 3. [Memory References](#memory-references)
 4. [Code Block Structure](#code-block-structure)
 5. [Named Blocks and Parameter Passing](#named-blocks-and-parameter-passing)
-6. [Data Transfer](#data-transfer)
-7. [Arithmetic](#arithmetic)
-8. [Logical](#logical)
-9. [Shift and Rotate](#shift-and-rotate)
-10. [String Operations](#string-operations)
-11. [Control Transfer](#control-transfer)
-12. [Flag Control](#flag-control)
-13. [Processor Control](#processor-control)
-14. [Full Examples](#full-examples)
+6. [Data Declarations](#data-declarations)
+7. [Data Transfer](#data-transfer)
+8. [Arithmetic](#arithmetic)
+9. [Logical](#logical)
+10. [Shift and Rotate](#shift-and-rotate)
+11. [String Operations](#string-operations)
+12. [Control Transfer](#control-transfer)
+13. [Flag Control](#flag-control)
+14. [Processor Control](#processor-control)
+15. [x86-64 Considerations](#x86-64-64-bit-considerations)
+16. [Full Examples](#full-examples)
 
-> **See also:** [`doc/instruction_8086.md`](doc/instruction_8086.md) — comprehensive Intel 8086 instruction set reference with status, operands, and compatibility notes.
+> **See also:** [`doc/instruction_8086.md`](doc/instruction_8086.md) — comprehensive Intel 8086 instruction set reference with status, operands, and compatibility notes.  
+> **See also:** [`doc/instruction_x86_64.md`](doc/instruction_x86_64.md) — x86-64 (64-bit) instruction set reference: new registers, new instructions, and removed instructions.
 
 ---
 
@@ -68,7 +71,30 @@ SASM uses the same register names as x86 assembly, written in lowercase.
 
 ### 64-bit Extended (x86-64)
 
-`rax`, `rbx`, `rcx`, `rdx`, `rsi`, `rdi`, `rsp`, `rbp`, `r8`–`r15`
+The eight classic registers are extended to 64 bits and eight new general-purpose registers are added.
+
+| 64-bit | 32-bit low | 16-bit low | 8-bit low | 8-bit high | Common use |
+|--------|-----------|-----------|----------|-----------|------------|
+| `rax`  | `eax`  | `ax`  | `al`  | `ah`  | Return value, accumulator |
+| `rbx`  | `ebx`  | `bx`  | `bl`  | `bh`  | Callee-saved base pointer |
+| `rcx`  | `ecx`  | `cx`  | `cl`  | `ch`  | 4th arg (Windows), loop counter |
+| `rdx`  | `edx`  | `dx`  | `dl`  | `dh`  | 3rd arg (Windows), high word of mul/div |
+| `rsi`  | `esi`  | `si`  | `sil` | —     | 2nd arg (System V), source index |
+| `rdi`  | `edi`  | `di`  | `dil` | —     | 1st arg (System V), destination index |
+| `rsp`  | `esp`  | `sp`  | `spl` | —     | Stack pointer |
+| `rbp`  | `ebp`  | `bp`  | `bpl` | —     | Frame base pointer |
+| `r8`   | `r8d`  | `r8w` | `r8b` | —     | 5th arg (both ABIs) |
+| `r9`   | `r9d`  | `r9w` | `r9b` | —     | 6th arg (both ABIs) |
+| `r10`  | `r10d` | `r10w`| `r10b`| —     | Scratch / syscall number (Linux) |
+| `r11`  | `r11d` | `r11w`| `r11b`| —     | Scratch / FLAGS saved by SYSCALL |
+| `r12`  | `r12d` | `r12w`| `r12b`| —     | Callee-saved |
+| `r13`  | `r13d` | `r13w`| `r13b`| —     | Callee-saved |
+| `r14`  | `r14d` | `r14w`| `r14b`| —     | Callee-saved |
+| `r15`  | `r15d` | `r15w`| `r15b`| —     | Callee-saved |
+
+The instruction pointer is exposed as `rip` (read-only for RIP-relative addressing; see [Memory References](#memory-references)).
+
+Writing a 32-bit sub-register (e.g., `eax`, `r8d`) **zero-extends** the result into the full 64-bit register. Writing an 8-bit or 16-bit sub-register does **not** zero-extend (upper bits are preserved), matching 8086/32-bit behaviour.
 
 ### Segment Registers
 
@@ -85,11 +111,26 @@ Memory operands use square brackets with an optional size qualifier.
 byte [bx]             ; force 8-bit access
 word [bx]             ; force 16-bit access
 dword [ebx]           ; force 32-bit access
+qword [rbx]           ; force 64-bit access (x86-64 only)
 [bx + si]             ; base + index
 [bx + si + 4]         ; base + index + displacement
 [ds:bx]               ; explicit segment override
 [bp + 6]              ; stack-relative (local variable or parameter)
+[rbx + rcx*8]         ; scaled-index (SIB) — x86-64 / 32-bit; scale can be 1, 2, 4, or 8
+[rbx + rcx*8 + 16]    ; scaled-index with displacement
+[rip + 0]             ; RIP-relative: address = address of next instruction + displacement
 ```
+
+**Size qualifiers:**
+
+| Qualifier | Width | Notes |
+|-----------|-------|-------|
+| `byte`    | 8-bit  | `[bp-N]` for locals, `al`/`ah`/etc. for regs |
+| `word`    | 16-bit | Default in 16-bit mode |
+| `dword`   | 32-bit | 80386+; default in 32-bit mode |
+| `qword`   | 64-bit | x86-64 only; default in 64-bit mode for GP-register operands |
+
+**RIP-relative addressing** (x86-64): Using `[rip + offset]` generates a PC-relative memory reference. Assemblers and linkers typically encode global variable accesses as `[rip + symbol]` automatically in 64-bit code; in SASM you can name the variable directly and the compiler emits the appropriate RIP-relative encoding.
 
 ---
 
@@ -382,9 +423,156 @@ For typical 8086 subroutines pass ≤ 4 values — **prefer register-based param
 
 ---
 
+### Passing Arrays as Parameters
+
+Arrays in SASM (and in x86 assembly generally) are **always passed by pointer** — the caller passes the address of the first element, not a copy of the data. The callee then uses that pointer together with a length (element count) to traverse the array.
+
+#### Why pointers, not values
+
+An array may be arbitrarily large; pushing its raw bytes onto the stack would be impractical and would break the fixed-size slot model used by `proc uses stack`. Instead, the 16-bit segment offset of the array's first element fits in a single register or stack word and is all the callee needs.
+
+#### Passing a static array by pointer (register parameters)
+
+Load the address of a `data` array into a pointer register before the call and declare that register as `in` (or `in out` if the callee may update elements).
+
+```sasm
+data scores as byte[8]
+
+(* Fill every element of a byte array with a given value.
+   in  si as arr_ptr   — address of the first element
+   in  cx as length    — number of elements
+   in  al as fill_val  — value to write                  *)
+proc fill_byte ( in si as arr_ptr, in cx as length, in al as fill_val ) {
+    move 0 to bx                        ; bx = byte index
+    repeat cx times {
+        move fill_val to byte [arr_ptr + bx]
+        increment bx
+    }
+    return
+}
+
+; Caller — pass address of 'scores' in si:
+address of scores to si                 ; si = &scores[0]  (LEA SI, scores)
+move 8  to cx                           ; length = 8
+move 0  to al                           ; fill value = 0
+call fill_byte
+```
+
+*Equivalent ASM (caller side):*
+
+```asm
+    LEA  SI, scores     ; si = address of scores array
+    MOV  CX, 8
+    MOV  AL, 0
+    CALL fill_byte
+```
+
+#### Passing a local array by pointer (register parameters)
+
+Use `address of` to load the address of a local array variable into a register before passing it to another `proc`.
+
+```sasm
+proc process_local_buf {
+    var buf as byte[16]
+
+    (* Obtain the address of buf[0] and pass it to fill_byte. *)
+    address of buf to si                ; si = &buf[0]  (LEA SI, [BP-16])
+    move 16 to cx
+    move 0xFF to al
+    call fill_byte                      ; fills buf[0..15] with 0xFF
+}
+```
+
+*Equivalent ASM:*
+
+```asm
+process_local_buf:
+    PUSH BP
+    MOV  BP, SP
+    SUB  SP, 16         ; local array buf at [BP-16]..[BP-1]
+    LEA  SI, [BP-16]    ; si = &buf[0]
+    MOV  CX, 16
+    MOV  AL, 0FFh
+    CALL fill_byte
+    MOV  SP, BP
+    POP  BP
+    RET
+```
+
+#### Passing an array pointer via stack parameters
+
+Push the array address (and separately the length) onto the stack before the call.
+
+```sasm
+data table as word[4] = 10, 20, 30, 40
+
+(* Sum N words starting at arr_ptr; return total in ax.
+   Stack parameters (right-to-left push order):
+     arr_ptr — segment offset of the first word element
+     length  — number of word elements to sum              *)
+proc sum_words uses stack ( arr_ptr, length ) {
+    move arr_ptr to si
+    move length  to cx
+    move 0 to ax
+    move 0 to bx
+    repeat cx times {
+        add word [si + bx] to ax
+        add 2 to bx
+    }
+    return
+}
+
+; Caller — push length first (rightmost), then address:
+move 4 to cx
+push cx                                 ; length = 4
+address of table to si
+push si                                 ; arr_ptr = &table[0]
+call sum_words                          ; ax = 10+20+30+40 = 100
+add 4 to sp                             ; caller cleans 2 × 2-byte args
+```
+
+#### Returning an array pointer
+
+Declare the pointer register as `out` in the `proc` signature. The callee sets that register to the address of the array before returning.
+
+```sasm
+data result_buf as byte[64]
+
+(* Return the address of the module-level result buffer.
+   out si as buf_ptr — segment offset of result_buf[0]   *)
+proc get_result_buf ( out si as buf_ptr ) {
+    address of result_buf to buf_ptr    ; buf_ptr = &result_buf[0]
+    return
+}
+
+; Caller:
+call get_result_buf                     ; si = &result_buf[0]
+move 8 to cx
+move 0 to al
+call fill_byte                          ; zero the first 8 bytes
+```
+
+#### Convention summary
+
+| What to pass             | Register convention         | Stack convention                        |
+|--------------------------|-----------------------------|-----------------------------------------|
+| Array base address (in)  | `in si as arr_ptr`          | `push si` (after `address of arr to si`) |
+| Array length (in)        | `in cx as length`           | `push cx`                               |
+| Array base address (out) | `out si as arr_ptr`         | Return in a named register; not on stack |
+| Element type             | Implied by access size qualifier (`byte`/`word`/`dword`) | Same |
+
+**Rules:**
+
+* The callee receives a **pointer** (a 16-bit segment offset on 8086); it never owns a copy of the array data.
+* If the callee modifies array elements, declare the pointer register `in out` (register convention) or document the mutation clearly (stack convention).
+* When passing a **local** array's address, ensure the callee finishes using the pointer **before** the frame that owns the local is torn down (i.e., do not store the pointer past the owning `proc`'s return).
+* For far-pointer (segment:offset) arrays, use `load ds-ptr` / `load es-ptr` with a 32-bit memory operand to load segment and offset simultaneously.
+
+---
+
 ### Local Variables
 
-A `var` declaration reserves a named, stack-allocated local variable inside a `proc` or `block` body.
+A `var` declaration placed **inside** a `proc` or `block` body reserves a named, stack-allocated local variable scoped to that routine. When the same `var` keyword appears at module level (outside any routine), it declares a global static variable instead — see [Global Static Variables](#global-static-variables) in the Data Declarations section.
 
 **Syntax:**
 
@@ -402,9 +590,10 @@ The same form works inside a `block { }`.
 
 | Type | Size | Stack slot |
 |------|------|------------|
-| `byte` | 1 byte | `[bp-N]`, N advances by 1 |
-| `word` | 2 bytes | `[bp-N]`, N advances by 2 |
-| `dword` | 4 bytes | `[bp-N]`, N advances by 4 |
+| `byte`  | 1 byte  | `[bp-N]` / `[rbp-N]`, N advances by 1 |
+| `word`  | 2 bytes | `[bp-N]` / `[rbp-N]`, N advances by 2 |
+| `dword` | 4 bytes | `[bp-N]` / `[rbp-N]`, N advances by 4 |
+| `qword` | 8 bytes | `[rbp-N]`, N advances by 8 (x86-64 only) |
 
 **Rules:**
 
@@ -492,6 +681,316 @@ block checksum8 {
 
 ---
 
+## Data Declarations
+
+SASM provides three forms of named data declaration:
+
+| Declaration Form | Keyword | Scope | Storage |
+|------|---------|-------|---------|
+| Global static scalar | `var` (at module level) | Entire module | Data segment |
+| Global static array  | `data` (at module level) | Entire module | Data segment |
+| Local scalar or array | `var` (inside `proc`/`block`) | Owning routine | Stack frame |
+
+The same `var` keyword is used for both global static scalars and local stack variables; context determines which form is generated — **module level** produces a data-segment label, **inside a `proc` or `block` body** produces a stack slot.
+
+---
+
+### Global Static Variables
+
+A `var` declaration placed **outside** any `proc` or `block` body declares a **global static scalar variable** in the data segment. It is available for the entire lifetime of the program and is accessible by name from any code in the module.
+
+**Syntax:**
+
+```sasm
+var <name> as <type>               ; zero-initialized
+var <name> as <type> = <value>     ; initialized to a literal
+```
+
+**Supported types:**
+
+| Type keyword | Size | Assembly directive | Default value |
+|--------------|------|--------------------|---------------|
+| `byte`       | 1 byte  | `DB` | `0` |
+| `word`       | 2 bytes | `DW` | `0` |
+| `dword`      | 4 bytes | `DD` | `0` |
+| `qword`      | 8 bytes | `DQ` | `0` (x86-64) |
+
+**Zero-initialized scalars:**
+
+```sasm
+var counter as word             ; counter: DW 0
+var flag    as byte             ; flag:    DB 0
+var total   as dword            ; total:   DD 0
+var big     as qword            ; big:     DQ 0  (x86-64)
+```
+
+*Equivalent ASM:*
+
+```asm
+counter: DW 0
+flag:    DB 0
+total:   DD 0
+big:     DQ 0
+```
+
+**Initialized scalars:**
+
+```sasm
+var max_count  as word  = 100         ; max_count:  DW 100
+var error_code as byte  = 0xFF        ; error_code: DB 0FFh
+var base_addr  as dword = 0x00010000
+var huge_mask  as qword = 0xFFFFFFFF00000000   ; x86-64
+```
+
+*Equivalent ASM:*
+
+```asm
+max_count:  DW 100
+error_code: DB 0FFh
+base_addr:  DD 00010000h
+huge_mask:  DQ FFFFFFFF00000000h
+```
+
+**Accessing global static variables:**
+
+A global `var` name resolves directly to its data-segment address. Use it as a plain memory operand — no bracket arithmetic needed for scalars.
+
+```sasm
+; Write to a global variable:
+move 42 to counter              ; MOV [counter], 42 — stores 42 into the word
+move 0  to flag                 ; MOV [flag], 0
+
+; Read from a global variable:
+move counter to ax              ; MOV AX, [counter]
+move flag    to al              ; MOV AL, [flag]
+
+; Operate directly on a global variable:
+increment counter               ; INC [counter]
+add 1 to counter                ; ADD [counter], 1
+compare counter with max_count  ; CMP [counter], [max_count]
+```
+
+*Equivalent ASM:*
+
+```asm
+MOV  [counter],  42
+MOV  [flag],     0
+MOV  AX, [counter]
+MOV  AL, [flag]
+INC  [counter]
+ADD  [counter], 1
+CMP  [counter], [max_count]
+```
+
+**Rules:**
+
+* Module-level `var` declarations must appear **outside** any `proc` or `block` body — they are emitted as data-segment labels.
+* A module-level `var` declaration may appear before or after the `proc`/`block` definitions that use it; the assembler resolves names in a single pass.
+* The same `var` keyword inside a `proc` or `block` body declares a **stack-local** variable instead (see [Local Variables](#local-variables)).
+* The `= <value>` initializer must be a single integer literal (decimal, `0x` hex, `0b` binary, or character literal). For multi-element initialized storage, use `data` (see [Static Data Arrays](#static-data-arrays) later in this section).
+* Global scalars are **not** automatically saved/restored across calls; if a `proc` modifies a global, document that side effect in the `proc`'s comment header.
+
+**Example — global counter used across two procs:**
+
+```sasm
+var call_count as word = 0      ; module-level static: tracks invocations
+
+proc increment_and_get {
+    increment call_count        ; call_count++
+    move call_count to ax       ; return current count in ax
+}
+
+proc reset_count {
+    move 0 to call_count        ; call_count = 0
+}
+
+; Main sequence:
+call increment_and_get          ; ax = 1
+call increment_and_get          ; ax = 2
+call reset_count                ; call_count = 0
+call increment_and_get          ; ax = 1
+```
+
+*Equivalent ASM:*
+
+```asm
+call_count: DW 0
+
+increment_and_get:
+    INC  [call_count]
+    MOV  AX, [call_count]
+    RET
+
+reset_count:
+    MOV  WORD [call_count], 0
+    RET
+```
+
+---
+
+### Static Data Arrays
+
+A `data` declaration reserves a named array in the data segment. It must appear **outside** any `proc` or `block` body.
+
+**Syntax:**
+
+```sasm
+data <name> as <type>[<count>]                        ; zero-initialized array
+data <name> as <type> = <v1>, <v2>, ..., <vN>         ; initialized array (count inferred from list)
+```
+
+**Supported types:**
+
+| Type keyword | Element size | Assembly directive |
+|--------------|--------------|--------------------|
+| `byte`       | 1 byte       | `DB`               |
+| `word`       | 2 bytes      | `DW`               |
+| `dword`      | 4 bytes      | `DD`               |
+| `qword`      | 8 bytes      | `DQ` (x86-64)      |
+
+**Zero-initialized arrays** — element count is given in brackets; all elements start as zero:
+
+```sasm
+data buf    as byte[64]        ; 64 bytes, all zero
+data table  as word[16]        ; 16 words, all zero
+data coords as dword[4]        ; 4 dwords, all zero
+```
+
+*Equivalent ASM:*
+
+```asm
+buf:    DB 64 DUP (0)
+table:  DW 16 DUP (0)
+coords: DD  4 DUP (0)
+```
+
+**Initialized arrays** — element count is inferred from the comma-separated value list:
+
+```sasm
+data primes as byte  = 2, 3, 5, 7, 11, 13, 17, 19
+data lookup as word  = 0x0000, 0x00FF, 0xFF00, 0xFFFF
+data masks  as dword = 0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000
+```
+
+*Equivalent ASM:*
+
+```asm
+primes: DB 2, 3, 5, 7, 11, 13, 17, 19
+lookup: DW 0000h, 00FFh, FF00h, FFFFh
+masks:  DD 000000FFh, 0000FF00h, 00FF0000h, FF000000h
+```
+
+**Accessing static array elements:**
+
+Array names resolve to their data-segment address. Use the standard memory-reference syntax (see [Memory References](#memory-references)) with a byte-offset register to index into the array.
+
+```sasm
+; byte array — bx holds the element index (= byte offset)
+move byte [primes + bx] to al        ; al = primes[bx]
+move 0x99 to byte [primes + bx]      ; primes[bx] = 0x99
+
+; word array — si holds the byte offset (element index × 2)
+move word [lookup + si] to ax        ; ax = lookup[si/2]
+move ax to word [lookup + si]        ; lookup[si/2] = ax
+
+; dword array — ebx holds the byte offset (element index × 4)
+move dword [coords + ebx] to eax     ; eax = coords[ebx/4]
+move eax to dword [coords + ebx]     ; coords[ebx/4] = eax
+```
+
+**Rules:**
+
+* `data` declarations must appear **outside** any `proc` or `block` body — they are segment-level directives emitted into the data segment.
+* An array may use either the bracketed count form (zero-initialized) or the `= <list>` form (initialized), but not both on the same line.
+* When indexing word arrays, the register holds a **byte offset** (`index × 2`); for dword arrays the register holds `index × 4`.
+
+---
+
+### Local Array Variables
+
+A `var` declaration with a bracketed element count reserves a named, stack-allocated array inside a `proc` or `block` body.
+
+**Syntax:**
+
+```sasm
+proc <name> {
+    var <name> as byte[<count>]    ; <count> bytes reserved on the stack
+    var <name> as word[<count>]    ; 2 × <count> bytes reserved on the stack
+    var <name> as dword[<count>]   ; 4 × <count> bytes reserved on the stack
+    <body>
+}
+```
+
+The same form works inside a `block { }`.
+
+**Stack space and base address:**
+
+| Declaration              | Stack space   | Base address (lowest element)           |
+|--------------------------|---------------|-----------------------------------------|
+| `var n as byte[K]`       | K bytes       | `[bp-N]` … `[bp-N+K-1]`                |
+| `var n as word[K]`       | 2K bytes      | `[bp-N]` … `[bp-N+2K-2]` (step 2)      |
+| `var n as dword[K]`      | 4K bytes      | `[bp-N]` … `[bp-N+4K-4]` (step 4)      |
+| `var n as qword[K]`      | 8K bytes      | `[rbp-N]` … `[rbp-N+8K-8]` (step 8, x86-64) |
+
+**Rules:**
+
+* All `var` declarations must appear at the **top of the body**, before any executable statement.
+* The compiler expands the frame prologue (`SUB SP, <size>`) to include space for the full array.
+* The variable name resolves to the base address `[bp-N]`. To access element `i`, compute the byte offset in a register and write `byte [name + reg]`, `word [name + reg]`, or `dword [name + reg]`.
+* Local arrays are **uninitialized** on entry; write before reading.
+
+**Example — proc with a local byte array:**
+
+```sasm
+(* Reverse the bytes in the array at [ds:si] (length in cx, max 16 bytes).
+   Result is written to [es:di].
+   Uses a 16-byte local scratch buffer.                                     *)
+proc reverse_bytes {
+    var tmp as byte[16]
+
+    move 0 to bx                        ; bx = write index into tmp
+    repeat cx times {
+        load string byte                ; al = [ds:si], si++
+        move al to byte [tmp + bx]      ; tmp[bx] = al
+        increment bx
+    }
+    repeat {
+        decrement bx
+        move byte [tmp + bx] to al
+        store string byte               ; [es:di] = al, di++
+        compare bx with 0
+    } until equal
+}
+```
+
+*Equivalent ASM (prologue/epilogue only):*
+
+```asm
+reverse_bytes:
+    PUSH BP
+    MOV  BP, SP
+    SUB  SP, 16          ; 16-byte local array (tmp) at [BP-16]..[BP-1]
+    ...
+    MOV  SP, BP
+    POP  BP
+    RET
+```
+
+**Stack layout after prologue (16-byte local array):**
+
+```
+[bp+0]   saved bp
+[bp+2]   return address (near)
+[bp-1]   tmp[15]  (last byte)
+[bp-2]   tmp[14]
+  ...
+[bp-16]  tmp[0]   (first byte)
+```
+
+---
+
+## Data Transfer
+
 | SASM English Syntax | ASM Equivalent | Meaning |
 |---------------------|----------------|---------|
 | `move <src> to <dst>` | `MOV dst, src` | Copy value of `src` into `dst` |
@@ -513,9 +1012,9 @@ block checksum8 {
 | `load ss-ptr <mem> to <reg>` | `LSS reg, mem` | Load far pointer into `SS`:`reg` |
 | `save flags to ah` | `LAHF` | Copy low FLAGS byte into `ah` |
 | `load flags from ah` | `SAHF` | Restore low FLAGS byte from `ah` |
-| `push flags` | `PUSHF` | Push FLAGS register onto stack |
-| `pop flags` | `POPF` | Pop top of stack into FLAGS register |
-| `move signed <src> to <dst>` | `MOVSX dst, src` | Sign-extend `src` into `dst` |
+| `push flags` | `PUSHF` / `PUSHFD` / `PUSHFQ` | Push FLAGS / EFLAGS / RFLAGS register onto stack |
+| `pop flags` | `POPF` / `POPFD` / `POPFQ` | Pop top of stack into FLAGS / EFLAGS / RFLAGS register |
+| `move signed <src> to <dst>` | `MOVSX` / `MOVSXD` | Sign-extend `src` into `dst` (`MOVSXD` for 32-bit → 64-bit on x86-64) |
 | `move zero <src> to <dst>` | `MOVZX dst, src` | Zero-extend `src` into `dst` |
 | `swap bytes of <reg>` | `BSWAP reg` | Reverse byte order for endian conversion |
 | `compare and swap <mem> with <reg>` | `CMPXCHG mem, reg` | Atomic compare-and-exchange |
@@ -541,6 +1040,8 @@ block checksum8 {
 | `compare <op1> with <op2>` | `CMP op1, op2` | Set flags for `op1 - op2`; result discarded |
 | `extend byte to word` | `CBW` | Sign-extend `al` → `ax` |
 | `extend word to double` | `CWD` | Sign-extend `ax` → `DX:AX` |
+| `extend double to quad` | `CDQE` | Sign-extend `eax` → `rax` (x86-64 only) |
+| `extend quad to double quad` | `CQO` | Sign-extend `rax` → `RDX:RAX` (x86-64 only; used before 64-bit `IDIV`) |
 | `decimal adjust after add` | `DAA` | Convert `al` to packed BCD after ADD *(16/32-bit only)* |
 | `decimal adjust after subtract` | `DAS` | Convert `al` to packed BCD after SUB *(16/32-bit only)* |
 | `ascii adjust after add` | `AAA` | Adjust `al` for unpacked BCD addition *(16/32-bit only)* |
@@ -608,18 +1109,28 @@ String instructions use `si` (source, `DS`-relative) and `di` (destination, `ES`
 | `copy string` | `MOVS` | Copy byte/word from `[DS:SI]` to `[ES:DI]`; advance `si`, `di` |
 | `copy string byte` | `MOVSB` | Copy byte variant |
 | `copy string word` | `MOVSW` | Copy word variant |
+| `copy string dword` | `MOVSD` | Copy dword variant (80386+) |
+| `copy string quad` | `MOVSQ` | Copy qword variant (x86-64 only) |
 | `compare strings` | `CMPS` | Compare `[DS:SI]` with `[ES:DI]`; update flags; advance `si`, `di` |
 | `compare strings byte` | `CMPSB` | Byte variant |
 | `compare strings word` | `CMPSW` | Word variant |
+| `compare strings dword` | `CMPSD` | Dword variant (80386+) |
+| `compare strings quad` | `CMPSQ` | Qword variant (x86-64 only) |
 | `scan string` | `SCAS` | Compare `al`/`ax` with `[ES:DI]`; advance `di` |
 | `scan string byte` | `SCASB` | Byte variant |
 | `scan string word` | `SCASW` | Word variant |
+| `scan string dword` | `SCASD` | Dword variant (80386+) |
+| `scan string quad` | `SCASQ` | Qword variant (x86-64 only) |
 | `load string` | `LODS` | Load `[DS:SI]` into `al`/`ax`; advance `si` |
 | `load string byte` | `LODSB` | Byte variant |
 | `load string word` | `LODSW` | Word variant |
+| `load string dword` | `LODSD` | Dword variant (80386+) |
+| `load string quad` | `LODSQ` | Qword variant — loads `[rsi]` into `rax`; advance `rsi` (x86-64 only) |
 | `store string` | `STOS` | Store `al`/`ax` to `[ES:DI]`; advance `di` |
 | `store string byte` | `STOSB` | Byte variant |
 | `store string word` | `STOSW` | Word variant |
+| `store string dword` | `STOSD` | Dword variant (80386+) |
+| `store string quad` | `STOSQ` | Qword variant — stores `rax` to `[rdi]`; advance `rdi` (x86-64 only) |
 | `input string` | `INS` | Read from I/O port `dx` into `[ES:DI]`; advance `di` |
 | `input string byte` | `INSB` | Byte variant |
 | `input string word` | `INSW` | Word variant |
@@ -753,6 +1264,222 @@ if equal {
 
 ---
 
+## x86-64 (64-bit) Considerations
+
+SASM's English-phrase syntax applies directly to 64-bit code — just use 64-bit register names and the `qword` size qualifier. This section covers the key differences between 8086/16-bit SASM and x86-64 SASM.
+
+> **See also:** [`doc/instruction_x86_64.md`](doc/instruction_x86_64.md) — x86-64 specific instruction reference and mode differences.
+
+---
+
+### Flat Memory Model
+
+x86-64 (long mode) uses a **flat**, unsegmented virtual address space. Segment registers `CS`, `DS`, `ES`, `SS` are fixed at base 0 and ignored for most purposes. Only `FS` and `GS` retain non-zero bases (used by operating systems for thread-local storage). In practice:
+
+* Do **not** use segment override prefixes (`ds:`, `es:`) in 64-bit code — they are no longer needed.
+* Far calls and far returns (`far return`, `load ds-ptr`, `load es-ptr`) are **invalid** in 64-bit mode; use flat pointers instead.
+
+---
+
+### Stack Frame in 64-bit Mode
+
+The frame setup is the same concept as 16/32-bit but uses 64-bit registers:
+
+```sasm
+proc <name> {
+    var local1 as qword
+    var local2 as dword
+    <body>
+}
+```
+
+*Emitted prologue/epilogue:*
+
+```asm
+<name>:
+    PUSH  RBP
+    MOV   RBP, RSP
+    SUB   RSP, 16       ; 8 (qword) + 4 (dword) rounded up to 16-byte alignment
+    ...
+    MOV   RSP, RBP
+    POP   RBP
+    RET
+```
+
+**Stack layout (64-bit near call, one qword local):**
+
+```
+[rbp+0]   saved rbp
+[rbp+8]   return address (64-bit near)
+[rbp-8]   first qword local
+```
+
+> **Stack alignment rule:** The x86-64 ABI requires the stack to be **16-byte aligned at the point of a `CALL`**. Since `CALL` pushes an 8-byte return address, `RSP` is 8-byte aligned on entry to a `proc`. If you allocate locals, pad the allocation to keep `RSP` 16-byte aligned.
+
+---
+
+### 64-bit Calling Conventions
+
+#### System V AMD64 ABI (Linux, macOS, BSD)
+
+This is the standard calling convention on Linux, macOS, and most Unix-like systems.
+
+**Integer/pointer arguments** (in order):
+
+| Position | Register |
+|----------|---------|
+| 1st arg | `rdi` |
+| 2nd arg | `rsi` |
+| 3rd arg | `rdx` |
+| 4th arg | `rcx` |
+| 5th arg | `r8` |
+| 6th arg | `r9` |
+| 7th+ arg | pushed on stack (right-to-left) |
+
+**Return value:** `rax` (and `rdx` for a second 64-bit return word).
+
+**Callee-saved registers:** `rbx`, `rbp`, `r12`–`r15` — a `proc` that modifies these must `push` them in the prologue and `pop` them in the epilogue.
+
+**Caller-saved registers:** `rax`, `rcx`, `rdx`, `rsi`, `rdi`, `r8`–`r11` — may be clobbered by any `call`.
+
+**Red zone:** The 128 bytes *below* `rsp` are reserved for leaf functions (functions that make no `call`s). A leaf `proc` may use `[rsp-8]`, `[rsp-16]`, etc. without adjusting `rsp`, as long as no signal or interrupt handler can interfere.
+
+**SASM example — System V AMD64:**
+
+```sasm
+(* Add two 64-bit integers; return sum in rax.
+   System V AMD64 ABI: in rdi as a, in rsi as b, out rax as result *)
+proc add64 ( in rdi as a, in rsi as b, out rax as result ) {
+    move rdi to rax
+    add  rsi to rax
+}
+
+; Caller:
+move 100 to rdi         ; a = 100
+move  42 to rsi         ; b = 42
+call add64              ; rax = 142
+```
+
+*Equivalent ASM:*
+
+```asm
+add64:
+    MOV  RAX, RDI
+    ADD  RAX, RSI
+    RET
+```
+
+---
+
+#### Windows x64 ABI
+
+Microsoft's calling convention for 64-bit Windows uses different argument registers and requires a **shadow space**.
+
+**Integer/pointer arguments** (in order):
+
+| Position | Register |
+|----------|---------|
+| 1st arg | `rcx` |
+| 2nd arg | `rdx` |
+| 3rd arg | `r8` |
+| 4th arg | `r9` |
+| 5th+ arg | pushed on stack (right-to-left) |
+
+**Return value:** `rax`.
+
+**Callee-saved registers:** `rbx`, `rbp`, `rdi`, `rsi`, `r12`–`r15` (note: `rdi` and `rsi` are *callee-saved* on Windows, unlike System V where they carry arguments).
+
+**Shadow space:** The caller must allocate **32 bytes** of stack space before any `call`, even if the callee takes fewer than four arguments. This space may be used by the callee to spill register arguments.
+
+```sasm
+; Windows x64 caller pattern:
+subtract 32 from rsp        ; allocate shadow space
+move 10 to rcx              ; 1st arg
+move 20 to rdx              ; 2nd arg
+call some_proc
+add 32 to rsp               ; reclaim shadow space
+```
+
+---
+
+### System Calls (Linux x86-64)
+
+On Linux, system calls use `syscall` with arguments in `rax` (syscall number), `rdi`, `rsi`, `rdx`, `r10`, `r8`, `r9`. The kernel returns the result in `rax`.
+
+```sasm
+(* Write "hello\n" to stdout.
+   syscall: write(fd=1, buf=msg, len=6)
+   rax = 1 (sys_write), rdi = 1 (stdout), rsi = msg, rdx = 6 *)
+var msg as byte = 0     ; placeholder — real usage uses a data label
+
+move 1   to rax         ; syscall number: sys_write
+move 1   to rdi         ; fd = stdout
+address of msg to rsi   ; buf = &msg
+move 6   to rdx         ; len = 6
+syscall                 ; invoke kernel
+```
+
+*Equivalent ASM:*
+
+```asm
+    MOV  RAX, 1
+    MOV  RDI, 1
+    LEA  RSI, [RIP + msg]
+    MOV  RDX, 6
+    SYSCALL
+```
+
+---
+
+### Instructions Removed in 64-bit Mode
+
+The following instructions are **not valid** in x86-64 long mode. Using them raises a `#UD` (Invalid Opcode) exception.
+
+| Instruction | SASM phrase | Replacement |
+|-------------|-------------|-------------|
+| `DAA`, `DAS` | `decimal adjust after add/subtract` | Software BCD routine |
+| `AAA`, `AAS`, `AAM`, `AAD` | `ascii adjust after …` | Software unpacked-BCD routine |
+| `BOUND` | `check bounds …` | Explicit `compare` + `goto if` |
+| `INTO` | `interrupt on overflow` | `goto <handler> if overflow` |
+| `LDS`, `LES` | `load ds-ptr`, `load es-ptr` | Flat 64-bit pointer in a GP register |
+| `PUSHAD` / `POPAD` | `push all` / `pop all` (32-bit form) | Use `PUSH`/`POP` individually |
+
+> `LFS`, `LGS`, `LSS` remain valid in 64-bit mode but are rarely used.
+
+---
+
+### 64-bit `qword` Data Example
+
+```sasm
+(* 64-bit counters and a qword array. *)
+var tick_count as qword = 0           ; DQ 0
+data timestamps as qword[4]           ; 4 × 8 bytes, zero-initialized
+
+proc record_tick {
+    increment tick_count              ; INC QWORD [tick_count]
+    move tick_count to rax            ; rax = current tick
+}
+
+; Store tick into timestamps[0]:
+move 0 to rbx                         ; index 0 → byte offset 0
+move tick_count to rax
+move rax to qword [timestamps + rbx]  ; timestamps[0] = tick_count
+```
+
+*Equivalent ASM:*
+
+```asm
+tick_count:  DQ 0
+timestamps:  DQ 0, 0, 0, 0
+
+record_tick:
+    INC   QWORD [tick_count]
+    MOV   RAX, [tick_count]
+    RET
+```
+
+---
+
 ## Full Examples
 
 Complete example source files live in the [`example/`](example/) directory. The table below summarises each file; click the filename to read the annotated source.
@@ -770,6 +1497,10 @@ Complete example source files live in the [`example/`](example/) directory. The 
 | [`example/09_named_blocks_register_params.sasm`](example/09_named_blocks_register_params.sasm) | Named blocks (`block name { }`, call-only) + register-based parameter passing |
 | [`example/10_named_blocks_stack_params.sasm`](example/10_named_blocks_stack_params.sasm) | Named blocks (`block name { }`, call-only) + stack-based parameter passing |
 | [`example/11_local_variables.sasm`](example/11_local_variables.sasm) | Local variables — `var <name> as <type>` inside `proc` and `block` |
+| [`example/12_arrays.sasm`](example/12_arrays.sasm) | Array declarations — static `data` arrays and local `var <name> as <type>[N]` arrays |
+| [`example/13_array_params.sasm`](example/13_array_params.sasm) | Arrays as parameters — passing and returning array pointers via register and stack conventions |
+| [`example/14_global_static_vars.sasm`](example/14_global_static_vars.sasm) | Global static variables — module-level `var <name> as <type>` and `var <name> as <type> = <val>` |
+| [`example/15_x86_64.sasm`](example/15_x86_64.sasm) | x86-64 (64-bit) — `qword` data types, 64-bit registers, System V and Windows x64 calling conventions, Linux `syscall` |
 
 ### Quick-reference snippets
 
@@ -938,4 +1669,182 @@ block checksum8 {
     }
     move sum to ax
 }                       ; implicit RET (with frame epilogue)
+```
+
+---
+
+#### Example 12 — Array Declarations
+
+`data <name> as <type>[<count>]` declares a zero-initialized static array in the data segment.  
+`data <name> as <type> = <v1>, <v2>, ...` declares an initialized static array.  
+`var <name> as <type>[<count>]` declares a stack-allocated local array inside a `proc` or `block`.
+
+```sasm
+(* Static arrays in the data segment. *)
+data scores  as byte[8]                     ; 8 zero-initialized bytes
+data weights as word  = 10, 20, 30, 40      ; 4 initialized words
+data offsets as dword = 0x00000000, 0x00001000, 0x00002000
+
+(* Read the third element (index 2) of the word array 'weights'.
+   Word index 2 → byte offset 4 (index × 2). *)
+move 4 to si
+move word [weights + si] to ax              ; ax = 30
+
+(* Write 99 into scores[5]. byte index 5 → byte offset 5. *)
+move 5 to bx
+move 99 to byte [scores + bx]              ; scores[5] = 99
+```
+
+```sasm
+(* Local byte array inside a proc — build a lookup table on the stack. *)
+proc build_squares {
+    var sq as byte[8]               ; 8-byte local array
+
+    move 0 to bx
+    move 0 to cx
+    repeat {
+        move cl to al
+        multiply by cl              ; ax = cl × cl
+        move al to byte [sq + bx]  ; sq[bx] = cl²
+        increment bx
+        increment cx
+        compare cx with 8
+    } until equal
+    ; sq[0..7] = 0, 1, 4, 9, 16, 25, 36, 49
+}
+
+---
+
+#### Example 13 — Arrays as Parameters
+
+Arrays are always passed by pointer. Use `address of <arr> to <reg>` (emits `LEA`) to obtain the address, then pass the register as an `in` parameter. Declare it `in out` if the callee may modify elements.
+
+```sasm
+data scores as byte[8]
+
+(* fill_byte: write fill_val into every element of a byte array.
+   in si as arr_ptr — address of the first element
+   in cx as length  — number of bytes to fill
+   in al as fill_val *)
+proc fill_byte ( in si as arr_ptr, in cx as length, in al as fill_val ) {
+    move 0 to bx
+    repeat cx times {
+        move fill_val to byte [arr_ptr + bx]
+        increment bx
+    }
+    return
+}
+
+; Caller — pass address of static array 'scores':
+address of scores to si     ; si = &scores[0]  (LEA SI, scores)
+move 8  to cx
+move 0  to al
+call fill_byte
+```
+
+```sasm
+(* Returning an array pointer via an out register. *)
+data result_buf as byte[64]
+
+proc get_result_buf ( out si as buf_ptr ) {
+    address of result_buf to buf_ptr
+    return
+}
+
+call get_result_buf          ; si = &result_buf[0] on return
+```
+
+---
+
+#### Example 14 — Global Static Variables
+
+`var <name> as <type>` at module level declares a named, zero-initialized static variable in the data segment. Append `= <value>` to initialize it. The variable is accessible by name from any `proc` or `block` in the module.
+
+```sasm
+(* Module-level static scalars. *)
+var counter    as word             ; counter:    DW 0
+var flag       as byte = 1        ; flag:       DB 1
+var base_addr  as dword = 0x1000  ; base_addr:  DD 1000h
+
+(* proc that reads and writes global variables. *)
+proc increment_and_get {
+    increment counter             ; counter++
+    move counter to ax            ; return current count in ax
+}
+
+proc reset_count {
+    move 0 to counter             ; counter = 0
+}
+
+; Caller:
+call increment_and_get            ; ax = 1
+call increment_and_get            ; ax = 2
+call reset_count                  ; counter = 0
+call increment_and_get            ; ax = 1
+```
+
+*Equivalent ASM:*
+
+```asm
+counter:   DW 0
+flag:      DB 1
+base_addr: DD 1000h
+
+increment_and_get:
+    INC  WORD [counter]
+    MOV  AX, [counter]
+    RET
+
+reset_count:
+    MOV  WORD [counter], 0
+    RET
+```
+
+---
+
+#### Example 15 — x86-64 (64-bit)
+
+Use 64-bit register names (`rax`, `rdi`, `rsi`, `r8`, …) and the `qword` size qualifier. The SASM phrase syntax is identical to 16/32-bit; only the register widths and calling convention change.
+
+```sasm
+(* 64-bit global data. *)
+var tick_count  as qword = 0        ; DQ 0
+data timestamps as qword[4]         ; 4 qwords, zero-initialized
+
+(* System V AMD64 ABI: add two 64-bit integers; return sum in rax.
+   in rdi as a, in rsi as b, out rax as result *)
+proc add64 ( in rdi as a, in rsi as b, out rax as result ) {
+    move rdi to rax
+    add  rsi to rax
+}
+
+(* Proc with a 64-bit local variable. *)
+proc compute {
+    var temp as qword
+    move 0xDEADBEEFCAFEBABE to rax
+    move rax to temp
+    add tick_count to rax
+}
+
+; System V AMD64 caller:
+move 100 to rdi
+move  42 to rsi
+call add64                          ; rax = 142
+
+; Linux syscall: exit(0)
+move 60 to rax                      ; syscall: sys_exit
+move  0 to rdi                      ; status = 0
+syscall
+```
+
+*Equivalent ASM (add64):*
+
+```asm
+tick_count:  DQ 0
+timestamps:  DQ 0, 0, 0, 0
+
+add64:
+    MOV  RAX, RDI
+    ADD  RAX, RSI
+    RET
 ```

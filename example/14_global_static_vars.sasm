@@ -1,0 +1,178 @@
+; Example 14 — Global Static Variables
+; Demonstrates the module-level 'var <name> as <type>' syntax for declaring
+; named, data-segment static variables in SASM.
+;
+; KEY RULES:
+;   * 'var <name> as <type>' at MODULE LEVEL (outside any proc or block)
+;     declares a GLOBAL STATIC variable in the data segment — equivalent to
+;     a labelled DB/DW/DD directive in ASM.
+;   * 'var <name> as <type> = <value>' gives the variable an initial value.
+;     Without '= <value>' the variable is zero-initialized.
+;   * The SAME 'var' keyword inside a proc or block body declares a
+;     STACK-LOCAL variable instead (see example/11_local_variables.sasm).
+;     Context (module level vs. inside a routine) determines which form is used.
+;   * Global variables are accessible by name from any proc or block in
+;     the module — they are not scoped to any routine.
+;   * Global scalars are NOT automatically saved/restored across calls;
+;     document any proc that modifies a global in its comment header.
+;
+; Supported types for global var:
+;   byte  — 1 byte  (DB)
+;   word  — 2 bytes (DW)
+;   dword — 4 bytes (DD)
+;
+; Access syntax:
+;   move <global> to <reg>          ; read  (MOV reg, [global])
+;   move <reg> to <global>          ; write (MOV [global], reg)
+;   move <imm> to <global>          ; write immediate
+;   increment <global>              ; INC [global]
+;   add <src> to <global>           ; ADD [global], src
+;   compare <global> with <src>     ; CMP [global], src
+
+
+(* ---------------------------------------------------------------
+   Part 1: Basic global scalar declarations
+   Zero-initialized and initializer forms for each type.
+
+   Assembly equivalents:
+     counter:    DW 0
+     flag:       DB 1
+     total:      DD 0
+     max_count:  DW 100
+     error_code: DB 0FFh
+     base_addr:  DD 00010000h
+   --------------------------------------------------------------- *)
+
+var counter    as word                    ; zero-initialized word
+var flag       as byte = 1               ; initialized byte (DB 1)
+var total      as dword                  ; zero-initialized dword
+var max_count  as word  = 100            ; initialized word (DW 100)
+var error_code as byte  = 0xFF           ; initialized byte (DB 0FFh)
+var base_addr  as dword = 0x00010000     ; initialized dword (DD 00010000h)
+
+
+(* ---------------------------------------------------------------
+   Part 2: Reading and writing global scalars
+
+   Accessing a global variable uses its name as a plain memory operand.
+   No bracket arithmetic is needed for scalar access.
+   --------------------------------------------------------------- *)
+
+; Write a value to a global variable:
+move 42 to counter                        ; counter = 42
+move 0  to flag                           ; flag    = 0
+
+; Read a global variable into a register:
+move counter to ax                        ; ax = counter (= 42)
+move flag    to al                        ; al = flag    (= 0)
+
+; Arithmetic directly on global variables:
+increment counter                         ; counter++  (= 43)
+add 7 to counter                          ; counter += 7  (= 50)
+compare counter with max_count            ; CMP [counter], [max_count]
+
+
+(* ---------------------------------------------------------------
+   Part 3: Global variable shared across multiple procs
+   call_count is incremented by every call to do_work and can be
+   read or reset via dedicated procs.
+
+   Global:
+     call_count — word, tracks how many times do_work has run.
+   --------------------------------------------------------------- *)
+
+var call_count as word = 0                ; module-level invocation counter
+
+proc do_work {
+    ; ... (work body omitted for brevity) ...
+    increment call_count                  ; call_count++
+}
+
+proc get_call_count {
+    move call_count to ax                 ; return current count in ax
+}
+
+proc reset_call_count {
+    move 0 to call_count                  ; call_count = 0
+}
+
+; Main sequence:
+call do_work                              ; call_count = 1
+call do_work                              ; call_count = 2
+call do_work                              ; call_count = 3
+call get_call_count                       ; ax = 3
+call reset_call_count                     ; call_count = 0
+call do_work                              ; call_count = 1
+call get_call_count                       ; ax = 1
+
+
+(* ---------------------------------------------------------------
+   Part 4: Global flag used as a boolean sentinel
+
+   Global:
+     initialized — byte, 0 = not yet initialized, non-zero = ready.
+   --------------------------------------------------------------- *)
+
+var initialized as byte = 0              ; 0 = not ready
+
+proc lazy_init {
+    compare initialized with 0
+    if not equal { return }              ; already initialized — skip
+    ; ... (initialization body omitted) ...
+    move 1 to initialized                ; mark as initialized
+}
+
+; Caller:
+call lazy_init                           ; runs initialization
+call lazy_init                           ; skips — already done
+
+
+(* ---------------------------------------------------------------
+   Part 5: Global dword accumulator
+
+   Global:
+     byte_total — dword, running sum of all byte values processed.
+   --------------------------------------------------------------- *)
+
+var byte_total as dword = 0             ; 32-bit accumulator
+
+proc accumulate {
+    ; Add ax (zero-extended to 32 bits via eax) into byte_total.
+    move zero ax to eax                 ; zero-extend ax -> eax
+    add eax to byte_total               ; byte_total += eax
+}
+
+; Caller:
+move 200 to ax
+call accumulate                         ; byte_total = 200
+move 55 to ax
+call accumulate                         ; byte_total = 255
+
+
+(* ---------------------------------------------------------------
+   Part 6: Mixing global vars and data arrays
+
+   It is valid to mix module-level 'var' (scalar globals) with
+   module-level 'data' (array globals) in the same source file.
+   They are all emitted into the data segment in source order.
+   --------------------------------------------------------------- *)
+
+var   item_count as word = 0            ; scalar: how many items stored
+data  item_buf   as word[8]             ; array:  storage for up to 8 items
+
+proc store_item {
+    ; Store ax into item_buf[item_count], then increment item_count.
+    ; Register si = byte offset (item_count × 2).
+    move item_count to si
+    add si to si                        ; si = item_count × 2
+    move ax to word [item_buf + si]     ; item_buf[item_count] = ax
+    increment item_count                ; item_count++
+}
+
+; Caller:
+move 10 to ax
+call store_item                         ; item_buf[0] = 10, item_count = 1
+move 20 to ax
+call store_item                         ; item_buf[1] = 20, item_count = 2
+move 30 to ax
+call store_item                         ; item_buf[2] = 30, item_count = 3

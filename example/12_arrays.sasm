@@ -1,0 +1,168 @@
+; Example 12 — Array Declarations
+; Demonstrates how to declare and access byte, word, and dword arrays
+; in SASM, covering both static (data-segment) and local (stack) forms.
+;
+; KEY RULES:
+;   * 'data' declarations are segment-level directives — they must appear
+;     OUTSIDE any proc or block body.
+;   * 'data <name> as <type>[<count>]' — zero-initialized array (count in brackets).
+;   * 'data <name> as <type> = <v1>, <v2>, ...' — initialized array (count inferred).
+;   * 'var <name> as <type>[<count>]' — stack-allocated local array inside
+;     a proc or block body; follows the same placement rules as scalar 'var'.
+;
+; Array element access uses the standard memory-reference syntax:
+;   byte  [name + reg]    ; reg = byte offset  (element index for byte arrays)
+;   word  [name + reg]    ; reg = byte offset  (element index × 2 for word arrays)
+;   dword [name + reg]    ; reg = byte offset  (element index × 4 for dword arrays)
+;
+; Supported types:
+;   byte  — 1 byte  per element  (ASM: DB)
+;   word  — 2 bytes per element  (ASM: DW)
+;   dword — 4 bytes per element  (ASM: DD)
+
+
+(* ---------------------------------------------------------------
+   Part 1: Static data arrays
+   Declared at the module level (outside any proc/block).
+
+   Assembly equivalents:
+     scores:  DB 8 DUP (0)
+     weights: DW 10, 20, 30, 40
+     masks:   DD 000000FFh, 0000FF00h, 00FF0000h, FF000000h
+   --------------------------------------------------------------- *)
+
+data scores  as byte[8]                           ; 8 zero-initialized bytes
+data weights as word  = 10, 20, 30, 40            ; 4 initialized words
+data masks   as dword = 0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000
+
+
+(* ---------------------------------------------------------------
+   Part 2: Reading and writing static array elements
+
+   Read weights[2]  (word index 2 → byte offset 4 = index × 2).
+   Write 99 into scores[5]  (byte index 5 → byte offset 5).
+   --------------------------------------------------------------- *)
+
+; Read weights[2] into ax:
+move 4 to si                                      ; byte offset = index × 2 = 2 × 2
+move word [weights + si] to ax                    ; ax = 30
+
+; Write 99 into scores[5]:
+move 5 to bx                                      ; byte index 5 (byte offset = 5)
+move 99 to byte [scores + bx]                     ; scores[5] = 99
+
+; Read masks[1] (dword index 1 → byte offset 4 = index × 4):
+move 4 to ebx                                     ; byte offset = index × 4 = 1 × 4
+move dword [masks + ebx] to eax                   ; eax = 0x0000FF00
+
+
+(* ---------------------------------------------------------------
+   Part 3: Local byte array — proc with a stack-allocated array
+   Fill a 10-element local byte array with the values 0..9,
+   then sum its elements into ax.
+
+   Stack layout after prologue:
+     [bp+0]   saved bp
+     [bp+2]   return address (near)
+     [bp-1]   buf[9]  (last byte)
+     ...
+     [bp-10]  buf[0]  (first byte of 10-byte local array)
+   --------------------------------------------------------------- *)
+
+proc sum_0_to_9 {
+    var buf as byte[10]
+
+    (* Fill buf[0..9] with 0..9. *)
+    move 0 to bx                                  ; bx = byte index
+    move 0 to cx                                  ; cx = current value (0..9)
+    repeat {
+        move cl to byte [buf + bx]                ; buf[bx] = cl
+        increment bx
+        increment cx
+        compare cx with 10
+    } until equal
+
+    (* Sum all elements into ax. *)
+    move 0 to ax                                  ; ax = accumulator
+    move 0 to bx                                  ; bx = byte index
+    move 10 to cx
+    repeat cx times {
+        move byte [buf + bx] to dl
+        move zero dl to dx                        ; zero-extend byte to word
+        add dx to ax
+        increment bx
+    }
+    ; ax = 0+1+2+...+9 = 45
+}
+
+; Caller:
+call sum_0_to_9                                   ; ax = 45 on return
+
+
+(* ---------------------------------------------------------------
+   Part 4: Local word array — proc with a word array
+   Build a table of the first 4 even numbers (0, 2, 4, 6),
+   then return the element at a given index (passed in bx).
+
+   Stack layout after prologue:
+     [bp+0]   saved bp
+     [bp+2]   return address
+     [bp+4]   idx  (pushed by caller — stack parameter)
+     [bp-2]   evens[3]  (last word)
+     ...
+     [bp-8]   evens[0]  (first word of 8-byte local array)
+   --------------------------------------------------------------- *)
+
+proc get_even uses stack ( idx ) {
+    var evens as word[4]
+
+    (* Fill evens[0..3] = 0, 2, 4, 6. *)
+    move 0 to si                                  ; si = byte offset (step 2 per word)
+    move 0 to cx                                  ; cx = even number to store
+    repeat {
+        move cx to word [evens + si]              ; evens[si/2] = cx
+        add 2 to si
+        add 2 to cx
+        compare si with 8                         ; 4 words × 2 bytes = 8 bytes total
+    } until equal
+
+    (* Return evens[idx] in ax. *)
+    move idx to ax                                ; ax = idx
+    add ax to ax                                  ; ax = idx × 2  (byte offset)
+    move ax to si
+    move word [evens + si] to ax                  ; ax = evens[idx]
+}
+
+; Caller:
+push 2                                            ; idx = 2
+call get_even                                     ; ax = 4 (the third even number)
+add 2 to sp                                       ; caller restores stack
+
+
+(* ---------------------------------------------------------------
+   Part 5: Local dword array — block with a dword array
+   Store three 32-bit bitmasks, OR them together, and return in eax.
+
+   Stack layout after prologue:
+     [bp+0]   saved bp
+     [bp+2]   return address
+     [bp-4]   flags[2]  (last dword)
+     [bp-8]   flags[1]
+     [bp-12]  flags[0]  (first dword of 12-byte local array)
+   --------------------------------------------------------------- *)
+
+block combine_flags {
+    var flags as dword[3]
+
+    move 0x00000001 to dword [flags + 0]          ; flags[0] = bit 0
+    move 0x00000010 to dword [flags + 4]          ; flags[1] = bit 4  (offset 4)
+    move 0x00000100 to dword [flags + 8]          ; flags[2] = bit 8  (offset 8)
+
+    move dword [flags + 0] to eax
+    or dword [flags + 4] into eax
+    or dword [flags + 8] into eax
+    ; eax = 0x00000111
+}                                                 ; implicit RET (with frame epilogue)
+
+; Caller:
+call combine_flags                                ; eax = 0x00000111 on return

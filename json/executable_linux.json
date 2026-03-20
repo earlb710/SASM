@@ -1,0 +1,511 @@
+{
+  "os": "linux",
+  "format": "ELF",
+  "format_full_name": "Executable and Linkable Format (ELF)",
+  "description": "The Linux ELF format used for executables, shared libraries, and object files. A compiled object file (.o) must have these structures added by the linker (ld or gold/lld) to become a runnable binary.",
+  "source_reference": "doc/executable_format_linux.md",
+  "variants": [
+    {
+      "id": "elf64_static",
+      "name": "ELF64 64-bit Static Executable (ET_EXEC, no shared libraries)",
+      "architecture": "x86_64",
+      "bits": 64,
+      "e_type": "ET_EXEC",
+      "e_type_value": 2,
+      "e_machine": "EM_X86_64",
+      "e_machine_value": 62,
+      "linking": "static",
+      "description": "Smallest runnable Linux 64-bit binary. No shared libraries, no dynamic linker. The kernel loads the segments directly and jumps to _start. All code and data must be compiled into the binary itself.",
+      "toolchain": {
+        "assemble": "nasm -f elf64 program.asm -o program.o",
+        "link": "ld program.o -o program",
+        "assemble_and_link": "nasm -f elf64 program.asm -o program.o && ld program.o -o program"
+      },
+      "required_components": [
+        {
+          "name": "ELF Header",
+          "offset_in_file": "0x0000",
+          "size_bytes": 64,
+          "required": true,
+          "description": "Mandatory 64-byte header at the very start of the file. Identifies the file as ELF, specifies the target architecture, and points to the Program Header Table and entry point.",
+          "fields": [
+            {"name": "e_ident[0..3]",  "offset": "0x00", "size_bytes": 4, "value": "0x7F 0x45 0x4C 0x46", "note": "Magic: \\x7FELF"},
+            {"name": "e_ident[4]",     "offset": "0x04", "size_bytes": 1, "value": "0x02",                  "note": "EI_CLASS: 2 = ELFCLASS64"},
+            {"name": "e_ident[5]",     "offset": "0x05", "size_bytes": 1, "value": "0x01",                  "note": "EI_DATA: 1 = little-endian"},
+            {"name": "e_ident[6]",     "offset": "0x06", "size_bytes": 1, "value": "0x01",                  "note": "EI_VERSION: must be 1"},
+            {"name": "e_ident[7]",     "offset": "0x07", "size_bytes": 1, "value": "0x00",                  "note": "EI_OSABI: 0 = System V / Linux"},
+            {"name": "e_ident[8..15]", "offset": "0x08", "size_bytes": 8, "value": "0x00 * 8",              "note": "Padding; set to 0"},
+            {"name": "e_type",         "offset": "0x10", "size_bytes": 2, "value": "0x0002",                 "note": "ET_EXEC: position-fixed executable"},
+            {"name": "e_machine",      "offset": "0x12", "size_bytes": 2, "value": "0x003E",                 "note": "EM_X86_64 (62)"},
+            {"name": "e_version",      "offset": "0x14", "size_bytes": 4, "value": "0x00000001",             "note": "Must be 1"},
+            {"name": "e_entry",        "offset": "0x18", "size_bytes": 8, "value": "VA of _start",           "note": "Virtual address of first instruction"},
+            {"name": "e_phoff",        "offset": "0x20", "size_bytes": 8, "value": "0x0000000000000040",     "note": "Offset of Program Header Table (immediately after ELF header)"},
+            {"name": "e_shoff",        "offset": "0x28", "size_bytes": 8, "value": "variable",               "note": "Offset of Section Header Table; 0 if stripped"},
+            {"name": "e_flags",        "offset": "0x30", "size_bytes": 4, "value": "0x00000000",             "note": "Architecture flags; 0 for x86-64"},
+            {"name": "e_ehsize",       "offset": "0x34", "size_bytes": 2, "value": "0x0040",                 "note": "Size of this ELF header = 64"},
+            {"name": "e_phentsize",    "offset": "0x36", "size_bytes": 2, "value": "0x0038",                 "note": "Size of one Program Header entry = 56"},
+            {"name": "e_phnum",        "offset": "0x38", "size_bytes": 2, "value": "variable",               "note": "Number of Program Header entries (at least 1 PT_LOAD)"},
+            {"name": "e_shentsize",    "offset": "0x3A", "size_bytes": 2, "value": "0x0040",                 "note": "Size of one Section Header entry = 64"},
+            {"name": "e_shnum",        "offset": "0x3C", "size_bytes": 2, "value": "variable",               "note": "Number of Section Header entries; 0 if none"},
+            {"name": "e_shstrndx",     "offset": "0x3E", "size_bytes": 2, "value": "variable",               "note": "Index of .shstrtab section; SHN_UNDEF(0) if no section headers"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === ELF64 Header (64 bytes at file offset 0x0000) ===\nelf_header:\n    db 0x7F, 'E', 'L', 'F'     ; e_ident magic\n    db 2                        ; EI_CLASS  = ELFCLASS64\n    db 1                        ; EI_DATA   = little-endian\n    db 1                        ; EI_VERSION\n    db 0                        ; EI_OSABI  = System V\n    times 8 db 0                ; EI_ABIVERSION + padding\n    dw 2                        ; e_type    = ET_EXEC\n    dw 62                       ; e_machine = EM_X86_64\n    dd 1                        ; e_version\n    dq _start                   ; e_entry\n    dq phdr_table               ; e_phoff  (Program Header Table offset)\n    dq shdr_table               ; e_shoff  (Section Header Table offset; 0 if stripped)\n    dd 0                        ; e_flags\n    dw 64                       ; e_ehsize\n    dw 56                       ; e_phentsize\n    dw PHDR_COUNT               ; e_phnum\n    dw 64                       ; e_shentsize\n    dw SHDR_COUNT               ; e_shnum\n    dw SHSTRNDX                 ; e_shstrndx"
+          }
+        },
+        {
+          "name": "PT_LOAD Segment (read + execute, covers .text and .rodata)",
+          "offset_in_file": "Program Header Table (immediately after ELF header at 0x0040)",
+          "size_bytes": 56,
+          "required": true,
+          "description": "Loadable segment for the code and read-only data. The kernel maps these pages as readable and executable (rx). Must include the ELF header and Program Header Table itself.",
+          "fields": [
+            {"name": "p_type",   "offset": "0x00", "size_bytes": 4, "value": "0x00000001", "note": "PT_LOAD"},
+            {"name": "p_flags",  "offset": "0x04", "size_bytes": 4, "value": "0x00000005", "note": "PF_R | PF_X (read + execute)"},
+            {"name": "p_offset", "offset": "0x08", "size_bytes": 8, "value": "0x0000000000000000", "note": "File offset of this segment (usually 0 to include ELF headers)"},
+            {"name": "p_vaddr",  "offset": "0x10", "size_bytes": 8, "value": "0x0000000000400000", "note": "Virtual load address (conventional for static x86-64 ET_EXEC)"},
+            {"name": "p_paddr",  "offset": "0x18", "size_bytes": 8, "value": "same as p_vaddr",    "note": "Physical address; ignored by Linux; set equal to p_vaddr"},
+            {"name": "p_filesz", "offset": "0x20", "size_bytes": 8, "value": "variable",            "note": "Bytes to copy from file"},
+            {"name": "p_memsz",  "offset": "0x28", "size_bytes": 8, "value": "same as p_filesz",   "note": "For rx segment: equal to p_filesz (no zero-fill needed)"},
+            {"name": "p_align",  "offset": "0x30", "size_bytes": 8, "value": "0x0000000000200000", "note": "2 MB huge-page alignment (typical ld default); 0x1000 also valid"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === PT_LOAD (rx) Program Header Entry (56 bytes) ===\nphdr_rx:\n    dd 1                        ; p_type   = PT_LOAD\n    dd 5                        ; p_flags  = PF_R | PF_X\n    dq 0                        ; p_offset (start of file)\n    dq 0x400000                 ; p_vaddr\n    dq 0x400000                 ; p_paddr\n    dq RX_FILE_SIZE             ; p_filesz\n    dq RX_FILE_SIZE             ; p_memsz\n    dq 0x200000                 ; p_align  (2 MB)"
+          }
+        },
+        {
+          "name": "PT_LOAD Segment (read + write, covers .data and .bss)",
+          "offset_in_file": "Program Header Table (second entry)",
+          "size_bytes": 56,
+          "required": false,
+          "description": "Loadable segment for mutable data. p_memsz > p_filesz if .bss is present; the kernel zero-fills the extra bytes. Omit if the program has no global variables.",
+          "fields": [
+            {"name": "p_type",   "offset": "0x00", "size_bytes": 4, "value": "0x00000001", "note": "PT_LOAD"},
+            {"name": "p_flags",  "offset": "0x04", "size_bytes": 4, "value": "0x00000006", "note": "PF_R | PF_W (read + write; no execute)"},
+            {"name": "p_offset", "offset": "0x08", "size_bytes": 8, "value": "variable",   "note": "File offset of .data section data"},
+            {"name": "p_vaddr",  "offset": "0x10", "size_bytes": 8, "value": "variable",   "note": "Virtual address; page-aligned"},
+            {"name": "p_paddr",  "offset": "0x18", "size_bytes": 8, "value": "same as p_vaddr", "note": ""},
+            {"name": "p_filesz", "offset": "0x20", "size_bytes": 8, "value": "variable",   "note": "Bytes of initialized data in file (.data size)"},
+            {"name": "p_memsz",  "offset": "0x28", "size_bytes": 8, "value": "variable",   "note": "p_filesz + .bss size; extra bytes zero-filled by kernel"},
+            {"name": "p_align",  "offset": "0x30", "size_bytes": 8, "value": "0x0000000000200000", "note": ""}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === PT_LOAD (rw) Program Header Entry (56 bytes) ===\nphdr_rw:\n    dd 1                        ; p_type   = PT_LOAD\n    dd 6                        ; p_flags  = PF_R | PF_W\n    dq DATA_FILE_OFFSET         ; p_offset\n    dq DATA_VADDR               ; p_vaddr\n    dq DATA_VADDR               ; p_paddr\n    dq DATA_FILE_SIZE           ; p_filesz (.data only)\n    dq DATA_FILE_SIZE + BSS_SIZE; p_memsz  (.data + .bss)\n    dq 0x200000                 ; p_align"
+          }
+        },
+        {
+          "name": "PT_GNU_STACK Segment",
+          "offset_in_file": "Program Header Table",
+          "size_bytes": 56,
+          "required": false,
+          "description": "Informs the kernel of required stack permissions. Setting p_flags to PF_R|PF_W (no PF_X) enables a non-executable (NX) stack. Strongly recommended for security.",
+          "fields": [
+            {"name": "p_type",   "value": "0x6474E551", "note": "PT_GNU_STACK"},
+            {"name": "p_flags",  "value": "0x00000006", "note": "PF_R | PF_W (no PF_X = NX stack)"},
+            {"name": "p_offset through p_filesz", "value": "0", "note": "All zero (no file data)"},
+            {"name": "p_memsz",  "value": "0",            "note": ""},
+            {"name": "p_align",  "value": "0x10",          "note": "16-byte alignment"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === PT_GNU_STACK Program Header Entry ===\nphdr_gnu_stack:\n    dd 0x6474E551               ; p_type   = PT_GNU_STACK\n    dd 6                        ; p_flags  = PF_R | PF_W (NX)\n    dq 0                        ; p_offset\n    dq 0                        ; p_vaddr\n    dq 0                        ; p_paddr\n    dq 0                        ; p_filesz\n    dq 0                        ; p_memsz\n    dq 0x10                     ; p_align"
+          }
+        },
+        {
+          "name": ".text Section Data",
+          "offset_in_file": "after all headers (aligned to p_align)",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "The compiled machine code. Must contain the _start symbol at the address stored in e_entry.",
+          "fields": [],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .text section ===\nsection .text\nglobal _start\n\n_start:\n    ; program code goes here"
+          }
+        },
+        {
+          "name": "Entry Point Code (_start)",
+          "offset_in_file": "inside .text section",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "First instruction executed after the kernel loads the binary. The kernel pushes argc, argv[], envp[], and the auxiliary vector on the stack. _start must NOT return (no return address is pushed); it must call exit_group or invoke SYS_exit_group directly.",
+          "fields": [],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === Minimal 64-bit Static Entry Point ===\n; Assemble: nasm -f elf64 program.asm -o program.o\n; Link:     ld program.o -o program\nsection .data\n    msg     db 'Hello, World!', 10   ; newline\n    msglen  equ $ - msg\n\nsection .text\nglobal _start\n\n_start:\n    ; write(STDOUT_FILENO=1, msg, msglen)\n    mov     rax, 1              ; SYS_write\n    mov     rdi, 1              ; fd = stdout\n    lea     rsi, [rel msg]      ; buf\n    mov     rdx, msglen         ; count\n    syscall\n\n    ; exit_group(0)\n    mov     rax, 231            ; SYS_exit_group\n    xor     rdi, rdi            ; status = 0\n    syscall"
+          }
+        }
+      ]
+    },
+    {
+      "id": "elf64_dynamic",
+      "name": "ELF64 64-bit Dynamically Linked Executable (ET_EXEC, shared libraries)",
+      "architecture": "x86_64",
+      "bits": 64,
+      "e_type": "ET_EXEC",
+      "e_type_value": 2,
+      "e_machine": "EM_X86_64",
+      "e_machine_value": 62,
+      "linking": "dynamic",
+      "description": "64-bit Linux .exec that uses shared libraries (libc.so.6, etc.). Requires a PT_INTERP segment pointing to the dynamic linker (/lib64/ld-linux-x86-64.so.2), a .dynamic section, PLT/GOT stubs, and symbol tables.",
+      "toolchain": {
+        "assemble": "nasm -f elf64 program.asm -o program.o",
+        "link": "ld program.o -o program -lc --dynamic-linker /lib64/ld-linux-x86-64.so.2",
+        "gcc_shortcut": "gcc -nostartfiles -o program program.o"
+      },
+      "required_components": [
+        {
+          "name": "ELF Header",
+          "required": true,
+          "description": "Same as elf64_static. e_type = ET_EXEC (2). e_entry points to _start (or the glibc entry stub if using libc startup).",
+          "fields": []
+        },
+        {
+          "name": "PT_INTERP Segment",
+          "offset_in_file": "Program Header Table (first or second entry)",
+          "size_bytes": 56,
+          "required": true,
+          "description": "Points to the dynamic linker path. Must appear before PT_LOAD segments. The kernel reads this path and loads the dynamic linker, which then performs all further setup.",
+          "fields": [
+            {"name": "p_type",   "value": "0x00000003", "note": "PT_INTERP"},
+            {"name": "p_flags",  "value": "0x00000004", "note": "PF_R (read-only)"},
+            {"name": "p_offset", "note": "File offset of the interpreter path string"},
+            {"name": "p_vaddr",  "note": "Virtual address of the interpreter path string"},
+            {"name": "p_filesz", "note": "Length of the path string including null terminator"},
+            {"name": "p_memsz",  "note": "Same as p_filesz"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === PT_INTERP Program Header Entry ===\nphdr_interp:\n    dd 3                        ; p_type   = PT_INTERP\n    dd 4                        ; p_flags  = PF_R\n    dq interp_str_offset        ; p_offset (file offset of interpreter path)\n    dq interp_str_vaddr         ; p_vaddr\n    dq interp_str_vaddr         ; p_paddr\n    dq interp_str_size          ; p_filesz\n    dq interp_str_size          ; p_memsz\n    dq 1                        ; p_align\n\n; .interp section data\ninterp_str:\n    db '/lib64/ld-linux-x86-64.so.2', 0\ninterp_str_size equ $ - interp_str"
+          }
+        },
+        {
+          "name": "PT_DYNAMIC Segment",
+          "offset_in_file": "Program Header Table",
+          "size_bytes": 56,
+          "required": true,
+          "description": "Points to the .dynamic section, which lists all shared library dependencies and linking metadata.",
+          "fields": [
+            {"name": "p_type",  "value": "0x00000002", "note": "PT_DYNAMIC"},
+            {"name": "p_flags", "value": "0x00000006", "note": "PF_R | PF_W"},
+            {"name": "p_offset / p_vaddr", "note": "File offset and VA of the .dynamic section"},
+            {"name": "p_filesz / p_memsz", "note": "Size of the .dynamic section"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === PT_DYNAMIC Program Header Entry ===\nphdr_dynamic:\n    dd 2                        ; p_type   = PT_DYNAMIC\n    dd 6                        ; p_flags  = PF_R | PF_W\n    dq dynamic_offset           ; p_offset\n    dq dynamic_vaddr            ; p_vaddr\n    dq dynamic_vaddr            ; p_paddr\n    dq dynamic_size             ; p_filesz\n    dq dynamic_size             ; p_memsz\n    dq 8                        ; p_align"
+          }
+        },
+        {
+          "name": ".dynamic Section",
+          "offset_in_file": "inside read-write PT_LOAD segment",
+          "size_bytes": "variable (16 bytes per entry, terminated by DT_NULL)",
+          "required": true,
+          "description": "Array of (tag, value) pairs describing all dynamic linking requirements. Must be terminated by a DT_NULL entry.",
+          "fields": [
+            {"name": "DT_NEEDED",  "tag_value": "1",  "note": "String table offset of required library name (e.g. 'libc.so.6'); one entry per library"},
+            {"name": "DT_STRTAB",  "tag_value": "5",  "note": "VA of .dynstr (dynamic string table)"},
+            {"name": "DT_SYMTAB",  "tag_value": "6",  "note": "VA of .dynsym (dynamic symbol table)"},
+            {"name": "DT_STRSZ",   "tag_value": "10", "note": "Size of .dynstr in bytes"},
+            {"name": "DT_SYMENT",  "tag_value": "11", "note": "Size of one .dynsym entry = 24 bytes"},
+            {"name": "DT_GNU_HASH","tag_value": "0x6FFFFEF5", "note": "VA of GNU hash table (faster lookup than DT_HASH)"},
+            {"name": "DT_PLTGOT",  "tag_value": "3",  "note": "VA of .got.plt"},
+            {"name": "DT_PLTRELSZ","tag_value": "2",  "note": "Total size in bytes of PLT relocations"},
+            {"name": "DT_PLTREL",  "tag_value": "20", "note": "Type of PLT relocation entries: 7 = DT_RELA"},
+            {"name": "DT_JMPREL",  "tag_value": "23", "note": "VA of .rela.plt"},
+            {"name": "DT_RELA",    "tag_value": "7",  "note": "VA of .rela.dyn"},
+            {"name": "DT_RELASZ",  "tag_value": "8",  "note": "Size of .rela.dyn in bytes"},
+            {"name": "DT_RELAENT", "tag_value": "9",  "note": "Size of one Rela entry = 24 bytes"},
+            {"name": "DT_NULL",    "tag_value": "0",  "note": "MUST be the last entry"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .dynamic Section (array of Elf64_Dyn entries, 16 bytes each) ===\n; Each entry: { Elf64_Sxword d_tag, Elf64_Xword d_val }\nsection .dynamic\ndynamic:\n    dq  1, dynstr_offset_libc   ; DT_NEEDED  'libc.so.6'\n    dq  5, dynstr_vaddr         ; DT_STRTAB  -> .dynstr\n    dq 10, dynstr_size          ; DT_STRSZ\n    dq  6, dynsym_vaddr         ; DT_SYMTAB  -> .dynsym\n    dq 11, 24                   ; DT_SYMENT  = 24\n    dq  3, gotplt_vaddr         ; DT_PLTGOT  -> .got.plt\n    dq  2, rela_plt_size        ; DT_PLTRELSZ\n    dq 20, 7                    ; DT_PLTREL  = DT_RELA\n    dq 23, rela_plt_vaddr       ; DT_JMPREL  -> .rela.plt\n    dq  0, 0                    ; DT_NULL    (terminator)"
+          }
+        },
+        {
+          "name": ".dynsym Section",
+          "offset_in_file": "inside read-execute PT_LOAD segment",
+          "size_bytes": "24 bytes per symbol",
+          "required": true,
+          "description": "Dynamic symbol table. One Elf64_Sym entry per imported (or exported) symbol. Imported symbols have st_shndx = SHN_UNDEF (0) and st_value = 0.",
+          "fields": [
+            {"name": "st_name",  "offset": "0x00", "size_bytes": 4, "value": "string table offset", "note": "Offset into .dynstr for symbol name"},
+            {"name": "st_info",  "offset": "0x04", "size_bytes": 1, "value": "0x12",                "note": "STB_GLOBAL (1) << 4 | STT_FUNC (2) for imported functions"},
+            {"name": "st_other", "offset": "0x05", "size_bytes": 1, "value": "0x00",                "note": "STV_DEFAULT"},
+            {"name": "st_shndx", "offset": "0x06", "size_bytes": 2, "value": "0x0000",              "note": "SHN_UNDEF for imported symbols"},
+            {"name": "st_value", "offset": "0x08", "size_bytes": 8, "value": "0x0000000000000000",  "note": "0 for undefined symbols; filled by dynamic linker"},
+            {"name": "st_size",  "offset": "0x10", "size_bytes": 8, "value": "0x0000000000000000",  "note": "0 for imported symbols"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .dynsym Section (24 bytes per Elf64_Sym entry) ===\nsection .dynsym\n; Entry 0 is always the null symbol\ndynsym:\n    dd 0, 0                     ; st_name, st_info|st_other|st_shndx\n    dq 0, 0                     ; st_value, st_size\n\n; Entry 1: import 'printf' from libc\n    dd printf_name_offset       ; st_name  (offset in .dynstr)\n    db 0x12                     ; st_info  = STB_GLOBAL | STT_FUNC\n    db 0                        ; st_other = STV_DEFAULT\n    dw 0                        ; st_shndx = SHN_UNDEF\n    dq 0                        ; st_value = 0 (undefined)\n    dq 0                        ; st_size  = 0"
+          }
+        },
+        {
+          "name": ".dynstr Section",
+          "offset_in_file": "inside read-execute PT_LOAD segment",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "Null-terminated strings for all .dynsym symbol names and all DT_NEEDED library names. The first byte must be a null byte (empty string for the null symbol).",
+          "fields": [],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .dynstr Section (null-terminated ASCII strings) ===\nsection .dynstr\ndynstr:\n    db 0                        ; offset 0: empty string (null symbol)\nlibc_name_offset equ $ - dynstr\n    db 'libc.so.6', 0           ; DT_NEEDED library name\nprintf_name_offset equ $ - dynstr\n    db 'printf', 0              ; symbol name for printf\nputs_name_offset equ $ - dynstr\n    db 'puts', 0                ; symbol name for puts\ndynstr_end:"
+          }
+        },
+        {
+          "name": ".got.plt Section",
+          "offset_in_file": "inside read-write PT_LOAD segment",
+          "size_bytes": "(3 + N) * 8 bytes (3 reserved entries + 1 per PLT function)",
+          "required": true,
+          "description": "Global Offset Table for PLT lazy binding. First three entries are reserved: [0]=address of .dynamic, [1]=link_map pointer (filled by dynamic linker), [2]=_dl_runtime_resolve (filled by dynamic linker). Each subsequent entry initially holds the address of the corresponding PLT push instruction.",
+          "fields": [
+            {"name": "GOT[0]", "size_bytes": 8, "value": "VA of .dynamic section", "note": "Reserved; used by the dynamic linker"},
+            {"name": "GOT[1]", "size_bytes": 8, "value": "0 initially",            "note": "Dynamic linker writes link_map pointer here"},
+            {"name": "GOT[2]", "size_bytes": 8, "value": "0 initially",            "note": "Dynamic linker writes _dl_runtime_resolve here"},
+            {"name": "GOT[3+]","size_bytes": 8, "value": "VA of PUSH in PLT stub", "note": "Initially the next instruction in the PLT stub; replaced with real function VA on first call"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .got.plt Section ===\nsection .got.plt  write\ngot_plt:\n    dq dynamic_vaddr            ; GOT[0] = &.dynamic\n    dq 0                        ; GOT[1] = link_map  (filled by ld.so)\n    dq 0                        ; GOT[2] = dl_resolve (filled by ld.so)\n    ; Per-function slots (N entries):\nprintf_got:\n    dq plt_printf_push          ; initially -> PUSH in PLT[printf]\nputs_got:\n    dq plt_puts_push            ; initially -> PUSH in PLT[puts]"
+          }
+        },
+        {
+          "name": ".plt Section",
+          "offset_in_file": "inside read-execute PT_LOAD segment",
+          "size_bytes": "(1 + N) * 16 bytes (resolver stub + one 16-byte stub per function)",
+          "required": true,
+          "description": "Procedure Linkage Table. PLT[0] is the resolver stub that calls _dl_runtime_resolve. PLT[n] (n>=1) is the per-function lazy-binding stub.",
+          "fields": [],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .plt Section ===\nsection .plt  exec\n\n; PLT[0]: resolver stub\nplt0:\n    push    qword [rel got_plt+8]    ; push link_map\n    jmp     qword [rel got_plt+16]   ; jmp _dl_runtime_resolve\n\n; PLT[1]: printf stub (16 bytes)\nplt_printf:\n    jmp     qword [rel printf_got]   ; first call: jmps back to printf_push\nplt_printf_push:\n    push    0                        ; relocation index for printf\n    jmp     plt0                     ; call resolver\n\n; PLT[2]: puts stub (16 bytes)\nplt_puts:\n    jmp     qword [rel puts_got]\nplt_puts_push:\n    push    1                        ; relocation index for puts\n    jmp     plt0"
+          }
+        },
+        {
+          "name": ".rela.plt Section",
+          "offset_in_file": "inside read-execute PT_LOAD segment",
+          "size_bytes": "24 bytes per relocation entry",
+          "required": true,
+          "description": "Relocation table for PLT GOT slots. One R_X86_64_JUMP_SLOT entry per imported PLT function. The dynamic linker processes these entries to fill in the .got.plt slots.",
+          "fields": [
+            {"name": "r_offset", "offset": "0x00", "size_bytes": 8, "value": "VA of .got.plt slot",   "note": "Address to patch"},
+            {"name": "r_info",   "offset": "0x08", "size_bytes": 8, "value": "(sym_index << 32) | 7", "note": "Symbol index in .dynsym | R_X86_64_JUMP_SLOT (7)"},
+            {"name": "r_addend", "offset": "0x10", "size_bytes": 8, "value": "0",                     "note": "Addend; 0 for JUMP_SLOT"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .rela.plt Section (Elf64_Rela, 24 bytes each) ===\nsection .rela.plt\nrela_plt:\n    ; Relocation for printf GOT slot\n    dq printf_got_vaddr         ; r_offset: VA of printf's .got.plt slot\n    dq (1 << 32) | 7            ; r_info:   (dynsym index 1) | R_X86_64_JUMP_SLOT\n    dq 0                        ; r_addend\n\n    ; Relocation for puts GOT slot\n    dq puts_got_vaddr\n    dq (2 << 32) | 7\n    dq 0"
+          }
+        },
+        {
+          "name": "Entry Point Code (_start with libc)",
+          "offset_in_file": "inside .text section",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "Entry point for a dynamically linked binary that calls libc functions through the PLT. Can call printf, puts, etc. via PLT stubs. Must call exit() or SYS_exit_group to terminate.",
+          "fields": [],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === 64-bit Dynamic Entry Point calling libc via PLT ===\n; Link: ld program.o -o program -lc --dynamic-linker /lib64/ld-linux-x86-64.so.2\nsection .data\n    fmt     db 'Hello, World!', 10, 0\n\nsection .text\nglobal  _start\nextern  printf\nextern  exit\n\n_start:\n    lea     rdi, [rel fmt]      ; first arg: format string\n    xor     eax, eax            ; no floating-point args (x86-64 ABI)\n    call    printf wrt ..plt    ; call via PLT stub\n\n    xor     edi, edi            ; exit code = 0\n    call    exit wrt ..plt"
+          }
+        }
+      ]
+    },
+    {
+      "id": "elf64_pie",
+      "name": "ELF64 64-bit Position-Independent Executable (ET_DYN / PIE)",
+      "architecture": "x86_64",
+      "bits": 64,
+      "e_type": "ET_DYN",
+      "e_type_value": 3,
+      "e_machine": "EM_X86_64",
+      "e_machine_value": 62,
+      "linking": "dynamic",
+      "description": "Position-Independent Executable built as e_type = ET_DYN (shared object). Enables full ASLR: the kernel loads the binary at a randomized base address. Required by modern Linux distributions. All symbol references use RIP-relative addressing or GOT-relative accesses.",
+      "toolchain": {
+        "assemble": "nasm -f elf64 program.asm -o program.o",
+        "link": "ld program.o -pie -o program -lc --dynamic-linker /lib64/ld-linux-x86-64.so.2",
+        "gcc_shortcut": "gcc -pie -o program program.o"
+      },
+      "required_components": [
+        {
+          "name": "ELF Header with e_type = ET_DYN",
+          "size_bytes": 64,
+          "required": true,
+          "description": "Identical to elf64_dynamic except e_type = ET_DYN (3) instead of ET_EXEC (2). The DT_FLAGS_1 entry in .dynamic should include DF_1_PIE to signal that this is an executable, not a library.",
+          "fields": [
+            {"name": "e_type", "offset": "0x10", "size_bytes": 2, "value": "0x0003", "note": "ET_DYN (3) — allows ASLR base randomisation"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; ELF Header change for PIE:\n    dw 3    ; e_type = ET_DYN  (was 2 = ET_EXEC)"
+          }
+        },
+        {
+          "name": "DT_FLAGS_1 = DF_1_PIE in .dynamic",
+          "size_bytes": 16,
+          "required": false,
+          "description": "Adding DT_FLAGS_1 with value DF_1_PIE (0x08000000) informs the dynamic linker and tools (e.g. file, execstack) that this ET_DYN file is an executable, not a shared library.",
+          "fields": [
+            {"name": "d_tag", "value": "0x6FFFFFFB", "note": "DT_FLAGS_1"},
+            {"name": "d_val", "value": "0x08000000", "note": "DF_1_PIE"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; Add to .dynamic section (before DT_NULL):\n    dq 0x6FFFFFFB, 0x08000000   ; DT_FLAGS_1 = DF_1_PIE"
+          }
+        },
+        {
+          "name": "RIP-relative addressing for all data references",
+          "required": true,
+          "description": "Because the load address is randomised, all global variable and string accesses must use RIP-relative (PC-relative) addressing. Absolute 64-bit addresses are not valid in PIE code without a relocation entry.",
+          "fields": [],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === RIP-relative data access in PIE code ===\nsection .data\n    msg     db 'Hello PIE!', 10, 0\n\nsection .text\nglobal  _start\nextern  puts\n\n_start:\n    ; CORRECT: RIP-relative (works regardless of load address)\n    lea     rdi, [rel msg]      ; load address of msg relative to RIP\n    call    puts wrt ..plt\n\n    ; WRONG for PIE: absolute address (assembler would emit a relocation\n    ; that many kernels reject for ET_DYN executable code):\n    ; mov rdi, msg              ; do NOT use this in PIE\n\n    mov     rax, 231            ; SYS_exit_group\n    xor     rdi, rdi\n    syscall"
+          }
+        }
+      ]
+    },
+    {
+      "id": "elf32_static",
+      "name": "ELF32 32-bit Static Executable (ET_EXEC, no shared libraries)",
+      "architecture": "x86",
+      "bits": 32,
+      "e_type": "ET_EXEC",
+      "e_type_value": 2,
+      "e_machine": "EM_386",
+      "e_machine_value": 3,
+      "linking": "static",
+      "description": "32-bit Linux static executable using the INT 0x80 system call interface. ELF header is 52 bytes, Program Header entries are 32 bytes. System call arguments go in EBX, ECX, EDX, ESI, EDI, EBP.",
+      "toolchain": {
+        "assemble": "nasm -f elf32 program.asm -o program.o",
+        "link": "ld -m elf_i386 program.o -o program"
+      },
+      "required_components": [
+        {
+          "name": "ELF Header (ELF32)",
+          "offset_in_file": "0x0000",
+          "size_bytes": 52,
+          "required": true,
+          "description": "52-byte ELF32 header. Addresses and offsets are 4 bytes (Elf32_Addr / Elf32_Off). EI_CLASS = 1 (ELFCLASS32). e_machine = 3 (EM_386).",
+          "fields": [
+            {"name": "e_ident[4]",  "offset": "0x04", "size_bytes": 1, "value": "0x01",     "note": "EI_CLASS: 1 = ELFCLASS32"},
+            {"name": "e_type",      "offset": "0x10", "size_bytes": 2, "value": "0x0002",   "note": "ET_EXEC"},
+            {"name": "e_machine",   "offset": "0x12", "size_bytes": 2, "value": "0x0003",   "note": "EM_386 (3)"},
+            {"name": "e_entry",     "offset": "0x18", "size_bytes": 4, "value": "VA of _start", "note": "32-bit virtual address"},
+            {"name": "e_phoff",     "offset": "0x1C", "size_bytes": 4, "value": "0x00000034",  "note": "Program Header Table at offset 52 (immediately after header)"},
+            {"name": "e_ehsize",    "offset": "0x28", "size_bytes": 2, "value": "0x0034",   "note": "52 bytes"},
+            {"name": "e_phentsize", "offset": "0x2A", "size_bytes": 2, "value": "0x0020",   "note": "32 bytes per Program Header entry"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === ELF32 Header (52 bytes at file offset 0x0000) ===\nelf_header:\n    db 0x7F, 'E', 'L', 'F'     ; magic\n    db 1                        ; EI_CLASS  = ELFCLASS32\n    db 1                        ; EI_DATA   = little-endian\n    db 1                        ; EI_VERSION\n    db 0                        ; EI_OSABI\n    times 8 db 0                ; padding\n    dw 2                        ; e_type    = ET_EXEC\n    dw 3                        ; e_machine = EM_386\n    dd 1                        ; e_version\n    dd _start                   ; e_entry   (32-bit VA)\n    dd phdr_table               ; e_phoff\n    dd shdr_table               ; e_shoff\n    dd 0                        ; e_flags\n    dw 52                       ; e_ehsize\n    dw 32                       ; e_phentsize\n    dw PHDR_COUNT               ; e_phnum\n    dw 40                       ; e_shentsize\n    dw SHDR_COUNT               ; e_shnum\n    dw SHSTRNDX                 ; e_shstrndx"
+          }
+        },
+        {
+          "name": "PT_LOAD Segment (ELF32, 32 bytes)",
+          "offset_in_file": "Program Header Table at 0x0034",
+          "size_bytes": 32,
+          "required": true,
+          "description": "ELF32 Program Header entry is 32 bytes. p_flags position differs from ELF64: flags are at offset 0x18 (after p_paddr) instead of offset 0x04.",
+          "fields": [
+            {"name": "p_type",   "offset": "0x00", "size_bytes": 4, "value": "0x00000001",  "note": "PT_LOAD"},
+            {"name": "p_offset", "offset": "0x04", "size_bytes": 4, "value": "0x00000000",  "note": "File offset of segment"},
+            {"name": "p_vaddr",  "offset": "0x08", "size_bytes": 4, "value": "0x08048000",  "note": "Conventional 32-bit ET_EXEC base address"},
+            {"name": "p_paddr",  "offset": "0x0C", "size_bytes": 4, "value": "same as p_vaddr", "note": ""},
+            {"name": "p_filesz", "offset": "0x10", "size_bytes": 4, "value": "variable",    "note": "Bytes from file"},
+            {"name": "p_memsz",  "offset": "0x14", "size_bytes": 4, "value": "variable",    "note": "Bytes in memory"},
+            {"name": "p_flags",  "offset": "0x18", "size_bytes": 4, "value": "0x00000005",  "note": "PF_R | PF_X — NOTE: p_flags is at offset 0x18 in ELF32 (vs 0x04 in ELF64)"},
+            {"name": "p_align",  "offset": "0x1C", "size_bytes": 4, "value": "0x00001000",  "note": "4 KB page alignment"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === ELF32 PT_LOAD (rx) Program Header Entry (32 bytes) ===\nphdr_rx:\n    dd 1                        ; p_type   = PT_LOAD\n    dd 0                        ; p_offset (include ELF header in segment)\n    dd 0x08048000               ; p_vaddr  (conventional 32-bit base)\n    dd 0x08048000               ; p_paddr\n    dd RX_FILE_SIZE             ; p_filesz\n    dd RX_FILE_SIZE             ; p_memsz\n    dd 5                        ; p_flags  = PF_R | PF_X (NOTE: position differs from ELF64!)\n    dd 0x1000                   ; p_align  (4 KB)"
+          }
+        },
+        {
+          "name": "Entry Point Code (_start, 32-bit INT 0x80 ABI)",
+          "offset_in_file": "inside .text section",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "32-bit Linux system calls use INT 0x80. System call number in EAX; arguments in EBX, ECX, EDX, ESI, EDI, EBP. Return value in EAX.",
+          "fields": [],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === Minimal 32-bit Static Entry Point (INT 0x80) ===\n; Assemble: nasm -f elf32 program.asm -o program.o\n; Link:     ld -m elf_i386 program.o -o program\nsection .data\n    msg     db 'Hello, World!', 10\n    msglen  equ $ - msg\n\nsection .text\nglobal _start\n\n_start:\n    ; write(1, msg, msglen)  -- syscall 4\n    mov     eax, 4          ; SYS_write\n    mov     ebx, 1          ; fd = stdout\n    mov     ecx, msg        ; buf\n    mov     edx, msglen     ; count\n    int     0x80\n\n    ; exit(0) -- syscall 1\n    mov     eax, 1          ; SYS_exit\n    xor     ebx, ebx        ; status = 0\n    int     0x80"
+          }
+        }
+      ]
+    },
+    {
+      "id": "elf32_dynamic",
+      "name": "ELF32 32-bit Dynamically Linked Executable (ET_EXEC, shared libraries)",
+      "architecture": "x86",
+      "bits": 32,
+      "e_type": "ET_EXEC",
+      "e_type_value": 2,
+      "e_machine": "EM_386",
+      "e_machine_value": 3,
+      "linking": "dynamic",
+      "description": "32-bit Linux dynamically linked executable. Uses the same PT_INTERP, .dynamic, PLT/GOT mechanism as elf64_dynamic, but with 32-bit addresses and the x86 32-bit calling convention (stack-based arguments).",
+      "toolchain": {
+        "assemble": "nasm -f elf32 program.asm -o program.o",
+        "link": "ld -m elf_i386 program.o -o program -lc --dynamic-linker /lib/ld-linux.so.2",
+        "gcc_shortcut": "gcc -m32 -nostartfiles -o program program.o"
+      },
+      "required_components": [
+        {
+          "name": "ELF32 Header + PT_INTERP + PT_DYNAMIC + PT_LOAD segments",
+          "required": true,
+          "description": "Same logical structure as elf64_dynamic but all addresses and offsets are 4 bytes. PT_INTERP path is /lib/ld-linux.so.2.",
+          "fields": []
+        },
+        {
+          "name": "PT_INTERP path (32-bit)",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "Interpreter path for 32-bit Linux dynamic linker.",
+          "fields": [
+            {"name": "interpreter path", "value": "/lib/ld-linux.so.2", "note": "Null-terminated string"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; .interp section for 32-bit dynamic linker\ninterp_str:\n    db '/lib/ld-linux.so.2', 0"
+          }
+        },
+        {
+          "name": ".rela.plt Entry (ELF32 uses Elf32_Rel not Elf32_Rela)",
+          "size_bytes": 8,
+          "required": true,
+          "description": "ELF32 typically uses REL (not RELA) relocations: 4-byte r_offset + 4-byte r_info, no addend. Relocation type for PLT slots is R_386_JMP_SLOT (7).",
+          "fields": [
+            {"name": "r_offset", "offset": "0x00", "size_bytes": 4, "value": "VA of .got slot",        "note": "Address to patch"},
+            {"name": "r_info",   "offset": "0x04", "size_bytes": 4, "value": "(sym_index << 8) | 7",   "note": "Symbol index | R_386_JMP_SLOT (7)"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === ELF32 .rel.plt Entry (8 bytes, no addend) ===\nrel_plt:\n    ; Relocation for printf\n    dd printf_got_vaddr         ; r_offset: VA of printf's GOT slot\n    dd (1 << 8) | 7             ; r_info:   sym_index=1 | R_386_JMP_SLOT"
+          }
+        },
+        {
+          "name": "Entry Point Code (_start, 32-bit dynamic)",
+          "offset_in_file": "inside .text section",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "32-bit entry point calling libc functions. x86 calling convention: arguments pushed right-to-left on the stack.",
+          "fields": [],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === 32-bit Dynamic Entry Point calling libc ===\nsection .data\n    msg     db 'Hello, World!', 10, 0\n\nsection .text\nglobal  _start\nextern  puts\nextern  exit\n\n_start:\n    push    msg             ; argument: pointer to string (pushed on stack)\n    call    puts wrt ..plt  ; call puts via PLT stub\n    add     esp, 4          ; caller cleans the stack (cdecl convention)\n\n    push    0               ; exit code = 0\n    call    exit wrt ..plt\n    add     esp, 4          ; (never reached)"
+          }
+        }
+      ]
+    }
+  ]
+}
