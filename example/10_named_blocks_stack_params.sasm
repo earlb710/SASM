@@ -44,7 +44,11 @@ end proc
 
 
 (* --- Caller example ---
-   Push args right-to-left, then call the procedure.               *)
+   The 'block' below is a named code region entered by fall-through
+   (execution arrives here from the statement above, with no goto).
+   'end block' emits no instruction; execution continues to whatever
+   follows this block.  The block name allows a 'goto call_print_substring'
+   from elsewhere if the same call sequence needs to be reused.         *)
 
 block call_print_substring:
     push 5                   ; length  = 5

@@ -1,28 +1,80 @@
 ; Example 09 — Named Blocks with Register Parameters
-; Demonstrates the SASM named-block and proc-with-register-params features.
+; Demonstrates named-block fall-through semantics and the two entry modes:
+;   A. Execution falls straight into the block from the preceding statement.
+;   B. An explicit 'goto <block-name>' jumps to the block from elsewhere.
 ;
-; Design note: register-based parameter passing is the natural choice for
-; 8086 code because the processor has only a small set of general-purpose
-; registers. The caller loads the agreed registers before executing the
-; block; the callee documents which registers it reads (in) and writes (out).
+; A named block is a LABELED CODE REGION WITH FALL-THROUGH SEMANTICS.
+; Key rules:
+;   1. 'block <name>:' emits only a label — no setup instruction.
+;   2. 'end block'     emits NOTHING — execution falls through to the next
+;      statement just as if 'end block' were not there.
+;   3. Any code path can 'goto <block-name>' to enter the block from anywhere
+;      in the same procedure or translation unit.
+;   4. The block body may contain 'goto' or 'return' to leave early; if it
+;      does not, execution falls out the bottom past 'end block'.
 ;
 ; Syntax:
-;   proc <name> ( in <reg> as <alias>, ..., out <reg> as <alias> ):
-;       <body using aliases>
-;       return
-;   end proc
-;
-; Named blocks (no call/return, just a labeled code region):
 ;   block <name>:
 ;       <body>
 ;   end block
 ;
-; Caller jumps into a block with: goto <block-name>
-; Execution falls through past end block unless an explicit goto is used.
+;   goto <block-name>               ; unconditional entry
+;   goto <block-name> if <cond>     ; conditional entry
+;
+; This file also demonstrates register-based parameter passing via proc:
+;   proc <name> ( in <reg> as <alias>, ..., out <reg> as <alias> ):
+;       <body>
+;       return
+;   end proc
 
-(* --- Helper: clamp a value to [0, 255] using register params ---
-   in  ax  as  value      — the value to clamp
-   out ax  as  result     — clamped result in [0, 255]            *)
+(* ---------------------------------------------------------------
+   Part 1: named block — check_bounds
+   Verify that ax is in [bx, cx].
+   Both entry modes are shown:
+     A. fall-through  (code immediately before the block)
+     B. goto          (a second branch that re-enters the block)
+   Exit paths:
+     success — falls through past 'end block'
+     failure — jumps to out_of_range
+   --------------------------------------------------------------- *)
+
+; Set up bounds in bx and cx before reaching the block.
+move 0 to bx                 ; lower bound
+move 100 to cx               ; upper bound
+
+; --- Entry mode A: fall-through ---
+; There is no 'goto' here.  The next instruction IS the block header,
+; so execution enters check_bounds by natural sequential fall-through.
+
+block check_bounds:
+    compare ax with bx
+    goto out_of_range if below
+    compare ax with cx
+    goto out_of_range if above
+end block
+; ← success path: falls through past 'end block' to here
+goto done
+
+; --- Entry mode B: goto entry ---
+; A second code path loads a different value and jumps directly to
+; the same block by name instead of using fall-through.
+move [alternate_value] to ax
+goto check_bounds            ; enter check_bounds via explicit goto
+
+out_of_range:
+    move 0xFFFF to ax        ; sentinel: invalid
+
+done:
+    no op
+
+
+(* ---------------------------------------------------------------
+   Part 2: proc with register-based parameters — clamp_byte
+   in  ax as value   — the 16-bit value to clamp
+   out ax as result  — clamped result in [0, 255]
+   Using aliases instead of raw register names makes the parameter
+   contract explicit in the source and is checked by the assembler.
+   --------------------------------------------------------------- *)
 
 proc clamp_byte ( in ax as value, out ax as result ):
     compare value with 0
@@ -37,24 +89,6 @@ proc clamp_byte ( in ax as value, out ax as result ):
     return
 end proc
 
-
-(* --- Named block: validate_range ---
-   A labeled guard region.  Jump here to verify that ax is in [bx, cx].
-   If the check fails, control is transferred to out_of_range.
-   If it passes, execution falls through to the next statement.       *)
-
-block validate_range:
-    compare ax with bx
-    goto out_of_range if below
-    compare ax with cx
-    goto out_of_range if above
-end block
-
-; ... normal path continues here ...
-goto done
-
-out_of_range:
-    move 0xFFFF to ax        ; sentinel: invalid
-
-done:
-    no op
+; Caller:
+move 300 to ax          ; value = 300
+call clamp_byte         ; result → ax (= 255)
