@@ -1,0 +1,462 @@
+{
+  "os": "windows",
+  "format": "PE",
+  "format_full_name": "Portable Executable (PE/COFF)",
+  "description": "The Windows Portable Executable format. Every runnable .exe and .dll on Windows must conform to this format. A compiled object file (.obj) produced by an assembler must have these structures added by the linker to become a valid executable.",
+  "source_reference": "doc/executable_format_windows.md",
+  "variants": [
+    {
+      "id": "pe32_console_static",
+      "name": "PE32 32-bit Console Executable (static, no DLL imports)",
+      "architecture": "x86",
+      "bits": 32,
+      "magic": "0x010B",
+      "machine": "0x014C",
+      "subsystem": "WINDOWS_CUI",
+      "subsystem_value": 3,
+      "linking": "static",
+      "description": "Smallest possible Windows .exe: 32-bit, console subsystem, no explicit DLL imports. The loader always maps ntdll.dll, so even 'static' assembly programs typically call ExitProcess via kernel32. Suitable as a learning baseline.",
+      "toolchain": {
+        "assemble": "nasm -f win32 program.asm -o program.obj",
+        "link": "link program.obj /subsystem:console /entry:_start /nodefaultlib /out:program.exe"
+      },
+      "required_components": [
+        {
+          "name": "MZ Header",
+          "offset_in_file": "0x0000",
+          "size_bytes": 64,
+          "required": true,
+          "description": "MS-DOS 2.0 compatible header. Windows requires the MZ magic at file offset 0 and a valid e_lfanew pointing to the PE signature.",
+          "fields": [
+            {"name": "e_magic",   "offset": "0x00", "size_bytes": 2, "value": "0x5A4D",      "note": "ASCII 'MZ' — mandatory magic bytes"},
+            {"name": "(padding)", "offset": "0x02", "size_bytes": 58, "value": "0x00 * 58",  "note": "Unused; set to zero for a minimal stub"},
+            {"name": "e_lfanew", "offset": "0x3C", "size_bytes": 4, "value": "0x00000080",  "note": "File offset of the PE signature; must be >= 0x40"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === MZ Header (64 bytes at file offset 0x0000) ===\nmz_header:\n    dw 0x5A4D           ; e_magic = 'MZ'\n    dw 0x0000           ; e_cblp  (unused)\n    dw 0x0000           ; e_cp    (unused)\n    dw 0x0000           ; e_crlc  (unused)\n    dw 0x0000           ; e_cparhdr (unused)\n    dw 0x0000           ; e_minalloc\n    dw 0xFFFF           ; e_maxalloc\n    dw 0x0000           ; e_ss\n    dw 0x00B8           ; e_sp\n    dw 0x0000           ; e_csum\n    dw 0x0000           ; e_ip\n    dw 0x0000           ; e_cs\n    dw 0x0040           ; e_lfarlc\n    dw 0x0000           ; e_ovno\n    times 4 dw 0x0000   ; e_res[4]\n    dw 0x0000           ; e_oemid\n    dw 0x0000           ; e_oeminfo\n    times 10 dw 0x0000  ; e_res2[10]\n    dd 0x00000080       ; e_lfanew -> PE signature at 0x80"
+          }
+        },
+        {
+          "name": "DOS Stub Program",
+          "offset_in_file": "0x0040",
+          "size_bytes": 64,
+          "required": false,
+          "description": "Small 16-bit DOS program that prints 'This program cannot be run in DOS mode.' when run under DOS. Ignored by Windows. Pad with zeros if not needed.",
+          "fields": [],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === DOS Stub (64 bytes at file offset 0x0040) ===\n; Can be all zeros; standard Microsoft stub shown for reference:\ndos_stub:\n    db 0x0E, 0x1F               ; push cs / pop ds\n    db 0xBA, 0x0E, 0x00         ; mov dx, offset_of_message\n    db 0xB4, 0x09               ; mov ah, 9 (print string)\n    db 0xCD, 0x21               ; int 0x21\n    db 0xB8, 0x01, 0x4C         ; mov ax, 0x4C01 (exit 1)\n    db 0xCD, 0x21               ; int 0x21\n    db 'This program cannot be run in DOS mode.', 13, 13, 10, '$'\n    times (64 - ($ - dos_stub)) db 0"
+          }
+        },
+        {
+          "name": "PE Signature",
+          "offset_in_file": "0x0080",
+          "size_bytes": 4,
+          "required": true,
+          "description": "Four-byte magic at the file offset stored in e_lfanew. Must be exactly 'PE\\0\\0'.",
+          "fields": [
+            {"name": "Signature", "offset": "0x00", "size_bytes": 4, "value": "0x50 0x45 0x00 0x00", "note": "ASCII 'PE' followed by two zero bytes"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === PE Signature (4 bytes at e_lfanew = 0x0080) ===\npe_signature:\n    db 'P', 'E', 0, 0     ; 'PE\\0\\0'"
+          }
+        },
+        {
+          "name": "COFF File Header",
+          "offset_in_file": "0x0084",
+          "size_bytes": 20,
+          "required": true,
+          "description": "20-byte COFF header immediately after the PE signature. Identifies the target CPU, number of sections, and size of the Optional Header.",
+          "fields": [
+            {"name": "Machine",              "offset": "0x00", "size_bytes": 2, "value": "0x014C", "note": "IMAGE_FILE_MACHINE_I386 (x86 32-bit)"},
+            {"name": "NumberOfSections",     "offset": "0x02", "size_bytes": 2, "value": "variable", "note": "Count of Section Table entries; at minimum 1 (.text)"},
+            {"name": "TimeDateStamp",        "offset": "0x04", "size_bytes": 4, "value": "0x00000000", "note": "Unix timestamp of link time; 0 is valid"},
+            {"name": "PointerToSymbolTable", "offset": "0x08", "size_bytes": 4, "value": "0x00000000", "note": "Set to 0 for executables"},
+            {"name": "NumberOfSymbols",      "offset": "0x0C", "size_bytes": 4, "value": "0x00000000", "note": "Set to 0 for executables"},
+            {"name": "SizeOfOptionalHeader", "offset": "0x10", "size_bytes": 2, "value": "0x00E0", "note": "224 bytes for PE32"},
+            {"name": "Characteristics",      "offset": "0x12", "size_bytes": 2, "value": "0x0102", "note": "IMAGE_FILE_EXECUTABLE_IMAGE (0x0002) | IMAGE_FILE_32BIT_MACHINE (0x0100)"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === COFF File Header (20 bytes at 0x0084) ===\ncoff_header:\n    dw 0x014C           ; Machine = IMAGE_FILE_MACHINE_I386\n    dw NUM_SECTIONS     ; NumberOfSections\n    dd 0                ; TimeDateStamp\n    dd 0                ; PointerToSymbolTable\n    dd 0                ; NumberOfSymbols\n    dw 0x00E0           ; SizeOfOptionalHeader = 224 (PE32)\n    dw 0x0102           ; Characteristics: EXECUTABLE_IMAGE | 32BIT_MACHINE"
+          }
+        },
+        {
+          "name": "Optional Header (PE32)",
+          "offset_in_file": "0x0098",
+          "size_bytes": 224,
+          "required": true,
+          "description": "224-byte PE32 Optional Header. Required for all executables. Contains load address, entry point RVA, section alignments, subsystem, stack/heap sizes, and the 16-entry Data Directory array.",
+          "fields": [
+            {"name": "Magic",                       "offset": "0x00", "size_bytes": 2, "value": "0x010B", "note": "PE32 magic"},
+            {"name": "MajorLinkerVersion",          "offset": "0x02", "size_bytes": 1, "value": "0x00",   "note": "Can be 0"},
+            {"name": "MinorLinkerVersion",          "offset": "0x03", "size_bytes": 1, "value": "0x00",   "note": "Can be 0"},
+            {"name": "SizeOfCode",                  "offset": "0x04", "size_bytes": 4, "value": "variable", "note": "Total size of all .text sections"},
+            {"name": "SizeOfInitializedData",       "offset": "0x08", "size_bytes": 4, "value": "variable", "note": "Total size of .data sections"},
+            {"name": "SizeOfUninitializedData",     "offset": "0x0C", "size_bytes": 4, "value": "0x00000000", "note": "Size of .bss"},
+            {"name": "AddressOfEntryPoint",         "offset": "0x10", "size_bytes": 4, "value": "variable", "note": "RVA of _start; first instruction executed"},
+            {"name": "BaseOfCode",                  "offset": "0x14", "size_bytes": 4, "value": "0x00001000", "note": "RVA of .text"},
+            {"name": "BaseOfData",                  "offset": "0x18", "size_bytes": 4, "value": "0x00002000", "note": "RVA of .data (PE32 only; absent in PE32+)"},
+            {"name": "ImageBase",                   "offset": "0x1C", "size_bytes": 4, "value": "0x00400000", "note": "Preferred load virtual address"},
+            {"name": "SectionAlignment",            "offset": "0x20", "size_bytes": 4, "value": "0x00001000", "note": "4 KB page alignment in memory"},
+            {"name": "FileAlignment",               "offset": "0x24", "size_bytes": 4, "value": "0x00000200", "note": "512-byte alignment in file"},
+            {"name": "MajorOperatingSystemVersion", "offset": "0x28", "size_bytes": 2, "value": "0x0006", "note": "Vista+"},
+            {"name": "MinorOperatingSystemVersion", "offset": "0x2A", "size_bytes": 2, "value": "0x0000", "note": ""},
+            {"name": "MajorImageVersion",           "offset": "0x2C", "size_bytes": 2, "value": "0x0000", "note": "Application version; can be 0"},
+            {"name": "MinorImageVersion",           "offset": "0x2E", "size_bytes": 2, "value": "0x0000", "note": ""},
+            {"name": "MajorSubsystemVersion",       "offset": "0x30", "size_bytes": 2, "value": "0x0006", "note": "Vista+"},
+            {"name": "MinorSubsystemVersion",       "offset": "0x32", "size_bytes": 2, "value": "0x0000", "note": ""},
+            {"name": "Win32VersionValue",           "offset": "0x34", "size_bytes": 4, "value": "0x00000000", "note": "Reserved; MUST be 0"},
+            {"name": "SizeOfImage",                 "offset": "0x38", "size_bytes": 4, "value": "variable", "note": "Total image size in memory rounded to SectionAlignment"},
+            {"name": "SizeOfHeaders",               "offset": "0x3C", "size_bytes": 4, "value": "0x00000200", "note": "Size of all headers rounded to FileAlignment"},
+            {"name": "CheckSum",                    "offset": "0x40", "size_bytes": 4, "value": "0x00000000", "note": "0 is valid for non-driver executables"},
+            {"name": "Subsystem",                   "offset": "0x44", "size_bytes": 2, "value": "0x0003", "note": "IMAGE_SUBSYSTEM_WINDOWS_CUI (console)"},
+            {"name": "DllCharacteristics",          "offset": "0x46", "size_bytes": 2, "value": "0x8140", "note": "DYNAMIC_BASE | NX_COMPAT | TERMINAL_SERVER_AWARE"},
+            {"name": "SizeOfStackReserve",          "offset": "0x48", "size_bytes": 4, "value": "0x00100000", "note": "1 MB virtual stack reservation"},
+            {"name": "SizeOfStackCommit",           "offset": "0x4C", "size_bytes": 4, "value": "0x00001000", "note": "4 KB initially committed"},
+            {"name": "SizeOfHeapReserve",           "offset": "0x50", "size_bytes": 4, "value": "0x00100000", "note": ""},
+            {"name": "SizeOfHeapCommit",            "offset": "0x54", "size_bytes": 4, "value": "0x00001000", "note": ""},
+            {"name": "LoaderFlags",                 "offset": "0x58", "size_bytes": 4, "value": "0x00000000", "note": "Obsolete; set to 0"},
+            {"name": "NumberOfRvaAndSizes",         "offset": "0x5C", "size_bytes": 4, "value": "0x00000010", "note": "Always 16"},
+            {"name": "DataDirectory[0..15]",        "offset": "0x60", "size_bytes": 128, "value": "0x00 * 128", "note": "16 x (RVA:4 + Size:4); all zero for static executable"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === Optional Header PE32 (224 bytes at 0x0098) ===\nopt_header:\n    dw 0x010B       ; Magic = PE32\n    db 0, 0         ; LinkerVersion (major, minor)\n    dd CODE_SIZE    ; SizeOfCode\n    dd DATA_SIZE    ; SizeOfInitializedData\n    dd 0            ; SizeOfUninitializedData\n    dd ENTRY_RVA    ; AddressOfEntryPoint (RVA of _start)\n    dd 0x1000       ; BaseOfCode (RVA)\n    dd 0x2000       ; BaseOfData (RVA) -- PE32 only\n    dd 0x00400000   ; ImageBase\n    dd 0x1000       ; SectionAlignment (4 KB)\n    dd 0x0200       ; FileAlignment    (512 B)\n    dw 6, 0         ; OS version 6.0\n    dw 0, 0         ; Image version\n    dw 6, 0         ; Subsystem version 6.0\n    dd 0            ; Win32VersionValue (must be 0)\n    dd IMAGE_SIZE   ; SizeOfImage\n    dd HDR_SIZE     ; SizeOfHeaders\n    dd 0            ; CheckSum\n    dw 3            ; Subsystem = WINDOWS_CUI\n    dw 0x8140       ; DllCharacteristics\n    dd 0x100000     ; SizeOfStackReserve\n    dd 0x1000       ; SizeOfStackCommit\n    dd 0x100000     ; SizeOfHeapReserve\n    dd 0x1000       ; SizeOfHeapCommit\n    dd 0            ; LoaderFlags\n    dd 16           ; NumberOfRvaAndSizes\n    times 16 dq 0   ; DataDirectory[0..15] = all zero (static)"
+          }
+        },
+        {
+          "name": "Section Table Entry (.text)",
+          "offset_in_file": "immediately after Optional Header",
+          "size_bytes": 40,
+          "required": true,
+          "description": "One 40-byte section header for the executable code section.",
+          "fields": [
+            {"name": "Name",                "offset": "0x00", "size_bytes": 8, "value": "'.text\\0\\0\\0'", "note": "8-char null-padded ASCII"},
+            {"name": "VirtualSize",         "offset": "0x08", "size_bytes": 4, "value": "variable",      "note": "Actual code size before alignment"},
+            {"name": "VirtualAddress",      "offset": "0x0C", "size_bytes": 4, "value": "0x00001000",   "note": "RVA; must be multiple of SectionAlignment"},
+            {"name": "SizeOfRawData",       "offset": "0x10", "size_bytes": 4, "value": "variable",      "note": "Rounded to FileAlignment (0x200)"},
+            {"name": "PointerToRawData",    "offset": "0x14", "size_bytes": 4, "value": "0x00000200",   "note": "File offset; multiple of FileAlignment"},
+            {"name": "PointerToRelocations","offset": "0x18", "size_bytes": 4, "value": "0x00000000",   "note": "0 for executables"},
+            {"name": "PointerToLinenumbers","offset": "0x1C", "size_bytes": 4, "value": "0x00000000",   "note": "0"},
+            {"name": "NumberOfRelocations", "offset": "0x20", "size_bytes": 2, "value": "0x0000",        "note": "0"},
+            {"name": "NumberOfLinenumbers", "offset": "0x22", "size_bytes": 2, "value": "0x0000",        "note": "0"},
+            {"name": "Characteristics",     "offset": "0x24", "size_bytes": 4, "value": "0x60000020",   "note": "CODE | MEM_READ | MEM_EXECUTE"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .text Section Table Entry (40 bytes) ===\ntext_shdr:\n    db '.text', 0, 0, 0    ; Name (8 bytes)\n    dd CODE_VSIZE           ; VirtualSize\n    dd 0x1000               ; VirtualAddress (RVA)\n    dd CODE_RAW             ; SizeOfRawData (aligned to 0x200)\n    dd TEXT_FILE_OFFSET     ; PointerToRawData\n    dd 0                    ; PointerToRelocations\n    dd 0                    ; PointerToLinenumbers\n    dw 0                    ; NumberOfRelocations\n    dw 0                    ; NumberOfLinenumbers\n    dd 0x60000020           ; Characteristics: CODE | READ | EXECUTE"
+          }
+        },
+        {
+          "name": "Entry Point Code (_start)",
+          "offset_in_file": "inside .text section",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "First instruction executed. Must never return — must call ExitProcess or terminate via SYSCALL. Stack pointer is valid and 4-byte aligned on entry.",
+          "fields": [],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === Minimal 32-bit Entry Point ===\n; Assemble: nasm -f win32 program.asm -o program.obj\n; Link:     link program.obj kernel32.lib /subsystem:console /entry:_start /nodefaultlib\nsection .text\nglobal  _start\nextern  _ExitProcess@4     ; stdcall: 4-byte argument cleaned by callee\n\n_start:\n    push    0               ; exit code = 0\n    call    _ExitProcess@4  ; terminates the process\n    ; execution never reaches here"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pe32_console_dynamic",
+      "name": "PE32 32-bit Console Executable (dynamic, imports from kernel32.dll)",
+      "architecture": "x86",
+      "bits": 32,
+      "magic": "0x010B",
+      "machine": "0x014C",
+      "subsystem": "WINDOWS_CUI",
+      "subsystem_value": 3,
+      "linking": "dynamic",
+      "description": "32-bit Windows console .exe that imports API functions from kernel32.dll via the Import Table mechanism. Adds an Import Directory, Import Lookup Table (ILT), Hint/Name Table, and Import Address Table (IAT) compared to the static variant.",
+      "toolchain": {
+        "assemble": "nasm -f win32 program.asm -o program.obj",
+        "link": "link program.obj kernel32.lib /subsystem:console /entry:_start /nodefaultlib /out:program.exe"
+      },
+      "required_components": [
+        {
+          "name": "MZ Header + DOS Stub + PE Signature + COFF File Header",
+          "required": true,
+          "description": "Identical to pe32_console_static. See that variant for field details and code examples.",
+          "fields": []
+        },
+        {
+          "name": "Optional Header (PE32) with populated Data Directories",
+          "offset_in_file": "0x0098",
+          "size_bytes": 224,
+          "required": true,
+          "description": "Same layout as the static variant except DataDirectory[1] (Import Table) and DataDirectory[12] (IAT) must point to the import structures.",
+          "fields": [
+            {"name": "DataDirectory[1].VirtualAddress", "note": "RVA of the Import Directory Table"},
+            {"name": "DataDirectory[1].Size",           "note": "Total byte size of the Import Directory Table"},
+            {"name": "DataDirectory[12].VirtualAddress","note": "RVA of the Import Address Table (IAT)"},
+            {"name": "DataDirectory[12].Size",          "note": "Total byte size of the IAT"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === DataDirectory array (128 bytes, inside Optional Header at offset 0x60) ===\ndata_dir:\n    dq 0                            ; [0]  Export Table      (none)\n    dd IMPORT_DIR_RVA               ; [1]  Import Table RVA\n    dd IMPORT_DIR_SIZE              ;      Import Table Size\n    times 10 dq 0                   ; [2..11] (unused)\n    dd IAT_RVA                      ; [12] IAT RVA\n    dd IAT_SIZE                     ;      IAT Size\n    times 3 dq 0                    ; [13..15] (unused)"
+          }
+        },
+        {
+          "name": "Import Directory Table",
+          "offset_in_file": "inside .idata or .rdata section",
+          "size_bytes": "20 bytes per DLL + 20-byte null terminator",
+          "required": true,
+          "description": "Array of IMAGE_IMPORT_DESCRIPTOR structures, one per imported DLL, terminated by a 20-byte all-zero entry.",
+          "fields": [
+            {"name": "OriginalFirstThunk", "offset": "0x00", "size_bytes": 4, "value": "RVA of ILT",         "note": "Import Lookup Table for this DLL"},
+            {"name": "TimeDateStamp",      "offset": "0x04", "size_bytes": 4, "value": "0x00000000",          "note": "0 before binding"},
+            {"name": "ForwarderChain",     "offset": "0x08", "size_bytes": 4, "value": "0xFFFFFFFF",          "note": "-1 if no forwarders"},
+            {"name": "Name",               "offset": "0x0C", "size_bytes": 4, "value": "RVA of DLL name",    "note": "Null-terminated ASCII, e.g. 'KERNEL32.DLL\\0'"},
+            {"name": "FirstThunk",         "offset": "0x10", "size_bytes": 4, "value": "RVA of IAT",         "note": "Loader overwrites each entry with the real function address"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === Import Directory Table (.idata section) ===\nimport_dir:\n    ; Descriptor for KERNEL32.DLL\n    dd ILT_KERNEL32_RVA     ; OriginalFirstThunk -> ILT\n    dd 0                    ; TimeDateStamp\n    dd 0xFFFFFFFF           ; ForwarderChain\n    dd DLL_NAME_RVA         ; Name -> 'KERNEL32.DLL\\0'\n    dd IAT_KERNEL32_RVA     ; FirstThunk -> IAT (rewritten at load time)\n    ; Null terminator (all zeros = end of table)\n    times 5 dd 0\nimport_dir_end:\n\n; Import Lookup Table (ILT) — same layout as IAT before binding\nilt_kernel32:\n    dd HINT_EXITPROCESS_RVA ; -> Hint/Name for ExitProcess\n    dd 0                    ; null terminator\n\n; Import Address Table (IAT) — loader overwrites at runtime\niat_kernel32:\n    dd HINT_EXITPROCESS_RVA ; same as ILT initially\n    dd 0                    ; null terminator\niat_end:\n\n; Hint/Name entry for ExitProcess\nhint_exitprocess:\n    dw 0                    ; hint (0 = perform full name search)\n    db 'ExitProcess', 0     ; function name (null-terminated)\n\ndll_name_kernel32:\n    db 'KERNEL32.DLL', 0"
+          }
+        },
+        {
+          "name": "Entry Point Code (32-bit, with DLL imports)",
+          "offset_in_file": "inside .text section",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "Entry point that calls imported functions through the IAT. Indirect call through the IAT thunk slot.",
+          "fields": [],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === 32-bit Entry Point calling kernel32 via IAT ===\nsection .text\nglobal  _start\nextern  _ExitProcess@4\n\n_start:\n    push    0\n    call    _ExitProcess@4\n\n; ---- Hello World variant ----\nsection .data\n    msg     db 'Hello, World!', 13, 10\n    msglen  equ $ - msg\n\nsection .text\nglobal  _hello\nextern  _GetStdHandle@4\nextern  _WriteConsoleA@20\nextern  _ExitProcess@4\n\n_hello:\n    ; GetStdHandle(STD_OUTPUT_HANDLE = -11)\n    push    -11\n    call    _GetStdHandle@4         ; EAX = handle\n\n    ; WriteConsoleA(hOut, msg, len, &written, NULL)\n    push    0                       ; lpReserved = NULL\n    push    0                       ; placeholder for lpNumberOfCharsWritten\n    lea     ecx, [esp]              ; &written\n    push    ecx\n    push    msglen\n    push    msg\n    push    eax                     ; hConsoleOutput\n    call    _WriteConsoleA@20\n\n    push    0\n    call    _ExitProcess@4"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pe32_gui_dynamic",
+      "name": "PE32 32-bit GUI Executable (dynamic, WINDOWS_GUI subsystem)",
+      "architecture": "x86",
+      "bits": 32,
+      "magic": "0x010B",
+      "machine": "0x014C",
+      "subsystem": "WINDOWS_GUI",
+      "subsystem_value": 2,
+      "linking": "dynamic",
+      "description": "32-bit Windows GUI application: no console window allocated. Subsystem set to 2 (WINDOWS_GUI). Typically imports from kernel32.dll, user32.dll, and gdi32.dll. Entry point is conventionally WinMain.",
+      "toolchain": {
+        "assemble": "nasm -f win32 program.asm -o program.obj",
+        "link": "link program.obj kernel32.lib user32.lib /subsystem:windows /entry:WinMain /nodefaultlib /out:program.exe"
+      },
+      "required_components": [
+        {
+          "name": "All components from pe32_console_dynamic",
+          "required": true,
+          "description": "Identical structure. Only the Subsystem field value and entry point convention differ.",
+          "fields": []
+        },
+        {
+          "name": "Subsystem field = WINDOWS_GUI",
+          "offset_in_file": "offset 0x44 inside Optional Header",
+          "size_bytes": 2,
+          "required": true,
+          "description": "Change the Subsystem word from 3 (CUI) to 2 (GUI). No console window will be created.",
+          "fields": [
+            {"name": "Subsystem", "size_bytes": 2, "value": "0x0002", "note": "IMAGE_SUBSYSTEM_WINDOWS_GUI"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; In the Optional Header, set:\n    dw 2    ; Subsystem = WINDOWS_GUI  (was 3 for console)"
+          }
+        },
+        {
+          "name": "WinMain Entry Point (32-bit GUI)",
+          "offset_in_file": "inside .text section",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "GUI apps enter at WinMain. Stack on entry: [esp+4]=hInstance, [esp+8]=hPrevInstance, [esp+12]=lpCmdLine, [esp+16]=nCmdShow.",
+          "fields": [],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === 32-bit GUI WinMain Entry Point ===\nsection .data\n    msg     db 'Hello from SASM!', 0\n    caption db 'SASM', 0\n\nsection .text\nglobal  WinMain\nextern  _MessageBoxA@16\nextern  _ExitProcess@4\n\nWinMain:\n    ; MessageBoxA(NULL, msg, caption, MB_OK)\n    push    0               ; uType = MB_OK\n    push    caption\n    push    msg\n    push    0               ; hWnd = NULL\n    call    _MessageBoxA@16\n    push    0\n    call    _ExitProcess@4"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pe32plus_console_static",
+      "name": "PE32+ 64-bit Console Executable (static, no DLL imports)",
+      "architecture": "x86_64",
+      "bits": 64,
+      "magic": "0x020B",
+      "machine": "0x8664",
+      "subsystem": "WINDOWS_CUI",
+      "subsystem_value": 3,
+      "linking": "static",
+      "description": "64-bit Windows .exe using PE32+ format (magic 0x020B). BaseOfData field is absent. ImageBase and stack/heap sizes are 8 bytes. Machine is 0x8664 (AMD64). RSP is 16-byte aligned on entry.",
+      "toolchain": {
+        "assemble": "nasm -f win64 program.asm -o program.obj",
+        "link": "link program.obj /subsystem:console /entry:start /nodefaultlib /out:program.exe"
+      },
+      "required_components": [
+        {
+          "name": "COFF File Header (PE32+)",
+          "offset_in_file": "0x0084",
+          "size_bytes": 20,
+          "required": true,
+          "description": "Same layout as PE32 but Machine = 0x8664, Characteristics omits 32BIT_MACHINE, and SizeOfOptionalHeader = 240.",
+          "fields": [
+            {"name": "Machine",              "offset": "0x00", "size_bytes": 2, "value": "0x8664", "note": "IMAGE_FILE_MACHINE_AMD64"},
+            {"name": "SizeOfOptionalHeader", "offset": "0x10", "size_bytes": 2, "value": "0x00F0", "note": "240 bytes for PE32+"},
+            {"name": "Characteristics",      "offset": "0x12", "size_bytes": 2, "value": "0x0022", "note": "EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE (no 32BIT_MACHINE bit)"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "coff_header:\n    dw 0x8664           ; Machine = IMAGE_FILE_MACHINE_AMD64\n    dw NUM_SECTIONS\n    dd 0                ; TimeDateStamp\n    dd 0                ; PointerToSymbolTable\n    dd 0                ; NumberOfSymbols\n    dw 0x00F0           ; SizeOfOptionalHeader = 240 (PE32+)\n    dw 0x0022           ; Characteristics: EXECUTABLE | LARGE_ADDRESS_AWARE"
+          }
+        },
+        {
+          "name": "Optional Header (PE32+)",
+          "offset_in_file": "0x0098",
+          "size_bytes": 240,
+          "required": true,
+          "description": "240-byte PE32+ Optional Header. BaseOfData field is absent. ImageBase, stack, and heap size fields are 8 bytes (vs 4 bytes in PE32).",
+          "fields": [
+            {"name": "Magic",                "offset": "0x00", "size_bytes": 2, "value": "0x020B",              "note": "PE32+ magic"},
+            {"name": "SizeOfCode",           "offset": "0x04", "size_bytes": 4, "value": "variable",            "note": ""},
+            {"name": "AddressOfEntryPoint",  "offset": "0x10", "size_bytes": 4, "value": "variable",            "note": "RVA of start"},
+            {"name": "BaseOfCode",           "offset": "0x14", "size_bytes": 4, "value": "0x00001000",          "note": ""},
+            {"name": "BaseOfData",           "note": "ABSENT — does not exist in PE32+"},
+            {"name": "ImageBase",            "offset": "0x18", "size_bytes": 8, "value": "0x0000000140000000",  "note": "64-bit preferred load address"},
+            {"name": "SectionAlignment",     "offset": "0x20", "size_bytes": 4, "value": "0x00001000",          "note": ""},
+            {"name": "FileAlignment",        "offset": "0x24", "size_bytes": 4, "value": "0x00000200",          "note": ""},
+            {"name": "Subsystem",            "offset": "0x44", "size_bytes": 2, "value": "0x0003",              "note": "WINDOWS_CUI"},
+            {"name": "DllCharacteristics",   "offset": "0x46", "size_bytes": 2, "value": "0x8160",              "note": "HIGH_ENTROPY_VA | DYNAMIC_BASE | NX_COMPAT | TERMINAL_SERVER_AWARE"},
+            {"name": "SizeOfStackReserve",   "offset": "0x48", "size_bytes": 8, "value": "0x0000000000100000",  "note": "1 MB (8-byte field)"},
+            {"name": "SizeOfStackCommit",    "offset": "0x50", "size_bytes": 8, "value": "0x0000000000001000",  "note": "4 KB (8-byte field)"},
+            {"name": "SizeOfHeapReserve",    "offset": "0x58", "size_bytes": 8, "value": "0x0000000000100000",  "note": ""},
+            {"name": "SizeOfHeapCommit",     "offset": "0x60", "size_bytes": 8, "value": "0x0000000000001000",  "note": ""}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === Optional Header PE32+ (240 bytes at 0x0098) ===\nopt_header:\n    dw 0x020B               ; Magic = PE32+\n    db 0, 0                 ; LinkerVersion\n    dd CODE_SIZE            ; SizeOfCode\n    dd DATA_SIZE            ; SizeOfInitializedData\n    dd 0                    ; SizeOfUninitializedData\n    dd ENTRY_RVA            ; AddressOfEntryPoint\n    dd 0x1000               ; BaseOfCode\n    ; Note: no BaseOfData field in PE32+\n    dq 0x0000000140000000   ; ImageBase (8 bytes)\n    dd 0x1000               ; SectionAlignment\n    dd 0x0200               ; FileAlignment\n    dw 6, 0                 ; OS version 6.0\n    dw 0, 0                 ; Image version\n    dw 6, 0                 ; Subsystem version\n    dd 0                    ; Win32VersionValue (must be 0)\n    dd IMAGE_SIZE           ; SizeOfImage\n    dd HDR_SIZE             ; SizeOfHeaders\n    dd 0                    ; CheckSum\n    dw 3                    ; Subsystem = WINDOWS_CUI\n    dw 0x8160               ; DllCharacteristics\n    dq 0x100000             ; SizeOfStackReserve (8 bytes)\n    dq 0x1000               ; SizeOfStackCommit  (8 bytes)\n    dq 0x100000             ; SizeOfHeapReserve  (8 bytes)\n    dq 0x1000               ; SizeOfHeapCommit   (8 bytes)\n    dd 0                    ; LoaderFlags\n    dd 16                   ; NumberOfRvaAndSizes\n    times 16 dq 0           ; DataDirectory[0..15]"
+          }
+        },
+        {
+          "name": "Entry Point Code (64-bit, static)",
+          "offset_in_file": "inside .text section",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "64-bit entry point. RSP is 16-byte aligned on kernel entry. The Microsoft x64 ABI requires 32-byte shadow space before any CALL. Must not return.",
+          "fields": [],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === Minimal 64-bit Entry Point (requires kernel32.lib even for 'static') ===\n; Assemble: nasm -f win64 program.asm -o program.obj\n; Link:     link program.obj kernel32.lib /subsystem:console /entry:start /nodefaultlib\nsection .text\nglobal  start\nextern  ExitProcess\n\nstart:\n    sub     rsp, 40         ; 32-byte shadow space + 8-byte align padding\n    xor     ecx, ecx        ; exit code = 0  (first arg in RCX)\n    call    ExitProcess     ; does not return\n    ; execution never reaches here"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pe32plus_console_dynamic",
+      "name": "PE32+ 64-bit Console Executable (dynamic, imports from kernel32.dll)",
+      "architecture": "x86_64",
+      "bits": 64,
+      "magic": "0x020B",
+      "machine": "0x8664",
+      "subsystem": "WINDOWS_CUI",
+      "subsystem_value": 3,
+      "linking": "dynamic",
+      "description": "64-bit Windows console .exe that imports from kernel32.dll. Uses Microsoft x64 calling convention: first four integer arguments in RCX, RDX, R8, R9 with a mandatory 32-byte shadow space on the stack before every CALL. ILT/IAT entries are 8 bytes each.",
+      "toolchain": {
+        "assemble": "nasm -f win64 program.asm -o program.obj",
+        "link": "link program.obj kernel32.lib /subsystem:console /entry:start /nodefaultlib /out:program.exe"
+      },
+      "required_components": [
+        {
+          "name": "All PE32+ header structures",
+          "required": true,
+          "description": "Same as pe32plus_console_static plus the Import Table data directories and import structures (see pe32_console_dynamic for layout; ILT/IAT entries are 8 bytes in PE32+).",
+          "fields": []
+        },
+        {
+          "name": "64-bit ILT / IAT Entry",
+          "size_bytes": 8,
+          "required": true,
+          "description": "Import Lookup Table and Import Address Table entries are 8 bytes in PE32+. Bit 63 = 0: RVA of Hint/Name structure. Bit 63 = 1: low 16 bits = ordinal number.",
+          "fields": [
+            {"name": "Entry (by name)",    "size_bytes": 8, "value": "0x00000000_XXXXXXXX", "note": "Bit 63 = 0; lower 31 bits = RVA of Hint/Name"},
+            {"name": "Entry (by ordinal)", "size_bytes": 8, "value": "0x80000000_0000XXXX", "note": "Bit 63 = 1; low 16 bits = ordinal number"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === 64-bit ILT/IAT entries (8 bytes each) ===\nilt_kernel32:\n    dq HINT_EXITPROCESS_RVA     ; bit 63 = 0: by-name import\n    dq 0                        ; null terminator\n\niat_kernel32:\n    dq HINT_EXITPROCESS_RVA     ; replaced at load time with real VA\n    dq 0"
+          }
+        },
+        {
+          "name": "Entry Point Code (64-bit, dynamic)",
+          "offset_in_file": "inside .text section",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "64-bit entry point using Microsoft x64 ABI. Must allocate 32-byte shadow space before every CALL.",
+          "fields": [],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === 64-bit Console Entry Point (Hello World) ===\nsection .data\n    msg     db 'Hello, World!', 13, 10\n    msglen  equ $ - msg\n    written dq 0\n\nsection .text\nglobal  start\nextern  GetStdHandle\nextern  WriteConsoleA\nextern  ExitProcess\n\nstart:\n    sub     rsp, 56             ; 32-byte shadow + 2 extra slots + 8-byte align\n\n    ; GetStdHandle(STD_OUTPUT_HANDLE = -11)  ->  RAX = hStdOut\n    mov     ecx, -11\n    call    GetStdHandle\n    mov     rbx, rax            ; save handle\n\n    ; WriteConsoleA(hOut, buf, len, pWritten, NULL)\n    mov     rcx, rbx            ; hConsoleOutput\n    lea     rdx, [rel msg]      ; lpBuffer\n    mov     r8d, msglen         ; nNumberOfCharsToWrite\n    lea     r9,  [rel written]  ; lpNumberOfCharsWritten\n    mov     qword [rsp+32], 0   ; 5th arg: lpReserved = NULL\n    call    WriteConsoleA\n\n    ; ExitProcess(0)\n    xor     ecx, ecx\n    call    ExitProcess"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pe32plus_gui_dynamic",
+      "name": "PE32+ 64-bit GUI Executable (dynamic, WINDOWS_GUI subsystem)",
+      "architecture": "x86_64",
+      "bits": 64,
+      "magic": "0x020B",
+      "machine": "0x8664",
+      "subsystem": "WINDOWS_GUI",
+      "subsystem_value": 2,
+      "linking": "dynamic",
+      "description": "64-bit Windows GUI application. No console window. Entry point is conventionally WinMain (hInstance, hPrevInstance, lpCmdLine, nCmdShow) passed in RCX, RDX, R8, R9 per the Microsoft x64 ABI.",
+      "toolchain": {
+        "assemble": "nasm -f win64 program.asm -o program.obj",
+        "link": "link program.obj kernel32.lib user32.lib /subsystem:windows /entry:WinMain /nodefaultlib /out:program.exe"
+      },
+      "required_components": [
+        {
+          "name": "All PE32+ header structures (same as pe32plus_console_dynamic)",
+          "required": true,
+          "description": "Identical structure. Only the Subsystem field value and entry point differ.",
+          "fields": []
+        },
+        {
+          "name": "Subsystem field = WINDOWS_GUI",
+          "offset_in_file": "offset 0x44 inside Optional Header",
+          "size_bytes": 2,
+          "required": true,
+          "description": "Set Subsystem to 2 (WINDOWS_GUI) in the Optional Header.",
+          "fields": [
+            {"name": "Subsystem", "size_bytes": 2, "value": "0x0002", "note": "IMAGE_SUBSYSTEM_WINDOWS_GUI"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; In the Optional Header, change:\n    dw 2    ; Subsystem = WINDOWS_GUI"
+          }
+        },
+        {
+          "name": "WinMain Entry Point (64-bit GUI)",
+          "offset_in_file": "inside .text section",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "64-bit GUI entry point. Arguments arrive in registers per Microsoft x64 ABI: RCX=hInstance, RDX=hPrevInstance, R8=lpCmdLine, R9D=nCmdShow.",
+          "fields": [],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === 64-bit GUI WinMain Entry Point ===\nsection .data\n    msg     db 'Hello from SASM!', 0\n    caption db 'SASM', 0\n\nsection .text\nglobal  WinMain\nextern  MessageBoxA\nextern  ExitProcess\n\nWinMain:\n    sub     rsp, 40             ; shadow space + alignment\n    xor     ecx, ecx            ; hWnd = NULL\n    lea     rdx, [rel msg]      ; lpText\n    lea     r8,  [rel caption]  ; lpCaption\n    xor     r9d, r9d            ; uType = MB_OK\n    call    MessageBoxA\n    xor     ecx, ecx\n    call    ExitProcess"
+          }
+        }
+      ]
+    }
+  ]
+}

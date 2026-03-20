@@ -1,8 +1,10 @@
-# SASM JSON Instruction Data
+# SASM JSON Data
+
+JSON files covering two categories: per-processor instruction sets and per-OS executable format references.
+
+## Instruction Set Files
 
 One JSON file per x86 processor generation, each containing the instruction set introduced by that processor with opcodes (hex byte values) and descriptions.
-
-## Files
 
 | File | Processor | Instructions |
 |------|-----------|-------------|
@@ -13,6 +15,15 @@ One JSON file per x86 processor generation, each containing the instruction set 
 | [`80486.json`](80486.json) | Intel 80486 | BSWAP, XADD, CMPXCHG, INVD, WBINVD, INVLPG |
 | [`pentium.json`](pentium.json) | Pentium / P6 / SSE / SSE2 | CPUID, RDTSC, CMPXCHG8B, RDMSR/WRMSR, SYSENTER/SYSEXIT, UD2, SFENCE/LFENCE/MFENCE, PAUSE |
 | [`x86_64.json`](x86_64.json) | x86-64 (AMD64 / Intel 64) | MOVSXD, CDQE/CQO, PUSHFQ/POPFQ, CMPXCHG16B, SYSCALL/SYSRET, IRETQ, JRCXZ, quad string ops (MOVSQ/STOSQ/etc.), POPCNT/LZCNT/TZCNT, ADCX/ADOX, MULX; also lists instructions removed in 64-bit mode |
+
+## Executable Format Files
+
+One JSON file per operating system, enumerating every executable variant (32-bit, 64-bit, static, dynamic, console, GUI, PIE) with the binary structures and NASM code required for each.
+
+| File | OS | Format | Variants |
+|------|-----|--------|---------|
+| [`executable_windows.json`](executable_windows.json) | Windows | PE/COFF | PE32 console static, PE32 console dynamic, PE32 GUI dynamic, PE32+ console static, PE32+ console dynamic, PE32+ GUI dynamic |
+| [`executable_linux.json`](executable_linux.json) | Linux | ELF | ELF64 static, ELF64 dynamic, ELF64 PIE (ET_DYN), ELF32 static, ELF32 dynamic |
 
 ## JSON Schema
 
@@ -157,3 +168,95 @@ When `byte_length_min == byte_length_max` the instruction has a **fixed** size.
 | `0x48 0xNN` | REX.W prefix (0x48) + opcode byte — selects 64-bit operand size |
 | `0xB8+rd` | Short register encoding; rd = register index 0–7 added to base opcode |
 | `VEX.…` | VEX-encoded instruction (see Intel SDM for full VEX prefix encoding) |
+
+---
+
+## Executable Format JSON Schema
+
+Each executable format file has the top-level shape:
+
+```json
+{
+  "os":              "windows",
+  "format":          "PE",
+  "format_full_name":"Portable Executable (PE/COFF)",
+  "description":     "...",
+  "source_reference":"doc/executable_format_windows.md",
+  "variants":        [ ... ]
+}
+```
+
+Each variant:
+
+```json
+{
+  "id":           "pe32_console_static",
+  "name":         "PE32 32-bit Console Executable (static, no DLL imports)",
+  "architecture": "x86",
+  "bits":         32,
+  "magic":        "0x010B",
+  "machine":      "0x014C",
+  "subsystem":    "WINDOWS_CUI",
+  "subsystem_value": 3,
+  "linking":      "static",
+  "description":  "...",
+  "toolchain": {
+    "assemble": "nasm -f win32 program.asm -o program.obj",
+    "link":     "link program.obj ... /out:program.exe"
+  },
+  "required_components": [ ... ]
+}
+```
+
+Each component:
+
+```json
+{
+  "name":           "COFF File Header",
+  "offset_in_file": "0x0084",
+  "size_bytes":     20,
+  "required":       true,
+  "description":    "...",
+  "fields": [
+    {
+      "name":       "Machine",
+      "offset":     "0x00",
+      "size_bytes": 2,
+      "value":      "0x014C",
+      "note":       "IMAGE_FILE_MACHINE_I386"
+    }
+  ],
+  "code_example": {
+    "language": "nasm",
+    "source":   "coff_header:\n    dw 0x014C  ; Machine\n    ..."
+  }
+}
+```
+
+### Executable Format Field Definitions
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `os` | string | Operating system: `"windows"` or `"linux"` |
+| `format` | string | Binary format: `"PE"` or `"ELF"` |
+| `format_full_name` | string | Human-readable format name |
+| `source_reference` | string | Path to the corresponding markdown documentation file |
+| `variants` | object[] | All distinct executable types for this OS |
+| `variants[].id` | string | Unique identifier (e.g. `"pe32plus_console_dynamic"`) |
+| `variants[].architecture` | string | CPU architecture: `"x86"` or `"x86_64"` |
+| `variants[].bits` | integer | Address size: `32` or `64` |
+| `variants[].linking` | string | `"static"` (no shared libraries) or `"dynamic"` (shared libraries) |
+| `variants[].toolchain` | object | Assemble and link command examples (NASM + system linker) |
+| `variants[].required_components` | object[] | Ordered list of binary structures that must be present |
+| `component.name` | string | Human-readable name of the structure |
+| `component.offset_in_file` | string | Where in the file this structure lives (hex or description) |
+| `component.size_bytes` | integer \| string | Fixed byte size or `"variable"` |
+| `component.required` | boolean | Whether this component is mandatory for the variant |
+| `component.fields` | object[] | Individual fields within the structure |
+| `component.fields[].name` | string | Field name |
+| `component.fields[].offset` | string | Byte offset within the structure |
+| `component.fields[].size_bytes` | integer | Field size in bytes |
+| `component.fields[].value` | string | Required or typical value |
+| `component.fields[].note` | string | Explanation |
+| `component.code_example.language` | string | Always `"nasm"` — NASM assembly syntax |
+| `component.code_example.source` | string | Complete, copy-pasteable NASM source for this structure |
