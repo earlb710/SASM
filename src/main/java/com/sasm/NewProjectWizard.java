@@ -4,54 +4,54 @@ import java.awt.*;
 import java.awt.event.*;
 
 /**
- * Multi-step "New Project" wizard implemented with AWT components.
+ * "New Project" dialog — single-canvas layout.
  *
- * <p>Step 1 – OS selection (Choice pop-list).<br>
- * Step 2 – Executable-format variant selection (loaded from the OS JSON).<br>
- * Step 3 – Component viewer: a scrollable list of required components with a
- *           detail panel that shows the description, fields table, and NASM code
- *           example for the selected component.</p>
+ * <p>All three steps live on one scrollable canvas, stacked vertically.
+ * Step 2 appears below Step 1 once an OS is chosen; Step 3 appears below
+ * Step 2 once an executable variant is chosen.</p>
+ *
+ * <ul>
+ *   <li>Step 1 – OS selection ({@link Choice} pop-list).</li>
+ *   <li>Step 2 – Executable-format variant selection (loaded from the OS JSON).</li>
+ *   <li>Step 3 – Component viewer: a scrollable list of required components with a
+ *       detail panel showing description, fields table, and NASM code example.</li>
+ * </ul>
  */
 public class NewProjectWizard extends Dialog {
 
-    // ── layout ──────────────────────────────────────────────────────────────
-    private final CardLayout cards = new CardLayout();
-    private final Panel      deck  = new Panel(cards);
-
-    // ── step 1 ──────────────────────────────────────────────────────────────
+    // ── step 1 widgets ───────────────────────────────────────────────────────
     private final Choice osChoice = new Choice();
 
-    // ── step 2 ──────────────────────────────────────────────────────────────
+    // ── step 2 widgets ───────────────────────────────────────────────────────
     private final Choice variantChoice = new Choice();
     private final Label  variantDesc   = new Label("", Label.LEFT);
 
-    // ── step 3 ──────────────────────────────────────────────────────────────
-    private final java.awt.List componentList  = new java.awt.List(10, false);
-    private final TextArea detailArea  = new TextArea("", 12, 60,
-                                                       TextArea.SCROLLBARS_VERTICAL_ONLY);
+    // ── step 3 widgets ───────────────────────────────────────────────────────
+    private final java.awt.List componentList = new java.awt.List(10, false);
+    private final TextArea detailArea = new TextArea("", 14, 60,
+                                                      TextArea.SCROLLBARS_VERTICAL_ONLY);
 
-    // ── navigation buttons ───────────────────────────────────────────────────
-    private final Button backBtn   = new Button("< Back");
-    private final Button nextBtn   = new Button("Next >");
+    // ── bottom buttons ───────────────────────────────────────────────────────
     private final Button finishBtn = new Button("Finish");
     private final Button cancelBtn = new Button("Cancel");
 
+    // ── section panels (shown/hidden as user progresses) ─────────────────────
+    private Panel step2Section;
+    private Panel step3Section;
+
+    // ── scrollable canvas ────────────────────────────────────────────────────
+    private Panel   canvas;
+    private ScrollPane scrollPane;
+
     // ── runtime state ────────────────────────────────────────────────────────
     private OsDefinition currentDef;
-    private int currentStep = 1;   // 1, 2, or 3
-
-    // Card names
-    private static final String STEP1 = "step1";
-    private static final String STEP2 = "step2";
-    private static final String STEP3 = "step3";
 
     public NewProjectWizard(Frame owner) {
         super(owner, "New Project", true /* modal */);
         buildUi();
         pack();
         setResizable(true);
-        setMinimumSize(new Dimension(680, 480));
-        // centre on owner
+        setMinimumSize(new Dimension(720, 500));
         setLocationRelativeTo(owner);
     }
 
@@ -60,7 +60,7 @@ public class NewProjectWizard extends Dialog {
     // ────────────────────────────────────────────────────────────────────────
 
     private void buildUi() {
-        setLayout(new BorderLayout(6, 6));
+        setLayout(new BorderLayout(0, 0));
 
         // ── title banner ────────────────────────────────────────────────────
         Label title = new Label("New Project", Label.CENTER);
@@ -69,154 +69,179 @@ public class NewProjectWizard extends Dialog {
         title.setForeground(Color.WHITE);
         Panel titlePanel = new Panel(new BorderLayout());
         titlePanel.add(title, BorderLayout.CENTER);
-        titlePanel.setPreferredSize(new Dimension(680, 36));
+        titlePanel.setPreferredSize(new Dimension(720, 36));
         add(titlePanel, BorderLayout.NORTH);
 
-        // ── card deck ───────────────────────────────────────────────────────
-        deck.add(buildStep1Panel(), STEP1);
-        deck.add(buildStep2Panel(), STEP2);
-        deck.add(buildStep3Panel(), STEP3);
-        add(deck, BorderLayout.CENTER);
+        // ── single scrollable canvas ─────────────────────────────────────────
+        canvas = new Panel(new GridBagLayout());
+        canvas.setBackground(new Color(0xF8, 0xF9, 0xFA));
+
+        step2Section = buildStep2Section();
+        step3Section = buildStep3Section();
+        step2Section.setVisible(false);
+        step3Section.setVisible(false);
+
+        GridBagConstraints gc = canvasGbc(0);
+        canvas.add(buildStep1Section(), gc);
+        gc = canvasGbc(1);
+        canvas.add(step2Section, gc);
+        gc = canvasGbc(2);
+        canvas.add(step3Section, gc);
+
+        // Spacer row — absorbs all remaining vertical space and keeps steps pinned to top
+        GridBagConstraints spacer = canvasGbc(3);
+        spacer.weighty = 1.0;
+        spacer.fill = GridBagConstraints.BOTH;
+        canvas.add(new Panel(), spacer);
+
+        scrollPane = new ScrollPane(ScrollPane.SCROLLBARS_AS_NEEDED);
+        scrollPane.add(canvas);
+        scrollPane.setPreferredSize(new Dimension(720, 460));
+        add(scrollPane, BorderLayout.CENTER);
 
         // ── button row ──────────────────────────────────────────────────────
-        Panel btnRow = new Panel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
-        backBtn.setEnabled(false);
         finishBtn.setEnabled(false);
-        btnRow.add(backBtn);
-        btnRow.add(nextBtn);
+        Panel btnRow = new Panel(new FlowLayout(FlowLayout.RIGHT, 8, 6));
         btnRow.add(finishBtn);
         btnRow.add(cancelBtn);
         add(btnRow, BorderLayout.SOUTH);
 
-        // ── wire up events ───────────────────────────────────────────────────
-        nextBtn.addActionListener(e -> advance());
-        backBtn.addActionListener(e -> retreat());
+        // ── wire events ─────────────────────────────────────────────────────
+        osChoice.addItemListener(e -> onOsSelected());
+        variantChoice.addItemListener(e -> onVariantSelected());
+        componentList.addItemListener(e -> refreshComponentDetail());
         finishBtn.addActionListener(e -> dispose());
         cancelBtn.addActionListener(e -> dispose());
-
-        variantChoice.addItemListener(e -> refreshVariantDescription());
-        componentList.addItemListener(e -> refreshComponentDetail());
-
         addWindowListener(new WindowAdapter() {
             @Override public void windowClosing(WindowEvent e) { dispose(); }
         });
     }
 
-    private Panel buildStep1Panel() {
-        Panel p = new Panel(new GridBagLayout());
-        GridBagConstraints c = defaultGbc();
+    // ── section builders ──────────────────────────────────────────────────────
 
-        c.gridy = 0;
-        p.add(new Label("Step 1 of 3 – Select target operating system:"), c);
+    private Panel buildStep1Section() {
+        Panel section = new Panel(new BorderLayout(0, 0));
+        section.add(sectionHeader("Step 1 – Select target operating system"),
+                    BorderLayout.NORTH);
 
-        c.gridy = 1; c.insets = new Insets(8, 12, 4, 12);
+        Panel body = new Panel(new GridBagLayout());
+        body.setBackground(Color.WHITE);
+        GridBagConstraints c = bodyGbc(0);
         osChoice.addItem("Linux");
         osChoice.addItem("Windows");
-        p.add(osChoice, c);
+        body.add(osChoice, c);
 
-        c.gridy = 2; c.insets = new Insets(4, 12, 4, 12);
-        Label hint = new Label(
-                "The wizard will load the matching OS executable-format definition.");
+        c = bodyGbc(1);
+        Label hint = new Label("The wizard will load the matching OS executable-format definition.");
         hint.setForeground(Color.DARK_GRAY);
-        p.add(hint, c);
+        body.add(hint, c);
 
-        return p;
+        section.add(body,    BorderLayout.CENTER);
+        section.add(divider(), BorderLayout.SOUTH);
+        return section;
     }
 
-    private Panel buildStep2Panel() {
-        Panel p = new Panel(new GridBagLayout());
-        GridBagConstraints c = defaultGbc();
+    private Panel buildStep2Section() {
+        Panel section = new Panel(new BorderLayout(0, 0));
+        section.add(sectionHeader("Step 2 – Select executable variant"),
+                    BorderLayout.NORTH);
+
+        Panel body = new Panel(new GridBagLayout());
+        body.setBackground(Color.WHITE);
+        GridBagConstraints c = bodyGbc(0);
         c.fill = GridBagConstraints.HORIZONTAL;
         c.weightx = 1.0;
+        body.add(variantChoice, c);
 
-        c.gridy = 0;
-        p.add(new Label("Step 2 of 3 – Select executable variant:"), c);
-
-        c.gridy = 1; c.insets = new Insets(8, 12, 4, 12);
-        p.add(variantChoice, c);
-
-        c.gridy = 2;
-        c.insets = new Insets(4, 12, 4, 12);
+        c = bodyGbc(1);
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.weightx = 1.0;
         variantDesc.setForeground(new Color(0x33, 0x33, 0x33));
-        p.add(variantDesc, c);
+        body.add(variantDesc, c);
 
-        return p;
+        section.add(body,    BorderLayout.CENTER);
+        section.add(divider(), BorderLayout.SOUTH);
+        return section;
     }
 
-    private Panel buildStep3Panel() {
-        Panel p = new Panel(new BorderLayout(6, 6));
-        p.add(new Label("Step 3 of 3 – Select a component to view its details:"),
-              BorderLayout.NORTH);
+    private Panel buildStep3Section() {
+        Panel section = new Panel(new BorderLayout(0, 0));
+        section.add(sectionHeader("Step 3 – Explore required components"),
+                    BorderLayout.NORTH);
 
         // left: component list
         Panel leftPanel = new Panel(new BorderLayout(4, 4));
-        leftPanel.add(new Label("Components  (* = required):"), BorderLayout.NORTH);
+        leftPanel.setBackground(Color.WHITE);
+        Label listLabel = new Label("Components  (* = required):");
+        listLabel.setFont(new Font("SansSerif", Font.BOLD, 11));
+        leftPanel.add(listLabel, BorderLayout.NORTH);
         leftPanel.add(componentList, BorderLayout.CENTER);
-        leftPanel.setPreferredSize(new Dimension(240, 300));
+        leftPanel.setPreferredSize(new Dimension(260, 300));
 
         // right: detail area
         detailArea.setEditable(false);
         detailArea.setFont(new Font("Monospaced", Font.PLAIN, 11));
         Panel rightPanel = new Panel(new BorderLayout(4, 4));
-        rightPanel.add(new Label("Details:"), BorderLayout.NORTH);
+        rightPanel.setBackground(Color.WHITE);
+        Label detLabel = new Label("Details:");
+        detLabel.setFont(new Font("SansSerif", Font.BOLD, 11));
+        rightPanel.add(detLabel, BorderLayout.NORTH);
         rightPanel.add(detailArea, BorderLayout.CENTER);
 
-        Panel splitPanel = new Panel(new BorderLayout(6, 6));
-        splitPanel.add(leftPanel,  BorderLayout.WEST);
-        splitPanel.add(rightPanel, BorderLayout.CENTER);
-        p.add(splitPanel, BorderLayout.CENTER);
+        Panel body = new Panel(new BorderLayout(8, 8));
+        body.setBackground(Color.WHITE);
+        Panel inset = new Panel(new BorderLayout(8, 8));
+        inset.setBackground(Color.WHITE);
+        inset.add(leftPanel,  BorderLayout.WEST);
+        inset.add(rightPanel, BorderLayout.CENTER);
+        body.add(inset, BorderLayout.CENTER);
 
-        // Wrap with uniform 8px inset on all sides
-        Panel wrapper = new Panel(new BorderLayout());
-        wrapper.add(p, BorderLayout.CENTER);
-        // top/bottom/left/right spacers
-        Panel top   = new Panel(); top.setPreferredSize(new Dimension(1, 8));
-        Panel left  = new Panel(); left.setPreferredSize(new Dimension(8, 1));
-        Panel right = new Panel(); right.setPreferredSize(new Dimension(8, 1));
-        wrapper.add(top,   BorderLayout.NORTH);
-        wrapper.add(left,  BorderLayout.WEST);
-        wrapper.add(right, BorderLayout.EAST);
-        return wrapper;
+        section.add(body, BorderLayout.CENTER);
+        return section;
     }
 
-    // ────────────────────────────────────────────────────────────────────────
-    // Navigation
-    // ────────────────────────────────────────────────────────────────────────
+    // ── event handlers ────────────────────────────────────────────────────────
 
-    private void advance() {
-        if (currentStep == 1) {
-            if (!loadOsDefinition()) return;
-            populateVariants();
-            showStep(2);
-        } else if (currentStep == 2) {
-            populateComponents();
-            showStep(3);
-        }
+    /** Called when the OS choice changes — loads JSON, shows step 2. */
+    private void onOsSelected() {
+        // If OS changes after step 2/3 are shown, reset downstream panels
+        step3Section.setVisible(false);
+        finishBtn.setEnabled(false);
+
+        if (!loadOsDefinition()) return;
+        populateVariants();
+
+        step2Section.setVisible(true);
+        revalidateCanvas();
+        scrollToBottom();
     }
 
-    private void retreat() {
-        if (currentStep == 3) showStep(2);
-        else if (currentStep == 2) showStep(1);
+    /** Called when the variant choice changes — populates components, shows step 3. */
+    private void onVariantSelected() {
+        refreshVariantDescription();
+        populateComponents();
+
+        step3Section.setVisible(true);
+        finishBtn.setEnabled(true);
+        revalidateCanvas();
+        scrollToBottom();
     }
 
-    private void showStep(int step) {
-        currentStep = step;
-        switch (step) {
-            case 1 -> { cards.show(deck, STEP1); backBtn.setEnabled(false);
-                        nextBtn.setEnabled(true); finishBtn.setEnabled(false); }
-            case 2 -> { cards.show(deck, STEP2); backBtn.setEnabled(true);
-                        nextBtn.setEnabled(true); finishBtn.setEnabled(false);
-                        refreshVariantDescription(); }
-            case 3 -> { cards.show(deck, STEP3); backBtn.setEnabled(true);
-                        nextBtn.setEnabled(false); finishBtn.setEnabled(true); }
-        }
+    private void revalidateCanvas() {
+        canvas.invalidate();
+        canvas.validate();
+        scrollPane.validate();
+        validate();
     }
 
-    // ────────────────────────────────────────────────────────────────────────
-    // Data loading helpers
-    // ────────────────────────────────────────────────────────────────────────
+    private void scrollToBottom() {
+        // Scroll the vertical scrollbar to the maximum to reveal the new section
+        Adjustable vbar = scrollPane.getVAdjustable();
+        vbar.setValue(vbar.getMaximum());
+    }
 
-    /** Returns true on success, false if loading failed (error already shown). */
+    // ── data helpers ─────────────────────────────────────────────────────────
+
     private boolean loadOsDefinition() {
         String os = osChoice.getSelectedItem();
         try {
@@ -243,7 +268,7 @@ public class NewProjectWizard extends Dialog {
         if (idx < 0 || idx >= currentDef.variants.size()) return;
         OsDefinition.Variant v = currentDef.variants.get(idx);
         String desc = v.description != null ? v.description : "";
-        variantDesc.setText(truncate(desc, 120));
+        variantDesc.setText(truncate(desc, 140));
     }
 
     private void populateComponents() {
@@ -267,6 +292,7 @@ public class NewProjectWizard extends Dialog {
         int cidx = componentList.getSelectedIndex();
         int vidx = variantChoice.getSelectedIndex();
         if (currentDef == null || cidx < 0 || vidx < 0) return;
+        if (vidx >= currentDef.variants.size()) return;
         OsDefinition.Variant v = currentDef.variants.get(vidx);
         if (v.required_components == null || cidx >= v.required_components.size()) return;
         OsDefinition.Component comp = v.required_components.get(cidx);
@@ -274,29 +300,24 @@ public class NewProjectWizard extends Dialog {
         detailArea.setCaretPosition(0);
     }
 
-    /** Builds the plain-text detail string shown in the right-hand TextArea. */
     private static String buildComponentDetail(OsDefinition.Component comp) {
         StringBuilder sb = new StringBuilder();
-
         sb.append("Component: ").append(comp.name).append('\n');
         sb.append("Required : ").append(comp.required ? "Yes" : "No").append('\n');
         sb.append("Size     : ").append(comp.size_bytes).append(" bytes\n");
         if (comp.offset_in_file != null)
             sb.append("Offset   : ").append(comp.offset_in_file).append('\n');
         sb.append('\n');
-
         if (comp.description != null && !comp.description.isBlank()) {
             sb.append("Description:\n  ")
               .append(comp.description.replace("\n", "\n  "))
               .append("\n\n");
         }
-
-        // fields table
         if (comp.fields != null && !comp.fields.isEmpty()) {
             sb.append("Fields:\n");
             sb.append(String.format("  %-22s %-8s %-6s %-20s %s\n",
                                     "Name", "Offset", "Size", "Value", "Note"));
-            sb.append("  " + "-".repeat(80)).append('\n');
+            sb.append("  ").append("-".repeat(80)).append('\n');
             for (OsDefinition.Field f : comp.fields) {
                 sb.append(String.format("  %-22s %-8s %-6s %-20s %s\n",
                         safe(f.name), safe(f.offset),
@@ -304,26 +325,54 @@ public class NewProjectWizard extends Dialog {
             }
             sb.append('\n');
         }
-
-        // code example
         if (comp.code_example != null && comp.code_example.source != null) {
             sb.append("Code example (").append(comp.code_example.language).append("):\n");
             sb.append(comp.code_example.source).append('\n');
         }
-
         return sb.toString();
     }
 
-    // ────────────────────────────────────────────────────────────────────────
-    // Utilities
-    // ────────────────────────────────────────────────────────────────────────
+    // ── visual helpers ────────────────────────────────────────────────────────
 
-    private static GridBagConstraints defaultGbc() {
+    /** Light blue section-header bar with bold label. */
+    private static Panel sectionHeader(String text) {
+        Label lbl = new Label("  " + text, Label.LEFT);
+        lbl.setFont(new Font("SansSerif", Font.BOLD, 13));
+        lbl.setForeground(new Color(0x2B, 0x57, 0x97));
+        Panel p = new Panel(new BorderLayout());
+        p.setBackground(new Color(0xDC, 0xE8, 0xF5));
+        p.add(lbl, BorderLayout.CENTER);
+        p.setPreferredSize(new Dimension(0, 28));
+        return p;
+    }
+
+    /** 1-pixel horizontal divider line. */
+    private static Panel divider() {
+        Panel p = new Panel();
+        p.setBackground(new Color(0xC0, 0xC8, 0xD8));
+        p.setPreferredSize(new Dimension(0, 1));
+        return p;
+    }
+
+    /** GBC for a top-level section row on the canvas. */
+    private static GridBagConstraints canvasGbc(int row) {
         GridBagConstraints c = new GridBagConstraints();
-        c.gridx = 0; c.gridy = 0;
-        c.fill  = GridBagConstraints.NONE;
+        c.gridx = 0; c.gridy = row;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.weightx = 1.0;
+        c.weighty = 0.0;
         c.anchor = GridBagConstraints.NORTHWEST;
-        c.insets = new Insets(12, 12, 4, 12);
+        c.insets = new Insets(0, 0, 0, 0);
+        return c;
+    }
+
+    /** GBC for a body row inside a section. */
+    private static GridBagConstraints bodyGbc(int row) {
+        GridBagConstraints c = new GridBagConstraints();
+        c.gridx = 0; c.gridy = row;
+        c.fill = GridBagConstraints.NONE;
+        c.anchor = GridBagConstraints.NORTHWEST;
+        c.insets = new Insets(row == 0 ? 10 : 4, 14, 8, 14);
         return c;
     }
 
@@ -331,6 +380,7 @@ public class NewProjectWizard extends Dialog {
 
     private static String truncate(String s, int maxLen) {
         if (s == null) return "";
+        if (maxLen <= 1) return "";
         return s.length() <= maxLen ? s : s.substring(0, maxLen - 1) + "…";
     }
 
@@ -341,7 +391,7 @@ public class NewProjectWizard extends Dialog {
         ta.setEditable(false);
         err.add(ta, BorderLayout.CENTER);
         Button ok = new Button("OK");
-        ok.addActionListener(e2 -> err.dispose());
+        ok.addActionListener(e -> err.dispose());
         Panel bp = new Panel(new FlowLayout(FlowLayout.CENTER));
         bp.add(ok);
         err.add(bp, BorderLayout.SOUTH);
@@ -353,3 +403,4 @@ public class NewProjectWizard extends Dialog {
         err.setVisible(true);
     }
 }
+
