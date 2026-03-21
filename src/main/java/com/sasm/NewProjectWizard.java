@@ -37,9 +37,29 @@ public class NewProjectWizard extends Dialog {
     /** Path of the {@code <name>.json} file written when the user clicks OK. */
     private java.io.File savedProjectFile;
 
+    /** Existing project to pre-fill the form when editing properties, or null. */
+    private ProjectFile preFill;
+
     public NewProjectWizard(Frame owner) {
-        super(owner, "New Project", true /* modal */);
+        this(owner, null);
+    }
+
+    /**
+     * Creates the wizard optionally pre-filled with existing project data.
+     * When {@code existing} is non-null the dialog title changes to
+     * "Project Properties" and the fields are seeded from the existing project.
+     */
+    public NewProjectWizard(Frame owner, ProjectFile existing) {
+        super(owner, existing != null ? "Project Properties" : "New Project",
+                true /* modal */);
+        this.preFill = existing;
         buildUi();
+        if (existing != null) {
+            nameField.setText(existing.name != null ? existing.name : "");
+            dirField.setText(existing.workingDirectory != null
+                    ? existing.workingDirectory : "");
+            refreshOkButton();
+        }
         pack();
         setResizable(true);
         setMinimumSize(new Dimension(600, 260));
@@ -64,7 +84,9 @@ public class NewProjectWizard extends Dialog {
         setLayout(new BorderLayout(0, 0));
 
         // ── title banner ────────────────────────────────────────────────────
-        Label title = new Label("New Project", Label.CENTER);
+        Label title = new Label(
+                preFill != null ? "Project Properties" : "New Project",
+                Label.CENTER);
         title.setFont(new Font("SansSerif", Font.BOLD, 16));
         title.setBackground(new Color(0x2B, 0x57, 0x97));
         title.setForeground(Color.WHITE);

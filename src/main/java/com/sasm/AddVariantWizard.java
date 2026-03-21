@@ -49,9 +49,26 @@ public class AddVariantWizard extends Dialog {
     // ── OS data ──────────────────────────────────────────────────────────────
     private OsDefinition currentDef;
 
+    /** Existing variant data to pre-fill when editing properties, or null. */
+    private ProjectFile.VariantEntry preFill;
+
     public AddVariantWizard(Frame owner) {
-        super(owner, "Add Variant", true /* modal */);
+        this(owner, null);
+    }
+
+    /**
+     * Creates the wizard optionally pre-filled with existing variant data.
+     * When {@code existing} is non-null the dialog title changes to
+     * "Variant Properties" and the fields are seeded from the existing variant.
+     */
+    public AddVariantWizard(Frame owner, ProjectFile.VariantEntry existing) {
+        super(owner, existing != null ? "Variant Properties" : "Add Variant",
+                true /* modal */);
+        this.preFill = existing;
         buildUi();
+        if (existing != null) {
+            applyPreFill(existing);
+        }
         pack();
         setResizable(true);
         setMinimumSize(new Dimension(900, 550));
@@ -89,7 +106,9 @@ public class AddVariantWizard extends Dialog {
         setLayout(new BorderLayout(0, 0));
 
         // ── title banner ────────────────────────────────────────────────────
-        Label title = new Label("Add Variant", Label.CENTER);
+        Label title = new Label(
+                preFill != null ? "Variant Properties" : "Add Variant",
+                Label.CENTER);
         title.setFont(new Font("SansSerif", Font.BOLD, 16));
         title.setBackground(new Color(0x2B, 0x57, 0x97));
         title.setForeground(Color.WHITE);
@@ -328,8 +347,18 @@ public class AddVariantWizard extends Dialog {
         variantDescArea.setText(buildVariantDescription(v));
         variantDescArea.setCaretPosition(0);
 
-        for (String p : processorsForArchitecture(v.architecture)) {
+        String[] processors = processorsForArchitecture(v.architecture);
+        for (String p : processors) {
             processorChoice.addItem(p);
+        }
+
+        // Default to x86_64 if available
+        for (int pi = 0; pi < processorChoice.getItemCount(); pi++) {
+            if ("x86_64".equals(processorChoice.getItem(pi))) {
+                processorChoice.select(pi);
+                onProcessorChanged();
+                break;
+            }
         }
 
         refreshOkButton();
@@ -476,6 +505,50 @@ public class AddVariantWizard extends Dialog {
     private static String selectedText(Choice c) {
         String s = c.getSelectedItem();
         return s == null ? "" : s.trim();
+    }
+
+    /**
+     * Selects the item in a {@link Choice} whose text equals {@code value},
+     * returning {@code true} if found.
+     */
+    private static boolean selectItem(Choice c, String value) {
+        if (value == null) return false;
+        for (int i = 0; i < c.getItemCount(); i++) {
+            if (value.equals(c.getItem(i))) {
+                c.select(i);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Pre-fills all form fields from an existing {@link ProjectFile.VariantEntry}
+     * by programmatically selecting each Choice value and firing the cascade.
+     */
+    private void applyPreFill(ProjectFile.VariantEntry ve) {
+        if (ve.variantName != null) variantNameField.setText(ve.variantName);
+
+        // Select OS → triggers onOsChanged
+        if (ve.os != null && selectItem(osChoice, ve.os)) {
+            onOsChanged();
+        }
+
+        // Select Output Type → triggers onOutputTypeChanged
+        if (ve.outputType != null && selectItem(outputTypeChoice, ve.outputType)) {
+            onOutputTypeChanged();
+        }
+
+        // Select Variant → triggers onVariantChanged (which populates processors)
+        if (ve.variant != null && selectItem(variantChoice, ve.variant)) {
+            onVariantChanged();
+        }
+
+        // Select Processor → triggers onProcessorChanged
+        if (ve.processor != null) selectItem(processorChoice, ve.processor);
+        onProcessorChanged();
+
+        refreshOkButton();
     }
 
     private void onOkPressed() {

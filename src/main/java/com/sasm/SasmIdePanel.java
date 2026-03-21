@@ -58,6 +58,13 @@ public class SasmIdePanel extends Panel {
      */
     private Runnable onFileStateChanged;
 
+    /**
+     * Optional callback invoked whenever the tree selection changes.
+     * Callers can use this to update menu-item enabled states based on
+     * whether a directory header or file is selected.
+     */
+    private Runnable onSelectionChanged;
+
     public SasmIdePanel() {
         buildUi();
     }
@@ -157,26 +164,7 @@ public class SasmIdePanel extends Panel {
             throw new IllegalStateException("No project is open.");
         }
         File coreDir = new File(project.workingDirectory, "core");
-        if (!coreDir.exists()) coreDir.mkdirs();
-
-        String fileName = baseName + ".sasm";
-        File newFile = new File(coreDir, fileName);
-        if (!newFile.exists()) {
-            String starter =
-                    "; " + fileName + "\n"
-                    + "; Project : " + nvl(project.name)      + "\n"
-                    + "; OS      : " + nvl(project.os)        + "\n"
-                    + "; CPU     : " + nvl(project.processor) + "\n"
-                    + "\n"
-                    + "section .text\n"
-                    + "global _start\n"
-                    + "\n"
-                    + "_start:\n"
-                    + "    ; TODO\n";
-            Files.writeString(newFile.toPath(), starter, StandardCharsets.UTF_8);
-        }
-        refreshFileList();
-        openFile(newFile);
+        addNewFile(baseName, coreDir);
     }
 
     /** Writes the editor content back to disk if there are unsaved changes. */
@@ -223,6 +211,125 @@ public class SasmIdePanel extends Panel {
      */
     public void setOnFileStateChanged(Runnable callback) {
         this.onFileStateChanged = callback;
+    }
+
+    /**
+     * Registers a callback invoked whenever the tree selection changes.
+     * Pass {@code null} to remove an existing callback.
+     */
+    public void setOnSelectionChanged(Runnable callback) {
+        this.onSelectionChanged = callback;
+    }
+
+    /**
+     * Returns the currently selected item in the file tree as a {@link File},
+     * or {@code null} if nothing is selected.  May be a directory (header) or
+     * a {@code .sasm} file.
+     */
+    public File getSelectedEntry() {
+        int idx = fileList.getSelectedIndex();
+        if (idx < 0 || idx >= fileIndex.size()) return null;
+        return fileIndex.get(idx);
+    }
+
+    /**
+     * Returns {@code true} when the current tree selection is a directory
+     * header (core or variant).
+     */
+    public boolean isDirectorySelected() {
+        File sel = getSelectedEntry();
+        return sel != null && sel.isDirectory();
+    }
+
+    /**
+     * Returns {@code true} when the current tree selection is a
+     * {@code .sasm} file.
+     */
+    public boolean isFileSelected() {
+        File sel = getSelectedEntry();
+        return sel != null && sel.isFile();
+    }
+
+    /**
+     * Returns the name of the selected directory header (e.g. "core" or a
+     * variant name), or {@code null} if no directory is selected.
+     */
+    public String getSelectedDirectoryName() {
+        File sel = getSelectedEntry();
+        if (sel != null && sel.isDirectory()) return sel.getName();
+        return null;
+    }
+
+    /**
+     * Returns the parent directory of the currently selected file, or the
+     * selected directory itself if a directory header is selected.  Returns
+     * {@code null} if nothing is selected.
+     */
+    public File getSelectedContextDirectory() {
+        File sel = getSelectedEntry();
+        if (sel == null) return null;
+        return sel.isDirectory() ? sel : sel.getParentFile();
+    }
+
+    /**
+     * Creates a new {@code .sasm} file in the given target directory,
+     * seeds it with a starter template, and opens it in the editor.
+     *
+     * @param baseName  file name without extension
+     * @param targetDir the directory in which to create the file
+     * @throws IOException           if the file cannot be written
+     * @throws IllegalStateException if no project is currently open
+     */
+    public void addNewFile(String baseName, File targetDir) throws IOException {
+        if (project == null || project.workingDirectory == null) {
+            throw new IllegalStateException("No project is open.");
+        }
+        if (!targetDir.exists()) targetDir.mkdirs();
+
+        String fileName = baseName + ".sasm";
+        File newFile = new File(targetDir, fileName);
+        if (!newFile.exists()) {
+            String starter =
+                    "; " + fileName + "\n"
+                    + "; Project : " + nvl(project.name)      + "\n"
+                    + "; OS      : " + nvl(project.os)        + "\n"
+                    + "; CPU     : " + nvl(project.processor) + "\n"
+                    + "\n"
+                    + "section .text\n"
+                    + "global _start\n"
+                    + "\n"
+                    + "_start:\n"
+                    + "    ; TODO\n";
+            Files.writeString(newFile.toPath(), starter, StandardCharsets.UTF_8);
+        }
+        refreshFileList();
+        openFile(newFile);
+    }
+
+    /**
+     * Renames the currently open file.
+     *
+     * @param newBaseName new file name without extension
+     * @return the old file name, or {@code null} if no file was open
+     * @throws IOException if the rename fails
+     */
+    public String renameCurrentFile(String newBaseName) throws IOException {
+        if (currentFile == null) return null;
+        saveCurrentFile();
+        String oldName = currentFile.getName();
+        File parent = currentFile.getParentFile();
+        File newFile = new File(parent, newBaseName + ".sasm");
+        if (newFile.exists()) {
+            throw new IOException("A file named '" + newFile.getName() + "' already exists.");
+        }
+        if (!currentFile.renameTo(newFile)) {
+            throw new IOException("Could not rename '" + oldName + "' on disk.");
+        }
+        currentFile = newFile;
+        editorHeader.setText("  " + newFile.getParentFile().getName() + "/" + newFile.getName());
+        refreshFileList();
+        if (onFileStateChanged != null) onFileStateChanged.run();
+        return oldName;
     }
 
     // ── UI construction ───────────────────────────────────────────────────────
@@ -273,8 +380,9 @@ public class SasmIdePanel extends Panel {
                     if (selected.isFile()) {
                         openFile(selected);
                     }
-                    // Ignore directory-header clicks
+                    // Ignore directory-header clicks for file opening
                 }
+                if (onSelectionChanged != null) onSelectionChanged.run();
             }
         });
 
