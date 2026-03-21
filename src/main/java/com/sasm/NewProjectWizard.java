@@ -122,7 +122,7 @@ public class NewProjectWizard extends Dialog {
         osChoice.addItem("Linux");
         osChoice.addItem("Windows");
         gbRow = addLabeledControl(canvas, gbRow, "Operating System:", osChoice,
-                "Select the target OS to load the matching format definitions.");
+                "Select the target OS to load matching format definitions.");
         // OS description area (full-width, initially hidden)
         gbRow = addDescriptionArea(canvas, gbRow, osDescArea);
 
