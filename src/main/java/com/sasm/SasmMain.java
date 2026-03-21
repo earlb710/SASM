@@ -160,9 +160,10 @@ public class SasmMain {
             NewProjectWizard wizard = new NewProjectWizard(frame);
             wizard.setVisible(true);
             if (wizard.isConfirmed()) {
+                currentProjectFile = wizard.getSavedProjectFile();
                 ProjectFile pf = toProjectFile(wizard);
                 applyLoadedProject(pf);
-                saveLastProject(wizard.getSavedProjectFile());
+                saveLastProject(currentProjectFile);
             } else {
                 statusBar.setText(" New Project cancelled");
             }
@@ -397,7 +398,11 @@ public class SasmMain {
             sb.append(vars.size()).append(" variant(s): ");
             for (int i = 0; i < vars.size(); i++) {
                 if (i > 0) sb.append(", ");
-                sb.append(vars.get(i).variantName);
+                ProjectFile.VariantEntry v = vars.get(i);
+                sb.append(v.variantName);
+                sb.append(" (").append(nvl(v.os));
+                if (v.processor != null) sb.append('/').append(v.processor);
+                sb.append(')');
             }
             welcomeSub.setText(sb.toString());
         }
