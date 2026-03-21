@@ -8,12 +8,14 @@ import java.awt.event.*;
  *
  * <p>Displays an AWT {@link Frame} with a menu bar.  The <em>File → New
  * Project</em> menu item opens the {@link NewProjectWizard} dialog, which
- * presents a single flat-form canvas with four fields:
+ * presents a single flat-form canvas with five fields:
  * <ol>
  *   <li>Project name.</li>
  *   <li>Working directory (with a folder-browse button).</li>
  *   <li>Target OS (Linux / Windows pop-list).</li>
  *   <li>Executable-format variant (pop-list, populated when the OS changes).</li>
+ *   <li>Processor (pop-list, filtered to processors compatible with the selected
+ *       variant's architecture).</li>
  * </ol>
  */
 public class SasmMain {

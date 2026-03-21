@@ -46,11 +46,33 @@ public class JsonLoader {
      */
     public static OsDefinition load(String osLabel) throws IOException {
         String fileName = fileNameForOs(osLabel) + ".json";
+        return readJson(fileName, OsDefinition.class);
+    }
 
+    /**
+     * Loads and parses the JSON definition file for the given processor.
+     *
+     * @param processorId lower-case processor identifier used as the file name
+     *                    stem, e.g. {@code "8086"}, {@code "x86_64"}
+     * @return the parsed {@link ProcessorDefinition}
+     * @throws IOException if the file cannot be found or read
+     */
+    public static ProcessorDefinition loadProcessor(String processorId) throws IOException {
+        String fileName = processorId.toLowerCase() + ".json";
+        return readJson(fileName, ProcessorDefinition.class);
+    }
+
+    // ── internal helper ────────────────────────────────────────────────────────
+
+    /**
+     * Resolves {@code fileName} inside the {@code json/} directory and
+     * deserialises it into the given type.
+     */
+    private static <T> T readJson(String fileName, Class<T> type) throws IOException {
         // 1. Try cwd/json/<file>
         Path candidate = Paths.get("json", fileName);
         if (candidate.toFile().exists()) {
-            return MAPPER.readValue(candidate.toFile(), OsDefinition.class);
+            return MAPPER.readValue(candidate.toFile(), type);
         }
 
         // 2. Try <jar-dir>/../../json/<file>  (Maven target/ layout)
@@ -62,7 +84,7 @@ public class JsonLoader {
                               .toURI()).getParentFile();
             File fromJar = new File(jarDir, "../../json/" + fileName).getCanonicalFile();
             if (fromJar.exists()) {
-                return MAPPER.readValue(fromJar, OsDefinition.class);
+                return MAPPER.readValue(fromJar, type);
             }
         } catch (Exception ignored) {
             // fall through to error

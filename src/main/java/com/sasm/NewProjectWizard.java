@@ -16,22 +16,27 @@ import java.awt.event.*;
  *   <li>Variant — pop-list (blank default; populated when OS changes) followed by
  *       a read-only description area showing architecture, linking style, toolchain
  *       commands, and the full variant description</li>
+ *   <li>Processor — pop-list (blank default; populated with x86-family processors
+ *       that are compatible with the selected variant's architecture) followed by
+ *       a read-only description area with historical context and compatibility notes</li>
  * </ol>
  * <p>OK and Cancel buttons appear at the bottom.  OK is enabled only when all
- * four fields contain a non-blank value.</p>
+ * five fields contain a non-blank value.</p>
  */
 public class NewProjectWizard extends Dialog {
 
     // ── form fields ──────────────────────────────────────────────────────────
-    private final TextField nameField     = new TextField(50);
-    private final TextField dirField      = new TextField(50);
-    private final Button    browseBtn     = new Button("Browse…");
-    private final Choice    osChoice      = new Choice();
-    private final Choice    variantChoice = new Choice();
+    private final TextField nameField      = new TextField(50);
+    private final TextField dirField       = new TextField(50);
+    private final Button    browseBtn      = new Button("Browse…");
+    private final Choice    osChoice       = new Choice();
+    private final Choice    variantChoice  = new Choice();
+    private final Choice    processorChoice = new Choice();
 
     // ── description panels ───────────────────────────────────────────────────
-    private final TextArea osDescArea      = makeDescArea(3);
-    private final TextArea variantDescArea = makeDescArea(7);
+    private final TextArea osDescArea        = makeDescArea(3);
+    private final TextArea variantDescArea   = makeDescArea(7);
+    private final TextArea processorDescArea = makeDescArea(5);
 
     // ── buttons ──────────────────────────────────────────────────────────────
     private final Button okBtn     = new Button("OK");
@@ -61,6 +66,7 @@ public class NewProjectWizard extends Dialog {
     public String getWorkingDirectory() { return dirField.getText().trim(); }
     public String getSelectedOs()       { return selectedText(osChoice); }
     public String getSelectedVariant()  { return selectedText(variantChoice); }
+    public String getSelectedProcessor(){ return selectedText(processorChoice); }
 
     // ────────────────────────────────────────────────────────────────────────
     // UI construction
@@ -113,8 +119,16 @@ public class NewProjectWizard extends Dialog {
         variantChoice.addItem("");     // blank default
         gbRow = addLabeledControl(canvas, gbRow, "Variant:", variantChoice,
                 "Select the executable format variant after choosing an operating system.");
-        // Variant description area (full-width, initially hidden)
+        // Variant description area (full-width, initially empty)
         gbRow = addDescriptionArea(canvas, gbRow, variantDescArea);
+
+        // ── Processor ─────────────────────────────────────────────────────────
+        processorChoice.addItem("");   // blank default
+        gbRow = addLabeledControl(canvas, gbRow, "Processor:", processorChoice,
+                "Select the target CPU; choices are filtered to processors compatible with the"
+                + " selected variant's architecture (e.g. x86 family for x86/x86-64 variants).");
+        // Processor description area (full-width, initially empty)
+        gbRow = addDescriptionArea(canvas, gbRow, processorDescArea);
 
         // spacer row keeps content pinned to top
         GridBagConstraints sp = new GridBagConstraints();
@@ -140,6 +154,7 @@ public class NewProjectWizard extends Dialog {
         browseBtn.addActionListener(e -> browseForDirectory());
         osChoice.addItemListener(e -> onOsChanged());
         variantChoice.addItemListener(e -> onVariantChanged());
+        processorChoice.addItemListener(e -> onProcessorChanged());
         nameField.addTextListener(e -> refreshOkButton());
         dirField.addTextListener(e -> refreshOkButton());
         okBtn.addActionListener(e -> { confirmed = true; dispose(); });
@@ -245,6 +260,9 @@ public class NewProjectWizard extends Dialog {
         // Reset downstream state — null currentDef first so any spurious item
         // events fired by removeAll() see a clean state.
         currentDef = null;
+        processorDescArea.setText("");
+        processorChoice.removeAll();
+        processorChoice.addItem("");
         variantDescArea.setText("");
         variantChoice.removeAll();
         variantChoice.addItem("");
@@ -277,8 +295,13 @@ public class NewProjectWizard extends Dialog {
         refreshOkButton();
     }
 
-    /** Called when the Variant pop-list changes — updates the variant description. */
+    /** Called when the Variant pop-list changes — updates variant description and processor list. */
     private void onVariantChanged() {
+        // Reset processor state whenever the variant changes
+        processorDescArea.setText("");
+        processorChoice.removeAll();
+        processorChoice.addItem("");
+
         String selected = selectedText(variantChoice);
         if (selected.isEmpty() || currentDef == null || currentDef.variants == null) {
             variantDescArea.setText("");
@@ -306,15 +329,43 @@ public class NewProjectWizard extends Dialog {
         OsDefinition.Variant v = currentDef.variants.get(variantIdx);
         variantDescArea.setText(buildVariantDescription(v));
         variantDescArea.setCaretPosition(0);
+
+        // Populate processors compatible with this variant's architecture
+        for (String p : processorsForArchitecture(v.architecture)) {
+            processorChoice.addItem(p);
+        }
+
         refreshOkButton();
     }
 
-    /** Enables OK only when all four fields are non-blank. */
+    /** Called when the Processor pop-list changes — updates the processor description. */
+    private void onProcessorChanged() {
+        String selected = selectedText(processorChoice);
+        if (selected.isEmpty()) {
+            processorDescArea.setText("");
+            refreshOkButton();
+            return;
+        }
+
+        try {
+            ProcessorDefinition def = JsonLoader.loadProcessor(selected);
+            processorDescArea.setText(buildProcessorDescription(def));
+            processorDescArea.setCaretPosition(0);
+        } catch (Exception ex) {
+            processorDescArea.setText(
+                    "Could not load processor definition for '" + selected + "':\n"
+                    + ex.getMessage());
+        }
+        refreshOkButton();
+    }
+
+    /** Enables OK only when all five fields are non-blank. */
     private void refreshOkButton() {
         boolean ready = !nameField.getText().trim().isEmpty()
                      && !dirField.getText().trim().isEmpty()
                      && !selectedText(osChoice).isEmpty()
-                     && !selectedText(variantChoice).isEmpty();
+                     && !selectedText(variantChoice).isEmpty()
+                     && !selectedText(processorChoice).isEmpty();
         okBtn.setEnabled(ready);
     }
 
@@ -378,6 +429,45 @@ public class NewProjectWizard extends Dialog {
         }
 
         return sb.toString();
+    }
+
+    private static String buildProcessorDescription(ProcessorDefinition def) {
+        StringBuilder sb = new StringBuilder();
+        if (def.processor != null) {
+            sb.append("Processor : ").append(def.processor).append('\n');
+        }
+        if (def.source_reference != null) {
+            sb.append("Reference : ").append(def.source_reference).append('\n');
+        }
+        if (def.description != null && !def.description.isBlank()) {
+            sb.append('\n').append(wrap(def.description, 80)).append('\n');
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Returns the ordered list of processor IDs that are compatible with
+     * the given architecture string.  The list is cumulative — each later
+     * processor is a superset of the earlier one's instruction set.
+     *
+     * @param architecture variant architecture string (e.g. {@code "x86"},
+     *                     {@code "x86_64"})
+     * @return array of processor IDs in historical/cumulative order;
+     *         empty array for unrecognised architectures
+     */
+    private static String[] processorsForArchitecture(String architecture) {
+        if (architecture == null) return new String[0];
+        return switch (architecture.toLowerCase()) {
+            // 64-bit long mode: full cumulative x86 chain
+            case "x86_64" -> new String[]{
+                "8086", "80186", "80286", "80386", "80486", "pentium", "x86_64"
+            };
+            // 32-bit protected mode: all pre-64-bit x86 processors
+            case "x86" -> new String[]{
+                "8086", "80186", "80286", "80386", "80486", "pentium"
+            };
+            default -> new String[0];
+        };
     }
 
     /**
