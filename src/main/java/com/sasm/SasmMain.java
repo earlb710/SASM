@@ -48,7 +48,7 @@ public class SasmMain {
     private static Panel       cardPanel;
     private static MenuItem    addFileItem;      // enabled only when a project is open
     private static MenuItem    addVariantItem;   // enabled only when a project is open
-    private static MenuItem    renameProjectItem;// enabled only when a project is open
+    private static MenuItem    renameProjectItem; // enabled only when a project is open
     private static MenuItem    deleteFileItem;   // enabled only when a file is open
 
     private static final String CARD_WELCOME = "welcome";
