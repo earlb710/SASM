@@ -5,6 +5,7 @@ on Linux.  The format is called **ELF (Executable and Linkable Format)** and is 
 executables, shared libraries (`.so`), and relocatable object files (`.o`).
 
 > **See also:** [`executable_format_windows.md`](executable_format_windows.md) — equivalent document for Windows PE executables.  
+> **See also:** [`shared_library_format_linux.md`](shared_library_format_linux.md) — Linux shared library (`.so`) format reference (dynamic symbols, PIC, SONAME).  
 > **See also:** [`instruction_x86_64.md`](instruction_x86_64.md) — x86-64 instruction set, calling conventions, and register reference.  
 > **See also:** [`../syntax_sasm.md`](../syntax_sasm.md) — SASM syntax reference.
 

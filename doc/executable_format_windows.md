@@ -5,6 +5,7 @@ Everything that must be added to a raw compiled object file to produce a valid, 
 wraps the older **COFF (Common Object File Format)** used by the linker.
 
 > **See also:** [`executable_format_linux.md`](executable_format_linux.md) — equivalent document for Linux ELF executables.  
+> **See also:** [`dll_format_windows.md`](dll_format_windows.md) — Windows DLL format reference (export table, base relocations, DllMain).  
 > **See also:** [`instruction_x86_64.md`](instruction_x86_64.md) — x86-64 instruction set, calling conventions, and register reference.  
 > **See also:** [`../syntax_sasm.md`](../syntax_sasm.md) — SASM syntax reference.
 

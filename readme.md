@@ -13,4 +13,6 @@ Adds code block structure to ASM
 | `doc/instruction_x86_64.md` | x86-64 instruction set reference, new registers, removed instructions, calling conventions |
 | `doc/executable_format_windows.md` | Windows PE/COFF executable format — every header, section, and table required to turn compiled code into a runnable `.exe` |
 | `doc/executable_format_linux.md` | Linux ELF executable format — ELF header, program header table, section header table, dynamic linking, and startup requirements |
+| `doc/dll_format_windows.md` | Windows DLL format — export table, base relocations, DllMain entry point, and every structure required to produce a loadable `.dll` |
+| `doc/shared_library_format_linux.md` | Linux shared library format — dynamic symbol table, PIC requirements, GOT/PLT, SONAME versioning, and every structure required to produce a loadable `.so` |
 | `json/` | Per-processor JSON instruction files with opcodes, byte lengths, and SASM phrase equivalents |
