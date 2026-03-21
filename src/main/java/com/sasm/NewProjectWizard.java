@@ -100,7 +100,7 @@ public class NewProjectWizard extends Dialog {
 
         // ── Name ─────────────────────────────────────────────────────────────
         gbRow = addLabeledControl(canvas, gbRow, "Name:", nameField,
-                "The project name is used as the source-file prefix (e.g. hello → hello.asm).");
+                "The project name is used as the source-file prefix (e.g. hello → hello.sasm).");
 
         // ── Working Directory ─────────────────────────────────────────────────
         // Pre-populate with the user's home directory
@@ -111,7 +111,7 @@ public class NewProjectWizard extends Dialog {
         dirPanel.add(dirField, BorderLayout.CENTER);
         dirPanel.add(browseBtn, BorderLayout.EAST);
         gbRow = addLabeledControl(canvas, gbRow, "Working Directory:", dirPanel,
-                "All generated files (.asm, .o, binary) will be written into this folder.");
+                "All generated files (.sasm, .o, binary) will be written into this folder.");
 
         // ── Operating System ──────────────────────────────────────────────────
         osChoice.addItem("");          // blank default

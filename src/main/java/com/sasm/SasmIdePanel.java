@@ -16,8 +16,8 @@ import java.util.Arrays;
  * <pre>
  * ┌────────────────────────────────────────────────────────────┐
  * │  [file tree (List)]   │  [text editor (TextArea)          ]│
- * │  hello.asm            │                                    │
- * │  utils.asm            │  ; Assembly source …               │
+ * │  hello.sasm           │                                    │
+ * │  utils.sasm           │  ; Assembly source …               │
  * │                       │                                    │
  * └────────────────────────────────────────────────────────────┘
  * </pre>
@@ -42,6 +42,13 @@ public class SasmIdePanel extends Panel {
     private File        currentFile;
     private boolean     dirty = false;   // editor has unsaved changes
 
+    /**
+     * Optional callback invoked whenever the open-file state changes (a file
+     * is opened or the editor is cleared).  Callers can use this to update
+     * menu-item enabled states.
+     */
+    private Runnable onFileStateChanged;
+
     public SasmIdePanel() {
         buildUi();
     }
@@ -64,7 +71,7 @@ public class SasmIdePanel extends Panel {
     }
 
     /**
-     * Rescans the project working directory for {@code .asm} files and
+     * Rescans the project working directory for {@code .sasm} files and
      * refreshes the list, preserving the currently open file's selection.
      */
     public void refreshFileList() {
@@ -75,7 +82,7 @@ public class SasmIdePanel extends Panel {
 
         File dir = new File(project.workingDirectory);
         File[] asmFiles = dir.listFiles(
-                (d, n) -> n.toLowerCase().endsWith(".asm"));
+                (d, n) -> n.toLowerCase().endsWith(".sasm"));
         if (asmFiles != null) {
             Arrays.sort(asmFiles,
                     (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
@@ -94,7 +101,7 @@ public class SasmIdePanel extends Panel {
     }
 
     /**
-     * Creates a new {@code .asm} file in the project's working directory,
+     * Creates a new {@code .sasm} file in the project's working directory,
      * seeds it with a starter template, and opens it in the editor.
      *
      * @param baseName file name without extension (validated before calling)
@@ -105,7 +112,7 @@ public class SasmIdePanel extends Panel {
         if (project == null || project.workingDirectory == null) {
             throw new IllegalStateException("No project is open.");
         }
-        String fileName = baseName + ".asm";
+        String fileName = baseName + ".sasm";
         File newFile = new File(project.workingDirectory, fileName);
         if (!newFile.exists()) {
             String starter =
@@ -137,8 +144,39 @@ public class SasmIdePanel extends Panel {
         }
     }
 
+    /**
+     * Deletes the currently open {@code .sasm} file from disk, clears the
+     * editor, and refreshes the file list.
+     *
+     * @return the name of the deleted file, or {@code null} if no file was open
+     * @throws IOException if the file could not be deleted
+     */
+    public String deleteCurrentFile() throws IOException {
+        if (currentFile == null) return null;
+        String name = currentFile.getName();
+        Files.delete(currentFile.toPath());
+        currentFile = null;
+        dirty       = false;
+        editor.setText("");
+        editorHeader.setText("  (no file open)");
+        refreshFileList();
+        if (onFileStateChanged != null) onFileStateChanged.run();
+        return name;
+    }
+
     /** Returns the currently active project, or {@code null} if none. */
     public ProjectFile getProject() { return project; }
+
+    /** Returns {@code true} when a file is currently open in the editor. */
+    public boolean hasOpenFile() { return currentFile != null; }
+
+    /**
+     * Registers a callback that is invoked whenever the open-file state
+     * changes.  Pass {@code null} to remove an existing callback.
+     */
+    public void setOnFileStateChanged(Runnable callback) {
+        this.onFileStateChanged = callback;
+    }
 
     // ── UI construction ───────────────────────────────────────────────────────
 
@@ -208,6 +246,7 @@ public class SasmIdePanel extends Panel {
             currentFile = null;
             dirty = false;
         }
+        if (onFileStateChanged != null) onFileStateChanged.run();
     }
 
     private static String nvl(String s) { return s != null ? s : ""; }

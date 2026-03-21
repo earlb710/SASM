@@ -28,7 +28,9 @@ import java.nio.file.Files;
  * <p>Once a project is open, the centre area switches from the welcome screen
  * to the full {@link SasmIdePanel} (file tree on the left, editor on the
  * right).  The <em>File → Add New SASM File</em> menu item creates a new
- * {@code .asm} source file in the project directory and opens it.</p>
+ * {@code .sasm} source file in the project directory and opens it.
+ * The <em>File → Delete File</em> menu item permanently removes the currently
+ * open file after a confirmation prompt.</p>
  */
 public class SasmMain {
 
@@ -47,7 +49,8 @@ public class SasmMain {
     private static SasmIdePanel idePanel;
     private static CardLayout  cardLayout;
     private static Panel       cardPanel;
-    private static MenuItem    addFileItem;   // enabled only when a project is open
+    private static MenuItem    addFileItem;    // enabled only when a project is open
+    private static MenuItem    deleteFileItem; // enabled only when a file is open
 
     private static final String CARD_WELCOME = "welcome";
     private static final String CARD_IDE     = "ide";
@@ -91,6 +94,11 @@ public class SasmMain {
         addFileItem.setEnabled(false);   // enabled after a project is loaded
         fileMenu.add(addFileItem);
 
+        deleteFileItem = new MenuItem("Delete File");
+        deleteFileItem.setShortcut(new MenuShortcut(KeyEvent.VK_D));
+        deleteFileItem.setEnabled(false); // enabled when a file is open
+        fileMenu.add(deleteFileItem);
+
         fileMenu.addSeparator();
 
         MenuItem exitItem = new MenuItem("Exit");
@@ -127,6 +135,8 @@ public class SasmMain {
 
         // ide card
         idePanel = new SasmIdePanel();
+        idePanel.setOnFileStateChanged(() ->
+                deleteFileItem.setEnabled(idePanel.hasOpenFile()));
 
         cardPanel.add(welcome,  CARD_WELCOME);
         cardPanel.add(idePanel, CARD_IDE);
@@ -150,6 +160,8 @@ public class SasmMain {
         });
 
         addFileItem.addActionListener(e -> promptAddNewFile());
+
+        deleteFileItem.addActionListener(e -> promptDeleteFile());
 
         exitItem.addActionListener(e -> {
             idePanel.saveCurrentFile();
@@ -210,7 +222,7 @@ public class SasmMain {
             }
             try {
                 idePanel.addNewFile(raw);
-                statusBar.setText(" Created: " + raw + ".asm");
+                statusBar.setText(" Created: " + raw + ".sasm");
                 dlg.dispose();
             } catch (Exception ex) {
                 errLbl.setText("Error: " + ex.getMessage());
@@ -226,6 +238,50 @@ public class SasmMain {
 
         dlg.pack();
         dlg.setMinimumSize(new Dimension(400, dlg.getHeight()));
+        dlg.setLocationRelativeTo(mainFrame);
+        dlg.setVisible(true);
+    }
+
+    // ── delete-file dialog ───────────────────────────────────────────────────
+
+    /** Shows a confirmation dialog and, on confirmation, deletes the open file. */
+    private static void promptDeleteFile() {
+        if (!idePanel.hasOpenFile()) return;
+
+        Dialog dlg = new Dialog(mainFrame, "Delete File", true);
+        dlg.setLayout(new BorderLayout(8, 8));
+
+        Label msg = new Label("Permanently delete the open file?  This cannot be undone.",
+                              Label.CENTER);
+        msg.setFont(new Font("SansSerif", Font.PLAIN, 13));
+        Panel msgPanel = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 12));
+        msgPanel.add(msg);
+        dlg.add(msgPanel, BorderLayout.CENTER);
+
+        Button deleteBtn = new Button("Delete");
+        deleteBtn.setForeground(Color.RED);
+        Button cancelBtn = new Button("Cancel");
+        Panel bp = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        bp.add(deleteBtn);
+        bp.add(cancelBtn);
+        dlg.add(bp, BorderLayout.SOUTH);
+
+        deleteBtn.addActionListener(e -> {
+            try {
+                String deleted = idePanel.deleteCurrentFile();
+                if (deleted != null) statusBar.setText(" Deleted: " + deleted);
+            } catch (Exception ex) {
+                statusBar.setText(" Could not delete file: " + ex.getMessage());
+            }
+            dlg.dispose();
+        });
+        cancelBtn.addActionListener(e -> dlg.dispose());
+        dlg.addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) { dlg.dispose(); }
+        });
+
+        dlg.pack();
+        dlg.setMinimumSize(new Dimension(480, dlg.getHeight()));
         dlg.setLocationRelativeTo(mainFrame);
         dlg.setVisible(true);
     }
@@ -302,7 +358,8 @@ public class SasmMain {
                 + "  1. Select a target operating system\n"
                 + "  2. Choose an executable format variant\n"
                 + "  3. Explore the required binary components\n\n"
-                + "Use File → Add New SASM File to create .asm source files.\n",
+                + "Use File → Add New SASM File to create .sasm source files.\n"
+                + "Use File → Delete File to permanently remove the open file.\n",
                 10, 40, TextArea.SCROLLBARS_NONE);
         ta.setEditable(false);
         dlg.add(ta, BorderLayout.CENTER);
