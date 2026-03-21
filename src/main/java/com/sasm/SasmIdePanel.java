@@ -6,6 +6,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.Arrays;
 
 /**
@@ -16,15 +17,17 @@ import java.util.Arrays;
  * <pre>
  * ┌────────────────────────────────────────────────────────────┐
  * │  [file tree (List)]   │  [text editor (TextArea)          ]│
- * │  hello.sasm           │                                    │
- * │  utils.sasm           │  ; Assembly source …               │
- * │                       │                                    │
+ * │  ▸ core/              │                                    │
+ * │    hello.sasm         │  ; Assembly source …               │
+ * │  ▸ linux-64/          │                                    │
  * └────────────────────────────────────────────────────────────┘
  * </pre>
  *
- * <p>Clicking a file in the list loads it into the editor.  Unsaved changes
- * are written back automatically whenever the user switches to a different
- * file, opens a new project, or the IDE exits.</p>
+ * <p>The file tree shows the {@code core/} directory first, followed by
+ * variant subdirectories in alphabetical order.  Clicking a file in the
+ * list loads it into the editor.  Unsaved changes are written back
+ * automatically whenever the user switches to a different file, opens a
+ * new project, or the IDE exits.</p>
  */
 public class SasmIdePanel extends Panel {
 
@@ -41,6 +44,12 @@ public class SasmIdePanel extends Panel {
     private ProjectFile project;
     private File        currentFile;
     private boolean     dirty = false;   // editor has unsaved changes
+
+    /**
+     * Maps each entry index in the file list to its absolute {@link File}.
+     * Directory-header entries map to the directory itself (ignored on click).
+     */
+    private final java.util.List<File> fileIndex = new ArrayList<>();
 
     /**
      * Optional callback invoked whenever the open-file state changes (a file
@@ -71,28 +80,43 @@ public class SasmIdePanel extends Panel {
     }
 
     /**
-     * Rescans the project working directory for {@code .sasm} files and
-     * refreshes the list, preserving the currently open file's selection.
+     * Rescans the project working directory for subdirectories and
+     * {@code .sasm} files, building a tree-like list.  The {@code core/}
+     * directory is always shown first, followed by variant subdirectories
+     * in alphabetical order.
      */
     public void refreshFileList() {
-        String prevSel = currentFile != null ? currentFile.getName() : null;
+        String prevSel = currentFile != null ? currentFile.getAbsolutePath() : null;
         fileList.removeAll();
+        fileIndex.clear();
 
         if (project == null || project.workingDirectory == null) return;
 
-        File dir = new File(project.workingDirectory);
-        File[] asmFiles = dir.listFiles(
-                f -> f.isFile() && f.getName().toLowerCase().endsWith(".sasm"));
-        if (asmFiles != null) {
-            Arrays.sort(asmFiles,
+        File workDir = new File(project.workingDirectory);
+
+        // ── core/ always first ────────────────────────────────────────────
+        File coreDir = new File(workDir, "core");
+        if (coreDir.isDirectory()) {
+            addDirectorySection(coreDir, "core");
+        }
+
+        // ── variant subdirectories (alphabetical, excluding core) ─────────
+        File[] subDirs = workDir.listFiles(
+                f -> f.isDirectory()
+                        && !f.getName().equals("core")
+                        && !f.getName().startsWith("."));
+        if (subDirs != null) {
+            Arrays.sort(subDirs,
                     (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
-            for (File f : asmFiles) fileList.add(f.getName());
+            for (File sub : subDirs) {
+                addDirectorySection(sub, sub.getName());
+            }
         }
 
         // Re-select the previously open file if it still exists in the list
         if (prevSel != null) {
-            for (int i = 0; i < fileList.getItemCount(); i++) {
-                if (fileList.getItem(i).equals(prevSel)) {
+            for (int i = 0; i < fileIndex.size(); i++) {
+                if (fileIndex.get(i).getAbsolutePath().equals(prevSel)) {
                     fileList.select(i);
                     break;
                 }
@@ -101,8 +125,28 @@ public class SasmIdePanel extends Panel {
     }
 
     /**
-     * Creates a new {@code .sasm} file in the project's working directory,
-     * seeds it with a starter template, and opens it in the editor.
+     * Adds a directory header and its {@code .sasm} files to the file list.
+     */
+    private void addDirectorySection(File dir, String label) {
+        // Directory header (not clickable for editing)
+        fileList.add("\u25B8 " + label + "/");
+        fileIndex.add(dir);
+
+        File[] asmFiles = dir.listFiles(
+                f -> f.isFile() && f.getName().toLowerCase().endsWith(".sasm"));
+        if (asmFiles != null) {
+            Arrays.sort(asmFiles,
+                    (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
+            for (File f : asmFiles) {
+                fileList.add("   " + f.getName());
+                fileIndex.add(f);
+            }
+        }
+    }
+
+    /**
+     * Creates a new {@code .sasm} file in the project's {@code core/}
+     * directory, seeds it with a starter template, and opens it in the editor.
      *
      * @param baseName file name without extension (validated before calling)
      * @throws IOException              if the file cannot be written
@@ -112,8 +156,11 @@ public class SasmIdePanel extends Panel {
         if (project == null || project.workingDirectory == null) {
             throw new IllegalStateException("No project is open.");
         }
+        File coreDir = new File(project.workingDirectory, "core");
+        if (!coreDir.exists()) coreDir.mkdirs();
+
         String fileName = baseName + ".sasm";
-        File newFile = new File(project.workingDirectory, fileName);
+        File newFile = new File(coreDir, fileName);
         if (!newFile.exists()) {
             String starter =
                     "; " + fileName + "\n"
@@ -220,9 +267,13 @@ public class SasmIdePanel extends Panel {
         // ── wire events ───────────────────────────────────────────────────────
         fileList.addItemListener(e -> {
             if (e.getStateChange() == ItemEvent.SELECTED) {
-                String sel = fileList.getSelectedItem();
-                if (sel != null && project != null) {
-                    openFile(new File(project.workingDirectory, sel));
+                int idx = fileList.getSelectedIndex();
+                if (idx >= 0 && idx < fileIndex.size()) {
+                    File selected = fileIndex.get(idx);
+                    if (selected.isFile()) {
+                        openFile(selected);
+                    }
+                    // Ignore directory-header clicks
                 }
             }
         });
@@ -239,7 +290,7 @@ public class SasmIdePanel extends Panel {
             editor.setText(content);
             editor.setCaretPosition(0);
             currentFile = f;
-            editorHeader.setText("  " + f.getName());
+            editorHeader.setText("  " + f.getParentFile().getName() + "/" + f.getName());
             dirty = false;
         } catch (IOException ex) {
             editor.setText("; Could not open '" + f.getName() + "':\n; " + ex.getMessage());

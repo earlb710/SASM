@@ -224,6 +224,12 @@ public class NewProjectWizard extends Dialog {
             throw new java.io.IOException(
                     "Cannot create working directory: " + dir.getAbsolutePath());
         }
+        // Create the core/ subdirectory for main source files
+        java.io.File coreDir = new java.io.File(dir, "core");
+        if (!coreDir.exists() && !coreDir.mkdirs()) {
+            throw new java.io.IOException(
+                    "Cannot create core directory: " + coreDir.getAbsolutePath());
+        }
         java.io.File out = new java.io.File(dir, name + ".json");
         JsonLoader.saveProjectFile(pf, out);
         return out;

@@ -351,6 +351,12 @@ public class SasmMain {
 
         ProjectFile.VariantEntry ve = wizard.toVariantEntry();
 
+        // Create a subdirectory for the variant
+        if (currentProject.workingDirectory != null && ve.variantName != null) {
+            File variantDir = new File(currentProject.workingDirectory, ve.variantName);
+            if (!variantDir.exists()) variantDir.mkdirs();
+        }
+
         // Append to the project's variant list
         List<ProjectFile.VariantEntry> list = currentProject.getVariants();
         list.add(ve);
@@ -369,7 +375,8 @@ public class SasmMain {
                 " Variant added: " + ve.variantName
                 + "  (" + nvl(ve.os) + " / " + nvl(ve.variant) + " / " + nvl(ve.processor) + ")");
 
-        // Refresh the welcome sub-label with the new variant summary
+        // Refresh the file tree and the welcome sub-label
+        idePanel.refreshFileList();
         updateWelcomeSub();
     }
 
