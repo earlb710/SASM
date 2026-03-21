@@ -7,13 +7,13 @@ import java.awt.event.*;
  * Entry point for the SASM IDE.
  *
  * <p>Displays an AWT {@link Frame} with a menu bar.  The <em>File → New
- * Project</em> menu item opens the {@link NewProjectWizard} dialog which guides
- * the user through:
+ * Project</em> menu item opens the {@link NewProjectWizard} dialog, which
+ * presents a single flat-form canvas with four fields:
  * <ol>
- *   <li>Choosing a target OS (Linux / Windows).</li>
- *   <li>Choosing an executable-format variant loaded from the matching JSON
- *       definition file in the {@code json/} directory.</li>
- *   <li>Viewing the binary components required for that variant.</li>
+ *   <li>Project name.</li>
+ *   <li>Working directory (with a folder-browse button).</li>
+ *   <li>Target OS (Linux / Windows pop-list).</li>
+ *   <li>Executable-format variant (pop-list, populated when the OS changes).</li>
  * </ol>
  */
 public class SasmMain {
@@ -82,7 +82,11 @@ public class SasmMain {
         newProjectItem.addActionListener(e -> {
             NewProjectWizard wizard = new NewProjectWizard(frame);
             wizard.setVisible(true);
-            status.setText(" Last action: New Project");
+            if (wizard.isConfirmed()) {
+                status.setText(" Project created: " + wizard.getProjectName());
+            } else {
+                status.setText(" New Project cancelled");
+            }
         });
 
         exitItem.addActionListener(e -> {
