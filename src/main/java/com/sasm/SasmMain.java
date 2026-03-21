@@ -24,23 +24,35 @@ import java.nio.file.Files;
  * {@code <workingDirectory>/<name>.json} and the path is remembered in
  * {@code ~/.sasm/last_project.txt}.  On the next launch that project is
  * loaded automatically so the IDE picks up where the user left off.</p>
+ *
+ * <p>Once a project is open, the centre area switches from the welcome screen
+ * to the full {@link SasmIdePanel} (file tree on the left, editor on the
+ * right).  The <em>File → Add New SASM File</em> menu item creates a new
+ * {@code .asm} source file in the project directory and opens it.</p>
  */
 public class SasmMain {
 
     private static final String APP_TITLE = "SASM IDE";
 
-    /** Directory that holds SASM user preferences. */
+    // ── preference storage ───────────────────────────────────────────────────
     private static final File PREFS_DIR =
             new File(System.getProperty("user.home", "."), ".sasm");
-
-    /** Stores the absolute path of the last-used project JSON file. */
     private static final File LAST_PROJECT_PREFS =
             new File(PREFS_DIR, "last_project.txt");
 
-    // Mutable UI references updated by startup / wizard actions
-    private static Label statusBar;
-    private static Label welcomeSub;
-    private static Frame mainFrame;
+    // ── UI references ────────────────────────────────────────────────────────
+    private static Frame       mainFrame;
+    private static Label       statusBar;
+    private static Label       welcomeSub;
+    private static SasmIdePanel idePanel;
+    private static CardLayout  cardLayout;
+    private static Panel       cardPanel;
+    private static MenuItem    addFileItem;   // enabled only when a project is open
+
+    private static final String CARD_WELCOME = "welcome";
+    private static final String CARD_IDE     = "ide";
+
+    // ── entry point ──────────────────────────────────────────────────────────
 
     public static void main(String[] args) {
         if (GraphicsEnvironment.isHeadless()) {
@@ -51,7 +63,7 @@ public class SasmMain {
         mainFrame = buildMainFrame();
         mainFrame.setVisible(true);
 
-        // Restore last project, if any, without blocking the UI.
+        // Restore last project, if any.
         ProjectFile last = loadLastProject();
         if (last != null) {
             applyLoadedProject(last);
@@ -62,20 +74,29 @@ public class SasmMain {
 
     private static Frame buildMainFrame() {
         Frame frame = new Frame(APP_TITLE);
-        frame.setSize(800, 600);
+        frame.setSize(1100, 700);
         frame.setLayout(new BorderLayout());
 
         // ── menu bar ────────────────────────────────────────────────────────
         MenuBar menuBar = new MenuBar();
 
         Menu fileMenu = new Menu("File");
+
         MenuItem newProjectItem = new MenuItem("New Project");
         newProjectItem.setShortcut(new MenuShortcut(KeyEvent.VK_N));
         fileMenu.add(newProjectItem);
+
+        addFileItem = new MenuItem("Add New SASM File");
+        addFileItem.setShortcut(new MenuShortcut(KeyEvent.VK_F));
+        addFileItem.setEnabled(false);   // enabled after a project is loaded
+        fileMenu.add(addFileItem);
+
         fileMenu.addSeparator();
+
         MenuItem exitItem = new MenuItem("Exit");
         exitItem.setShortcut(new MenuShortcut(KeyEvent.VK_Q));
         fileMenu.add(exitItem);
+
         menuBar.add(fileMenu);
 
         Menu helpMenu = new Menu("Help");
@@ -85,7 +106,11 @@ public class SasmMain {
 
         frame.setMenuBar(menuBar);
 
-        // ── welcome area ────────────────────────────────────────────────────
+        // ── card panel (welcome ↔ IDE) ────────────────────────────────────
+        cardLayout = new CardLayout();
+        cardPanel  = new Panel(cardLayout);
+
+        // welcome card
         Panel welcome = new Panel(new GridBagLayout());
         welcome.setBackground(new Color(0xF4, 0xF6, 0xF8));
         Label heading = new Label("Welcome to SASM IDE", Label.CENTER);
@@ -99,7 +124,13 @@ public class SasmMain {
         welcomeSub.setForeground(Color.DARK_GRAY);
         c.gridy = 1; c.insets = new Insets(0, 0, 0, 0);
         welcome.add(welcomeSub, c);
-        frame.add(welcome, BorderLayout.CENTER);
+
+        // ide card
+        idePanel = new SasmIdePanel();
+
+        cardPanel.add(welcome,  CARD_WELCOME);
+        cardPanel.add(idePanel, CARD_IDE);
+        frame.add(cardPanel, BorderLayout.CENTER);
 
         // ── status bar ──────────────────────────────────────────────────────
         statusBar = new Label(" Ready", Label.LEFT);
@@ -118,7 +149,10 @@ public class SasmMain {
             }
         });
 
+        addFileItem.addActionListener(e -> promptAddNewFile());
+
         exitItem.addActionListener(e -> {
+            idePanel.saveCurrentFile();
             frame.dispose();
             System.exit(0);
         });
@@ -127,6 +161,7 @@ public class SasmMain {
 
         frame.addWindowListener(new WindowAdapter() {
             @Override public void windowClosing(WindowEvent e) {
+                idePanel.saveCurrentFile();
                 frame.dispose();
                 System.exit(0);
             }
@@ -135,12 +170,68 @@ public class SasmMain {
         return frame;
     }
 
-    // ── last-project helpers ─────────────────────────────────────────────────
+    // ── add-new-file dialog ──────────────────────────────────────────────────
 
-    /**
-     * Reads {@code ~/.sasm/last_project.txt} and loads the project file it
-     * points to.  Returns {@code null} silently on any error.
-     */
+    /** Asks the user for a file-base-name, validates it, then creates the file. */
+    private static void promptAddNewFile() {
+        Dialog dlg = new Dialog(mainFrame, "Add New SASM File", true);
+        dlg.setLayout(new BorderLayout(8, 8));
+
+        // input row
+        Panel inputRow = new Panel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+        inputRow.add(new Label("File name (no extension):"));
+        TextField nameFld = new TextField(30);
+        inputRow.add(nameFld);
+        dlg.add(inputRow, BorderLayout.CENTER);
+
+        // error label
+        Label errLbl = new Label("", Label.CENTER);
+        errLbl.setForeground(Color.RED);
+        errLbl.setFont(new Font("SansSerif", Font.ITALIC, 11));
+        dlg.add(errLbl, BorderLayout.NORTH);
+
+        // buttons
+        Button okBtn     = new Button("OK");
+        Button cancelBtn = new Button("Cancel");
+        Panel bp = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        bp.add(okBtn);
+        bp.add(cancelBtn);
+        dlg.add(bp, BorderLayout.SOUTH);
+
+        Runnable doCreate = () -> {
+            String raw = nameFld.getText().trim();
+            if (raw.isEmpty()) {
+                errLbl.setText("File name must not be empty.");
+                return;
+            }
+            if (!raw.matches("[A-Za-z0-9_\\-]+")) {
+                errLbl.setText("Only letters, digits, _ and - are allowed.");
+                return;
+            }
+            try {
+                idePanel.addNewFile(raw);
+                statusBar.setText(" Created: " + raw + ".asm");
+                dlg.dispose();
+            } catch (Exception ex) {
+                errLbl.setText("Error: " + ex.getMessage());
+            }
+        };
+
+        okBtn.addActionListener(e -> doCreate.run());
+        nameFld.addActionListener(e -> doCreate.run());  // Enter key
+        cancelBtn.addActionListener(e -> dlg.dispose());
+        dlg.addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) { dlg.dispose(); }
+        });
+
+        dlg.pack();
+        dlg.setMinimumSize(new Dimension(400, dlg.getHeight()));
+        dlg.setLocationRelativeTo(mainFrame);
+        dlg.setVisible(true);
+    }
+
+    // ── project helpers ──────────────────────────────────────────────────────
+
     private static ProjectFile loadLastProject() {
         if (!LAST_PROJECT_PREFS.exists()) return null;
         try {
@@ -153,36 +244,39 @@ public class SasmMain {
         }
     }
 
-    /**
-     * Persists the path of {@code projectFile} to
-     * {@code ~/.sasm/last_project.txt} so the next launch can restore it.
-     */
     private static void saveLastProject(File projectFile) {
         if (projectFile == null) return;
         try {
             PREFS_DIR.mkdirs();
             Files.writeString(LAST_PROJECT_PREFS.toPath(),
                               projectFile.getAbsolutePath());
-        } catch (Exception ignored) {
-            // Non-fatal — the user just won't get auto-restore next time.
-        }
+        } catch (Exception ignored) { }
     }
 
-    /** Updates the frame title, status bar, and welcome label from a loaded project. */
+    /**
+     * Switches the centre area to the IDE panel, loads the project into it,
+     * and updates the title / status bar.
+     */
     private static void applyLoadedProject(ProjectFile pf) {
         if (pf == null || pf.name == null) return;
-        if (mainFrame != null) mainFrame.setTitle(APP_TITLE + " — " + pf.name);
-        if (statusBar  != null) statusBar.setText(
+
+        // Switch to IDE card
+        cardLayout.show(cardPanel, CARD_IDE);
+        idePanel.setProject(pf);
+        addFileItem.setEnabled(true);
+
+        // Update chrome
+        mainFrame.setTitle(APP_TITLE + " — " + pf.name);
+        statusBar.setText(
                 " Project: " + pf.name
-                + "  |  " + (pf.workingDirectory != null ? pf.workingDirectory : ""));
-        if (welcomeSub != null) welcomeSub.setText(
+                + "  |  " + nvl(pf.workingDirectory));
+        welcomeSub.setText(
                 "Project: " + pf.name
                 + "  —  OS: " + nvl(pf.os)
                 + "  /  Variant: " + nvl(pf.variant)
                 + "  /  CPU: " + nvl(pf.processor));
     }
 
-    /** Builds a {@link ProjectFile} snapshot from a completed wizard. */
     private static ProjectFile toProjectFile(NewProjectWizard w) {
         ProjectFile pf = new ProjectFile();
         pf.name             = w.getProjectName();
@@ -207,8 +301,9 @@ public class SasmMain {
                 + "Use File → New Project to:\n"
                 + "  1. Select a target operating system\n"
                 + "  2. Choose an executable format variant\n"
-                + "  3. Explore the required binary components\n",
-                8, 40, TextArea.SCROLLBARS_NONE);
+                + "  3. Explore the required binary components\n\n"
+                + "Use File → Add New SASM File to create .asm source files.\n",
+                10, 40, TextArea.SCROLLBARS_NONE);
         ta.setEditable(false);
         dlg.add(ta, BorderLayout.CENTER);
 
