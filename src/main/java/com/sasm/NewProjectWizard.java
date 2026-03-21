@@ -6,22 +6,24 @@ import java.awt.event.*;
 /**
  * "New Project" dialog — single flat-form canvas with inline descriptions.
  *
- * <p>Five rows are stacked vertically on a scrollable canvas:</p>
+ * <p>Six rows are stacked vertically on a scrollable canvas:</p>
  * <ol>
  *   <li>Name — free-text field</li>
  *   <li>Working Directory — free-text field with a folder-browse button
  *       (pre-filled with the user's home directory)</li>
  *   <li>Operating System — pop-list (blank default; Linux / Windows) followed by
  *       a read-only description area showing the format name and overview</li>
- *   <li>Variant — pop-list (blank default; populated when OS changes) followed by
- *       a read-only description area showing architecture, linking style, toolchain
- *       commands, and the full variant description</li>
+ *   <li>Output Type — pop-list (Executable or DLL / Shared Library) populated when
+ *       OS is chosen; selects the format definition file loaded for variants</li>
+ *   <li>Variant — pop-list (blank default; populated when Output Type changes)
+ *       followed by a read-only description area showing architecture, linking
+ *       style, toolchain commands, and the full variant description</li>
  *   <li>Processor — pop-list (blank default; populated with x86-family processors
  *       that are compatible with the selected variant's architecture) followed by
  *       a read-only description area with historical context and compatibility notes</li>
  * </ol>
  * <p>OK and Cancel buttons appear at the bottom.  OK is enabled only when all
- * five fields contain a non-blank value.</p>
+ * six fields contain a non-blank value.</p>
  */
 public class NewProjectWizard extends Dialog {
 
@@ -32,9 +34,10 @@ public class NewProjectWizard extends Dialog {
     private final TextField nameField      = new TextField(50);
     private final TextField dirField       = new TextField(50);
     private final Button    browseBtn      = new Button("Browse…");
-    private final Choice    osChoice       = new Choice();
-    private final Choice    variantChoice  = new Choice();
-    private final Choice    processorChoice = new Choice();
+    private final Choice    osChoice         = new Choice();
+    private final Choice    outputTypeChoice = new Choice();
+    private final Choice    variantChoice    = new Choice();
+    private final Choice    processorChoice  = new Choice();
 
     // ── description panels ───────────────────────────────────────────────────
     private final TextArea osDescArea        = makeDescArea(3);
@@ -70,6 +73,7 @@ public class NewProjectWizard extends Dialog {
     public String getProjectName()      { return nameField.getText().trim(); }
     public String getWorkingDirectory() { return dirField.getText().trim(); }
     public String getSelectedOs()       { return selectedText(osChoice); }
+    public String getSelectedOutputType(){ return selectedText(outputTypeChoice); }
     public String getSelectedVariant()  { return selectedText(variantChoice); }
     public String getSelectedProcessor(){ return selectedText(processorChoice); }
     /** Returns the {@code .json} file written on OK, or {@code null} if cancelled. */
@@ -118,14 +122,19 @@ public class NewProjectWizard extends Dialog {
         osChoice.addItem("Linux");
         osChoice.addItem("Windows");
         gbRow = addLabeledControl(canvas, gbRow, "Operating System:", osChoice,
-                "Select the target OS to load the matching executable-format definition.");
+                "Select the target OS to load the matching format definitions.");
         // OS description area (full-width, initially hidden)
         gbRow = addDescriptionArea(canvas, gbRow, osDescArea);
+
+        // ── Output Type ──────────────────────────────────────────────────────
+        outputTypeChoice.addItem("");  // blank default
+        gbRow = addLabeledControl(canvas, gbRow, "Output Type:", outputTypeChoice,
+                "Select the output type: Executable or DLL / Shared Library.");
 
         // ── Variant ───────────────────────────────────────────────────────────
         variantChoice.addItem("");     // blank default
         gbRow = addLabeledControl(canvas, gbRow, "Variant:", variantChoice,
-                "Select the executable format variant after choosing an operating system.");
+                "Select the format variant after choosing an operating system and output type.");
         // Variant description area (full-width, initially empty)
         gbRow = addDescriptionArea(canvas, gbRow, variantDescArea);
 
@@ -160,6 +169,7 @@ public class NewProjectWizard extends Dialog {
         // ── wire events ─────────────────────────────────────────────────────
         browseBtn.addActionListener(e -> browseForDirectory());
         osChoice.addItemListener(e -> onOsChanged());
+        outputTypeChoice.addItemListener(e -> onOutputTypeChanged());
         variantChoice.addItemListener(e -> onVariantChanged());
         processorChoice.addItemListener(e -> onProcessorChanged());
         nameField.addTextListener(e -> refreshOkButton());
@@ -262,10 +272,51 @@ public class NewProjectWizard extends Dialog {
         }
     }
 
-    /** Called when the OS pop-list changes — reloads variants and updates OS description. */
+    /** Called when the OS pop-list changes — reloads output types and updates OS description. */
     private void onOsChanged() {
-        // Reset downstream state — null currentDef first so any spurious item
-        // events fired by removeAll() see a clean state.
+        // Reset all downstream state
+        currentDef = null;
+        processorDescArea.setText("");
+        processorChoice.removeAll();
+        processorChoice.addItem("");
+        variantDescArea.setText("");
+        variantChoice.removeAll();
+        variantChoice.addItem("");
+        outputTypeChoice.removeAll();
+        outputTypeChoice.addItem("");
+
+        String os = selectedText(osChoice);
+        if (os.isEmpty()) {
+            osDescArea.setText("");
+            refreshOkButton();
+            return;
+        }
+
+        // Populate output-type choices per OS
+        outputTypeChoice.addItem("Executable");
+        if (os.equalsIgnoreCase("Windows")) {
+            outputTypeChoice.addItem("DLL / Shared Library");
+        } else if (os.equalsIgnoreCase("Linux")) {
+            outputTypeChoice.addItem("DLL / Shared Library");
+        }
+
+        // Load the default (Executable) definition to show the OS description
+        try {
+            currentDef = JsonLoader.load(os);
+        } catch (Exception ex) {
+            osDescArea.setText("Could not load definition for " + os + ":\n" + ex.getMessage());
+            refreshOkButton();
+            return;
+        }
+
+        osDescArea.setText(buildOsDescription(currentDef));
+        osDescArea.setCaretPosition(0);
+        refreshOkButton();
+    }
+
+    /** Called when the Output Type pop-list changes — reloads variants. */
+    private void onOutputTypeChanged() {
+        // Reset downstream state
         currentDef = null;
         processorDescArea.setText("");
         processorChoice.removeAll();
@@ -275,21 +326,22 @@ public class NewProjectWizard extends Dialog {
         variantChoice.addItem("");
 
         String os = selectedText(osChoice);
-        if (os.isEmpty()) {
-            osDescArea.setText("");
+        String outputType = selectedText(outputTypeChoice);
+        if (os.isEmpty() || outputType.isEmpty()) {
             refreshOkButton();
             return;
         }
 
         try {
-            currentDef = JsonLoader.load(os);
+            currentDef = JsonLoader.load(os, outputType);
         } catch (Exception ex) {
-            osDescArea.setText("Could not load definition for " + os + ":\n" + ex.getMessage());
+            osDescArea.setText("Could not load definition for " + os
+                    + " (" + outputType + "):\n" + ex.getMessage());
             refreshOkButton();
             return;
         }
 
-        // Populate OS description area
+        // Update OS description area to reflect the loaded definition
         osDescArea.setText(buildOsDescription(currentDef));
         osDescArea.setCaretPosition(0);
 
@@ -366,13 +418,14 @@ public class NewProjectWizard extends Dialog {
         refreshOkButton();
     }
 
-    /** Enables OK only when all five fields are non-blank and the name is valid. */
+    /** Enables OK only when all six fields are non-blank and the name is valid. */
     private void refreshOkButton() {
         String name = nameField.getText().trim();
         boolean nameOk = !name.isEmpty() && name.matches(PROJECT_NAME_PATTERN);
         boolean ready = nameOk
                      && !dirField.getText().trim().isEmpty()
                      && !selectedText(osChoice).isEmpty()
+                     && !selectedText(outputTypeChoice).isEmpty()
                      && !selectedText(variantChoice).isEmpty()
                      && !selectedText(processorChoice).isEmpty();
         okBtn.setEnabled(ready);
@@ -541,6 +594,7 @@ public class NewProjectWizard extends Dialog {
         pf.name             = name;
         pf.workingDirectory = dirField.getText().trim();
         pf.os               = selectedText(osChoice);
+        pf.outputType       = selectedText(outputTypeChoice);
         pf.variant          = selectedText(variantChoice);
         pf.processor        = selectedText(processorChoice);
 

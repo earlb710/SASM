@@ -19,7 +19,10 @@ public class ProjectFile {
     /** Target operating system label as shown in the wizard (e.g. "Linux"). */
     public String os;
 
-    /** Executable-format variant as shown in the wizard (e.g. "ELF64 – x86-64"). */
+    /** Output type as shown in the wizard (e.g. "Executable" or "DLL / Shared Library"). */
+    public String outputType;
+
+    /** Format variant as shown in the wizard (e.g. "ELF64 – x86-64"). */
     public String variant;
 
     /** Target processor identifier as shown in the wizard (e.g. "x86_64"). */

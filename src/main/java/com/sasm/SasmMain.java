@@ -338,6 +338,7 @@ public class SasmMain {
         pf.name             = w.getProjectName();
         pf.workingDirectory = w.getWorkingDirectory();
         pf.os               = w.getSelectedOs();
+        pf.outputType       = w.getSelectedOutputType();
         pf.variant          = w.getSelectedVariant();
         pf.processor        = w.getSelectedProcessor();
         return pf;

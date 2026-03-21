@@ -25,6 +25,15 @@ One JSON file per operating system, enumerating every executable variant (32-bit
 | [`executable_windows.json`](executable_windows.json) | Windows | PE/COFF | PE32 console static, PE32 console dynamic, PE32 GUI dynamic, PE32+ console static, PE32+ console dynamic, PE32+ GUI dynamic |
 | [`executable_linux.json`](executable_linux.json) | Linux | ELF | ELF64 static, ELF64 dynamic, ELF64 PIE (ET_DYN), ELF32 static, ELF32 dynamic |
 
+## DLL / Shared Library Format Files
+
+One JSON file per operating system, enumerating every DLL or shared-library variant with the binary structures and NASM code required for each.
+
+| File | OS | Format | Variants |
+|------|-----|--------|---------|
+| [`dll_windows.json`](dll_windows.json) | Windows | PE DLL | PE32 DLL dynamic, PE32 DLL static, PE32+ DLL dynamic, PE32+ DLL static |
+| [`shared_library_linux.json`](shared_library_linux.json) | Linux | ELF .so | ELF64 SO dynamic, ELF64 SO no-deps, ELF32 SO dynamic, ELF32 SO no-deps |
+
 ## JSON Schema
 
 Each file has the top-level shape:

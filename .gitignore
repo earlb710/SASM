@@ -11,3 +11,4 @@ target/
 
 # macOS
 .DS_Store
+target/
