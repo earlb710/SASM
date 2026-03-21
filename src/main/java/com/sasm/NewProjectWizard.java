@@ -84,7 +84,7 @@ public class NewProjectWizard extends Dialog {
                 "The project name is used as the source-file prefix (e.g. hello → hello.sasm).");
 
         // ── Working Directory ─────────────────────────────────────────────────
-        dirField.setText(System.getProperty("user.home", ""));
+        dirField.setText(System.getProperty("user.home", "") + java.io.File.separator + "sasm");
 
         Panel dirPanel = new Panel(new BorderLayout(4, 0));
         dirPanel.setBackground(Color.WHITE);
@@ -168,6 +168,10 @@ public class NewProjectWizard extends Dialog {
 
     private void browseForDirectory() {
         FileDialog fd = new FileDialog(this, "Select Working Directory", FileDialog.LOAD);
+        String currentDir = dirField.getText().trim();
+        if (!currentDir.isEmpty()) {
+            fd.setDirectory(currentDir);
+        }
         System.setProperty("apple.awt.fileDialogForDirectories", "true");
         fd.setVisible(true);
         System.setProperty("apple.awt.fileDialogForDirectories", "false");

@@ -48,6 +48,7 @@ public class SasmMain {
     private static Panel       cardPanel;
     private static MenuItem    addFileItem;      // enabled only when a project is open
     private static MenuItem    addVariantItem;   // enabled only when a project is open
+    private static MenuItem    renameProjectItem;// enabled only when a project is open
     private static MenuItem    deleteFileItem;   // enabled only when a file is open
 
     private static final String CARD_WELCOME = "welcome";
@@ -91,6 +92,16 @@ public class SasmMain {
         MenuItem newProjectItem = new MenuItem("New Project");
         newProjectItem.setShortcut(new MenuShortcut(KeyEvent.VK_N));
         fileMenu.add(newProjectItem);
+
+        MenuItem openProjectItem = new MenuItem("Open Project");
+        openProjectItem.setShortcut(new MenuShortcut(KeyEvent.VK_O));
+        fileMenu.add(openProjectItem);
+
+        renameProjectItem = new MenuItem("Rename Project");
+        renameProjectItem.setEnabled(false); // enabled after a project is loaded
+        fileMenu.add(renameProjectItem);
+
+        fileMenu.addSeparator();
 
         addVariantItem = new MenuItem("Add Variant");
         addVariantItem.setShortcut(new MenuShortcut(KeyEvent.VK_V));
@@ -169,6 +180,10 @@ public class SasmMain {
             }
         });
 
+        openProjectItem.addActionListener(e -> promptOpenProject());
+
+        renameProjectItem.addActionListener(e -> promptRenameProject());
+
         addVariantItem.addActionListener(e -> promptAddVariant());
 
         addFileItem.addActionListener(e -> promptAddNewFile());
@@ -192,6 +207,132 @@ public class SasmMain {
         });
 
         return frame;
+    }
+
+    // ── open-project dialog ──────────────────────────────────────────────────
+
+    /** Opens a FileDialog to select and load an existing project JSON file. */
+    private static void promptOpenProject() {
+        idePanel.saveCurrentFile();
+
+        FileDialog fd = new FileDialog(mainFrame, "Open Project", FileDialog.LOAD);
+        fd.setFile("*.json");
+        if (currentProjectFile != null) {
+            fd.setDirectory(currentProjectFile.getParent());
+        }
+        fd.setVisible(true);
+
+        String dir  = fd.getDirectory();
+        String file = fd.getFile();
+        if (dir == null || file == null) {
+            statusBar.setText(" Open Project cancelled");
+            return;
+        }
+
+        File selected = new File(dir, file);
+        try {
+            ProjectFile pf = JsonLoader.loadProjectFile(selected);
+            currentProjectFile = selected;
+            applyLoadedProject(pf);
+            saveLastProject(selected);
+        } catch (Exception ex) {
+            statusBar.setText(" Could not open project: " + ex.getMessage());
+        }
+    }
+
+    // ── rename-project dialog ────────────────────────────────────────────────
+
+    /** Prompts for a new project name, renames the JSON file, and updates state. */
+    private static void promptRenameProject() {
+        if (currentProject == null || currentProjectFile == null) return;
+
+        Dialog dlg = new Dialog(mainFrame, "Rename Project", true);
+        dlg.setLayout(new BorderLayout(8, 8));
+
+        // input row
+        Panel inputRow = new Panel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+        inputRow.add(new Label("New project name:"));
+        TextField nameFld = new TextField(currentProject.name, 30);
+        inputRow.add(nameFld);
+        dlg.add(inputRow, BorderLayout.CENTER);
+
+        // error label
+        Label errLbl = new Label("", Label.CENTER);
+        errLbl.setForeground(Color.RED);
+        errLbl.setFont(new Font("SansSerif", Font.ITALIC, 11));
+        dlg.add(errLbl, BorderLayout.NORTH);
+
+        // buttons
+        Button okBtn     = new Button("OK");
+        Button cancelBtn = new Button("Cancel");
+        Panel bp = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        bp.add(okBtn);
+        bp.add(cancelBtn);
+        dlg.add(bp, BorderLayout.SOUTH);
+
+        final String NAME_PATTERN = "[A-Za-z0-9_\\-]+";
+
+        Runnable doRename = () -> {
+            String newName = nameFld.getText().trim();
+            if (newName.isEmpty()) {
+                errLbl.setText("Name must not be empty.");
+                return;
+            }
+            if (!newName.matches(NAME_PATTERN)) {
+                errLbl.setText("Only letters, digits, _ and - are allowed.");
+                return;
+            }
+            if (newName.equals(currentProject.name)) {
+                dlg.dispose();
+                return;
+            }
+
+            // Rename the file on disk
+            File parentDir = currentProjectFile.getParentFile();
+            File newFile = new File(parentDir, newName + ".json");
+            if (newFile.exists()) {
+                errLbl.setText("A project file with that name already exists.");
+                return;
+            }
+            if (!currentProjectFile.renameTo(newFile)) {
+                errLbl.setText("Could not rename project file on disk.");
+                return;
+            }
+
+            // Update in-memory state
+            currentProject.name = newName;
+            currentProjectFile  = newFile;
+
+            // Re-save so the JSON content reflects the new name
+            try {
+                JsonLoader.saveProjectFile(currentProject, newFile);
+            } catch (Exception ex) {
+                errLbl.setText("Renamed file but could not update contents: " + ex.getMessage());
+                return;
+            }
+
+            // Update last-project prefs
+            saveLastProject(newFile);
+
+            // Update UI
+            idePanel.setProject(currentProject);
+            mainFrame.setTitle(APP_TITLE + " — " + newName);
+            statusBar.setText(" Project renamed to: " + newName);
+            updateWelcomeSub();
+            dlg.dispose();
+        };
+
+        okBtn.addActionListener(e -> doRename.run());
+        nameFld.addActionListener(e -> doRename.run()); // Enter key
+        cancelBtn.addActionListener(e -> dlg.dispose());
+        dlg.addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) { dlg.dispose(); }
+        });
+
+        dlg.pack();
+        dlg.setMinimumSize(new Dimension(400, dlg.getHeight()));
+        dlg.setLocationRelativeTo(mainFrame);
+        dlg.setVisible(true);
     }
 
     // ── add-variant dialog ───────────────────────────────────────────────────
@@ -376,6 +517,7 @@ public class SasmMain {
         idePanel.setProject(pf);
         addFileItem.setEnabled(true);
         addVariantItem.setEnabled(true);
+        renameProjectItem.setEnabled(true);
 
         // Update chrome
         mainFrame.setTitle(APP_TITLE + " — " + pf.name);
@@ -427,6 +569,8 @@ public class SasmMain {
                 "SASM IDE\n\n"
                 + "Structured Assembly Language IDE\n\n"
                 + "Use File → New Project to create a project (name + directory).\n"
+                + "Use File → Open Project to load an existing project.\n"
+                + "Use File → Rename Project to change the project name.\n"
                 + "Use File → Add Variant to add a target-platform variant\n"
                 + "  (OS, output type, format variant, processor).\n"
                 + "Use File → Add New SASM File to create .sasm source files.\n"

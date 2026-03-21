@@ -82,7 +82,7 @@ public class SasmIdePanel extends Panel {
 
         File dir = new File(project.workingDirectory);
         File[] asmFiles = dir.listFiles(
-                (d, n) -> n.toLowerCase().endsWith(".sasm"));
+                f -> f.isFile() && f.getName().toLowerCase().endsWith(".sasm"));
         if (asmFiles != null) {
             Arrays.sort(asmFiles,
                     (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
