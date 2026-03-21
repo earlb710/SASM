@@ -4,23 +4,20 @@ import java.awt.*;
 import java.awt.event.*;
 import java.io.File;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Entry point for the SASM IDE.
  *
  * <p>Displays an AWT {@link Frame} with a menu bar.  The <em>File → New
  * Project</em> menu item opens the {@link NewProjectWizard} dialog, which
- * presents a single flat-form canvas with five fields:
- * <ol>
- *   <li>Project name.</li>
- *   <li>Working directory (with a folder-browse button).</li>
- *   <li>Target OS (Linux / Windows pop-list).</li>
- *   <li>Executable-format variant (pop-list, populated when the OS changes).</li>
- *   <li>Processor (pop-list, filtered to processors compatible with the selected
- *       variant's architecture).</li>
- * </ol>
+ * collects a project name and working directory.  The <em>File → Add
+ * Variant</em> menu item opens the {@link AddVariantWizard} dialog, which
+ * lets the user specify a target-platform variant (OS, output type, format
+ * variant, processor) and appends it to the current project.
  *
- * <p>When the user confirms the wizard the project is saved to
+ * <p>When the user confirms a wizard the project is saved to
  * {@code <workingDirectory>/<name>.json} and the path is remembered in
  * {@code ~/.sasm/last_project.txt}.  On the next launch that project is
  * loaded automatically so the IDE picks up where the user left off.</p>
@@ -49,11 +46,17 @@ public class SasmMain {
     private static SasmIdePanel idePanel;
     private static CardLayout  cardLayout;
     private static Panel       cardPanel;
-    private static MenuItem    addFileItem;    // enabled only when a project is open
-    private static MenuItem    deleteFileItem; // enabled only when a file is open
+    private static MenuItem    addFileItem;      // enabled only when a project is open
+    private static MenuItem    addVariantItem;   // enabled only when a project is open
+    private static MenuItem    deleteFileItem;   // enabled only when a file is open
 
     private static final String CARD_WELCOME = "welcome";
     private static final String CARD_IDE     = "ide";
+
+    /** The currently loaded project (kept in memory for "Add Variant"). */
+    private static ProjectFile currentProject;
+    /** File path of the persisted project JSON (for re-saving after Add Variant). */
+    private static File        currentProjectFile;
 
     // ── entry point ──────────────────────────────────────────────────────────
 
@@ -88,6 +91,11 @@ public class SasmMain {
         MenuItem newProjectItem = new MenuItem("New Project");
         newProjectItem.setShortcut(new MenuShortcut(KeyEvent.VK_N));
         fileMenu.add(newProjectItem);
+
+        addVariantItem = new MenuItem("Add Variant");
+        addVariantItem.setShortcut(new MenuShortcut(KeyEvent.VK_V));
+        addVariantItem.setEnabled(false);  // enabled after a project is loaded
+        fileMenu.add(addVariantItem);
 
         addFileItem = new MenuItem("Add New SASM File");
         addFileItem.setShortcut(new MenuShortcut(KeyEvent.VK_F));
@@ -152,12 +160,15 @@ public class SasmMain {
             NewProjectWizard wizard = new NewProjectWizard(frame);
             wizard.setVisible(true);
             if (wizard.isConfirmed()) {
-                applyLoadedProject(toProjectFile(wizard));
+                ProjectFile pf = toProjectFile(wizard);
+                applyLoadedProject(pf);
                 saveLastProject(wizard.getSavedProjectFile());
             } else {
                 statusBar.setText(" New Project cancelled");
             }
         });
+
+        addVariantItem.addActionListener(e -> promptAddVariant());
 
         addFileItem.addActionListener(e -> promptAddNewFile());
 
@@ -180,6 +191,44 @@ public class SasmMain {
         });
 
         return frame;
+    }
+
+    // ── add-variant dialog ───────────────────────────────────────────────────
+
+    /** Opens the Add Variant wizard and appends the result to the current project. */
+    private static void promptAddVariant() {
+        if (currentProject == null) return;
+
+        AddVariantWizard wizard = new AddVariantWizard(mainFrame);
+        wizard.setVisible(true);
+
+        if (!wizard.isConfirmed()) {
+            statusBar.setText(" Add Variant cancelled");
+            return;
+        }
+
+        ProjectFile.VariantEntry ve = wizard.toVariantEntry();
+
+        // Append to the project's variant list
+        List<ProjectFile.VariantEntry> list = currentProject.getVariants();
+        list.add(ve);
+
+        // Re-save the project file
+        if (currentProjectFile != null) {
+            try {
+                JsonLoader.saveProjectFile(currentProject, currentProjectFile);
+            } catch (Exception ex) {
+                statusBar.setText(" Could not save project: " + ex.getMessage());
+                return;
+            }
+        }
+
+        statusBar.setText(
+                " Variant added: " + ve.variantName
+                + "  (" + nvl(ve.os) + " / " + nvl(ve.variant) + " / " + nvl(ve.processor) + ")");
+
+        // Refresh the welcome sub-label with the new variant summary
+        updateWelcomeSub();
     }
 
     // ── add-new-file dialog ──────────────────────────────────────────────────
@@ -294,7 +343,9 @@ public class SasmMain {
             String path = Files.readString(LAST_PROJECT_PREFS.toPath()).trim();
             File projectJson = new File(path);
             if (!projectJson.exists()) return null;
-            return JsonLoader.loadProjectFile(projectJson);
+            ProjectFile pf = JsonLoader.loadProjectFile(projectJson);
+            currentProjectFile = projectJson;
+            return pf;
         } catch (Exception ignored) {
             return null;
         }
@@ -302,6 +353,7 @@ public class SasmMain {
 
     private static void saveLastProject(File projectFile) {
         if (projectFile == null) return;
+        currentProjectFile = projectFile;
         try {
             PREFS_DIR.mkdirs();
             Files.writeString(LAST_PROJECT_PREFS.toPath(),
@@ -316,31 +368,45 @@ public class SasmMain {
     private static void applyLoadedProject(ProjectFile pf) {
         if (pf == null || pf.name == null) return;
 
+        currentProject = pf;
+
         // Switch to IDE card
         cardLayout.show(cardPanel, CARD_IDE);
         idePanel.setProject(pf);
         addFileItem.setEnabled(true);
+        addVariantItem.setEnabled(true);
 
         // Update chrome
         mainFrame.setTitle(APP_TITLE + " — " + pf.name);
         statusBar.setText(
                 " Project: " + pf.name
                 + "  |  " + nvl(pf.workingDirectory));
-        welcomeSub.setText(
-                "Project: " + pf.name
-                + "  —  OS: " + nvl(pf.os)
-                + "  /  Variant: " + nvl(pf.variant)
-                + "  /  CPU: " + nvl(pf.processor));
+        updateWelcomeSub();
+    }
+
+    /** Refreshes the welcome sub-label with a summary of the project's variants. */
+    private static void updateWelcomeSub() {
+        if (currentProject == null) return;
+
+        List<ProjectFile.VariantEntry> vars = currentProject.getVariants();
+        if (vars.isEmpty()) {
+            welcomeSub.setText("Project: " + currentProject.name
+                    + "  —  No variants yet. Use File → Add Variant.");
+        } else {
+            StringBuilder sb = new StringBuilder("Project: " + currentProject.name + "  —  ");
+            sb.append(vars.size()).append(" variant(s): ");
+            for (int i = 0; i < vars.size(); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(vars.get(i).variantName);
+            }
+            welcomeSub.setText(sb.toString());
+        }
     }
 
     private static ProjectFile toProjectFile(NewProjectWizard w) {
         ProjectFile pf = new ProjectFile();
         pf.name             = w.getProjectName();
         pf.workingDirectory = w.getWorkingDirectory();
-        pf.os               = w.getSelectedOs();
-        pf.outputType       = w.getSelectedOutputType();
-        pf.variant          = w.getSelectedVariant();
-        pf.processor        = w.getSelectedProcessor();
         return pf;
     }
 
@@ -355,10 +421,9 @@ public class SasmMain {
         TextArea ta = new TextArea(
                 "SASM IDE\n\n"
                 + "Structured Assembly Language IDE\n\n"
-                + "Use File → New Project to:\n"
-                + "  1. Select a target operating system\n"
-                + "  2. Choose an executable format variant\n"
-                + "  3. Explore the required binary components\n\n"
+                + "Use File → New Project to create a project (name + directory).\n"
+                + "Use File → Add Variant to add a target-platform variant\n"
+                + "  (OS, output type, format variant, processor).\n"
                 + "Use File → Add New SASM File to create .sasm source files.\n"
                 + "Use File → Delete File to permanently remove the open file.\n",
                 10, 40, TextArea.SCROLLBARS_NONE);
