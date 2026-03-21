@@ -62,6 +62,30 @@ public class JsonLoader {
         return readJson(fileName, ProcessorDefinition.class);
     }
 
+    // ── project-file persistence ───────────────────────────────────────────────
+
+    /**
+     * Serialises {@code pf} to {@code out} as pretty-printed JSON.
+     *
+     * @param pf  project data to save
+     * @param out destination file (parent directories must exist)
+     * @throws IOException if the file cannot be written
+     */
+    public static void saveProjectFile(ProjectFile pf, File out) throws IOException {
+        MAPPER.writerWithDefaultPrettyPrinter().writeValue(out, pf);
+    }
+
+    /**
+     * Reads a previously saved {@link ProjectFile} from disk.
+     *
+     * @param file the {@code .json} file written by {@link #saveProjectFile}
+     * @return the parsed {@link ProjectFile}
+     * @throws IOException if the file cannot be found or read
+     */
+    public static ProjectFile loadProjectFile(File file) throws IOException {
+        return MAPPER.readValue(file, ProjectFile.class);
+    }
+
     // ── internal helper ────────────────────────────────────────────────────────
 
     /**

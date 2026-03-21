@@ -2,6 +2,8 @@ package com.sasm;
 
 import java.awt.*;
 import java.awt.event.*;
+import java.io.File;
+import java.nio.file.Files;
 
 /**
  * Entry point for the SASM IDE.
@@ -17,22 +19,46 @@ import java.awt.event.*;
  *   <li>Processor (pop-list, filtered to processors compatible with the selected
  *       variant's architecture).</li>
  * </ol>
+ *
+ * <p>When the user confirms the wizard the project is saved to
+ * {@code <workingDirectory>/<name>.json} and the path is remembered in
+ * {@code ~/.sasm/last_project.txt}.  On the next launch that project is
+ * loaded automatically so the IDE picks up where the user left off.</p>
  */
 public class SasmMain {
 
     private static final String APP_TITLE = "SASM IDE";
 
+    /** Directory that holds SASM user preferences. */
+    private static final File PREFS_DIR =
+            new File(System.getProperty("user.home", "."), ".sasm");
+
+    /** Stores the absolute path of the last-used project JSON file. */
+    private static final File LAST_PROJECT_PREFS =
+            new File(PREFS_DIR, "last_project.txt");
+
+    // Mutable UI references updated by startup / wizard actions
+    private static Label statusBar;
+    private static Label welcomeSub;
+    private static Frame mainFrame;
+
     public static void main(String[] args) {
-        // AWT is not always available headless – make sure we fail early with a
-        // readable message rather than a cryptic NullPointerException.
         if (GraphicsEnvironment.isHeadless()) {
             System.err.println("SASM IDE requires a graphical display.");
             System.exit(1);
         }
 
-        Frame frame = buildMainFrame();
-        frame.setVisible(true);
+        mainFrame = buildMainFrame();
+        mainFrame.setVisible(true);
+
+        // Restore last project, if any, without blocking the UI.
+        ProjectFile last = loadLastProject();
+        if (last != null) {
+            applyLoadedProject(last);
+        }
     }
+
+    // ── main-frame construction ──────────────────────────────────────────────
 
     private static Frame buildMainFrame() {
         Frame frame = new Frame(APP_TITLE);
@@ -68,26 +94,27 @@ public class SasmMain {
         GridBagConstraints c = new GridBagConstraints();
         c.gridx = 0; c.gridy = 0; c.insets = new Insets(0, 0, 10, 0);
         welcome.add(heading, c);
-        Label sub = new Label("Use  File → New Project  to start.", Label.CENTER);
-        sub.setFont(new Font("SansSerif", Font.PLAIN, 14));
-        sub.setForeground(Color.DARK_GRAY);
+        welcomeSub = new Label("Use  File → New Project  to start.", Label.CENTER);
+        welcomeSub.setFont(new Font("SansSerif", Font.PLAIN, 14));
+        welcomeSub.setForeground(Color.DARK_GRAY);
         c.gridy = 1; c.insets = new Insets(0, 0, 0, 0);
-        welcome.add(sub, c);
+        welcome.add(welcomeSub, c);
         frame.add(welcome, BorderLayout.CENTER);
 
         // ── status bar ──────────────────────────────────────────────────────
-        Label status = new Label(" Ready", Label.LEFT);
-        status.setBackground(new Color(0xE0, 0xE0, 0xE0));
-        frame.add(status, BorderLayout.SOUTH);
+        statusBar = new Label(" Ready", Label.LEFT);
+        statusBar.setBackground(new Color(0xE0, 0xE0, 0xE0));
+        frame.add(statusBar, BorderLayout.SOUTH);
 
         // ── actions ─────────────────────────────────────────────────────────
         newProjectItem.addActionListener(e -> {
             NewProjectWizard wizard = new NewProjectWizard(frame);
             wizard.setVisible(true);
             if (wizard.isConfirmed()) {
-                status.setText(" Project created: " + wizard.getProjectName());
+                applyLoadedProject(toProjectFile(wizard));
+                saveLastProject(wizard.getSavedProjectFile());
             } else {
-                status.setText(" New Project cancelled");
+                statusBar.setText(" New Project cancelled");
             }
         });
 
@@ -107,6 +134,68 @@ public class SasmMain {
 
         return frame;
     }
+
+    // ── last-project helpers ─────────────────────────────────────────────────
+
+    /**
+     * Reads {@code ~/.sasm/last_project.txt} and loads the project file it
+     * points to.  Returns {@code null} silently on any error.
+     */
+    private static ProjectFile loadLastProject() {
+        if (!LAST_PROJECT_PREFS.exists()) return null;
+        try {
+            String path = Files.readString(LAST_PROJECT_PREFS.toPath()).trim();
+            File projectJson = new File(path);
+            if (!projectJson.exists()) return null;
+            return JsonLoader.loadProjectFile(projectJson);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    /**
+     * Persists the path of {@code projectFile} to
+     * {@code ~/.sasm/last_project.txt} so the next launch can restore it.
+     */
+    private static void saveLastProject(File projectFile) {
+        if (projectFile == null) return;
+        try {
+            PREFS_DIR.mkdirs();
+            Files.writeString(LAST_PROJECT_PREFS.toPath(),
+                              projectFile.getAbsolutePath());
+        } catch (Exception ignored) {
+            // Non-fatal — the user just won't get auto-restore next time.
+        }
+    }
+
+    /** Updates the frame title, status bar, and welcome label from a loaded project. */
+    private static void applyLoadedProject(ProjectFile pf) {
+        if (pf == null || pf.name == null) return;
+        if (mainFrame != null) mainFrame.setTitle(APP_TITLE + " — " + pf.name);
+        if (statusBar  != null) statusBar.setText(
+                " Project: " + pf.name
+                + "  |  " + (pf.workingDirectory != null ? pf.workingDirectory : ""));
+        if (welcomeSub != null) welcomeSub.setText(
+                "Project: " + pf.name
+                + "  —  OS: " + nvl(pf.os)
+                + "  /  Variant: " + nvl(pf.variant)
+                + "  /  CPU: " + nvl(pf.processor));
+    }
+
+    /** Builds a {@link ProjectFile} snapshot from a completed wizard. */
+    private static ProjectFile toProjectFile(NewProjectWizard w) {
+        ProjectFile pf = new ProjectFile();
+        pf.name             = w.getProjectName();
+        pf.workingDirectory = w.getWorkingDirectory();
+        pf.os               = w.getSelectedOs();
+        pf.variant          = w.getSelectedVariant();
+        pf.processor        = w.getSelectedProcessor();
+        return pf;
+    }
+
+    private static String nvl(String s) { return s != null ? s : ""; }
+
+    // ── about dialog ─────────────────────────────────────────────────────────
 
     private static void showAbout(Frame owner) {
         Dialog dlg = new Dialog(owner, "About SASM IDE", true);
@@ -138,3 +227,4 @@ public class SasmMain {
         dlg.setVisible(true);
     }
 }
+

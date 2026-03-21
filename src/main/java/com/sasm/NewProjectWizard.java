@@ -25,6 +25,9 @@ import java.awt.event.*;
  */
 public class NewProjectWizard extends Dialog {
 
+    /** Regex that every valid project name must fully match. */
+    private static final String PROJECT_NAME_PATTERN = "[A-Za-z0-9_\\-]+";
+
     // ── form fields ──────────────────────────────────────────────────────────
     private final TextField nameField      = new TextField(50);
     private final TextField dirField       = new TextField(50);
@@ -44,6 +47,8 @@ public class NewProjectWizard extends Dialog {
 
     // ── result state (read by caller after dispose) ───────────────────────────
     private boolean confirmed = false;
+    /** Path of the {@code <name>.json} file written when the user clicks OK. */
+    private java.io.File savedProjectFile;
 
     // ── OS data ──────────────────────────────────────────────────────────────
     private OsDefinition currentDef;
@@ -53,7 +58,7 @@ public class NewProjectWizard extends Dialog {
         buildUi();
         pack();
         setResizable(true);
-        setMinimumSize(new Dimension(800, 550));
+        setMinimumSize(new Dimension(900, 550));
         setLocationRelativeTo(owner);
     }
 
@@ -67,6 +72,8 @@ public class NewProjectWizard extends Dialog {
     public String getSelectedOs()       { return selectedText(osChoice); }
     public String getSelectedVariant()  { return selectedText(variantChoice); }
     public String getSelectedProcessor(){ return selectedText(processorChoice); }
+    /** Returns the {@code .json} file written on OK, or {@code null} if cancelled. */
+    public java.io.File getSavedProjectFile() { return savedProjectFile; }
 
     // ────────────────────────────────────────────────────────────────────────
     // UI construction
@@ -82,7 +89,7 @@ public class NewProjectWizard extends Dialog {
         title.setForeground(Color.WHITE);
         Panel titlePanel = new Panel(new BorderLayout());
         titlePanel.add(title, BorderLayout.CENTER);
-        titlePanel.setPreferredSize(new Dimension(800, 36));
+        titlePanel.setPreferredSize(new Dimension(900, 36));
         add(titlePanel, BorderLayout.NORTH);
 
         // ── scrollable canvas ────────────────────────────────────────────────
@@ -140,7 +147,7 @@ public class NewProjectWizard extends Dialog {
         // Wrap canvas in a scroll pane so the dialog stays manageable
         ScrollPane scrollPane = new ScrollPane(ScrollPane.SCROLLBARS_AS_NEEDED);
         scrollPane.add(canvas);
-        scrollPane.setPreferredSize(new Dimension(800, 680));
+        scrollPane.setPreferredSize(new Dimension(900, 680));
         add(scrollPane, BorderLayout.CENTER);
 
         // ── button row ──────────────────────────────────────────────────────
@@ -157,7 +164,7 @@ public class NewProjectWizard extends Dialog {
         processorChoice.addItemListener(e -> onProcessorChanged());
         nameField.addTextListener(e -> refreshOkButton());
         dirField.addTextListener(e -> refreshOkButton());
-        okBtn.addActionListener(e -> { confirmed = true; dispose(); });
+        okBtn.addActionListener(e -> onOkPressed());
         cancelBtn.addActionListener(e -> dispose());
         addWindowListener(new WindowAdapter() {
             @Override public void windowClosing(WindowEvent e) { dispose(); }
@@ -359,9 +366,11 @@ public class NewProjectWizard extends Dialog {
         refreshOkButton();
     }
 
-    /** Enables OK only when all five fields are non-blank. */
+    /** Enables OK only when all five fields are non-blank and the name is valid. */
     private void refreshOkButton() {
-        boolean ready = !nameField.getText().trim().isEmpty()
+        String name = nameField.getText().trim();
+        boolean nameOk = !name.isEmpty() && name.matches(PROJECT_NAME_PATTERN);
+        boolean ready = nameOk
                      && !dirField.getText().trim().isEmpty()
                      && !selectedText(osChoice).isEmpty()
                      && !selectedText(variantChoice).isEmpty()
@@ -499,6 +508,50 @@ public class NewProjectWizard extends Dialog {
     private static String selectedText(Choice c) {
         String s = c.getSelectedItem();
         return s == null ? "" : s.trim();
+    }
+
+    /** Validates the name, writes the project JSON, then closes the dialog. */
+    private void onOkPressed() {
+        String name = nameField.getText().trim();
+        if (!name.matches(PROJECT_NAME_PATTERN)) {
+            showError("Project name may only contain letters, digits,\n"
+                    + "underscores (_) and hyphens (-).\n"
+                    + "Spaces and other special characters are not allowed.");
+            return;
+        }
+        try {
+            savedProjectFile = saveProject(name);
+        } catch (java.io.IOException ex) {
+            showError("Could not save project file:\n" + ex.getMessage());
+            return;
+        }
+        confirmed = true;
+        dispose();
+    }
+
+    /**
+     * Writes all current form values to {@code <workingDirectory>/<name>.json}.
+     *
+     * @return the file that was written
+     * @throws java.io.IOException if the directory cannot be created or the file
+     *                             cannot be written
+     */
+    private java.io.File saveProject(String name) throws java.io.IOException {
+        ProjectFile pf = new ProjectFile();
+        pf.name             = name;
+        pf.workingDirectory = dirField.getText().trim();
+        pf.os               = selectedText(osChoice);
+        pf.variant          = selectedText(variantChoice);
+        pf.processor        = selectedText(processorChoice);
+
+        java.io.File dir = new java.io.File(pf.workingDirectory);
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw new java.io.IOException(
+                    "Cannot create working directory: " + dir.getAbsolutePath());
+        }
+        java.io.File out = new java.io.File(dir, name + ".json");
+        JsonLoader.saveProjectFile(pf, out);
+        return out;
     }
 
     private void showError(String msg) {
