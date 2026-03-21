@@ -53,7 +53,7 @@ public class NewProjectWizard extends Dialog {
         buildUi();
         pack();
         setResizable(true);
-        setMinimumSize(new Dimension(620, 400));
+        setMinimumSize(new Dimension(800, 550));
         setLocationRelativeTo(owner);
     }
 
@@ -82,7 +82,7 @@ public class NewProjectWizard extends Dialog {
         title.setForeground(Color.WHITE);
         Panel titlePanel = new Panel(new BorderLayout());
         titlePanel.add(title, BorderLayout.CENTER);
-        titlePanel.setPreferredSize(new Dimension(620, 36));
+        titlePanel.setPreferredSize(new Dimension(800, 36));
         add(titlePanel, BorderLayout.NORTH);
 
         // ── scrollable canvas ────────────────────────────────────────────────
@@ -140,7 +140,7 @@ public class NewProjectWizard extends Dialog {
         // Wrap canvas in a scroll pane so the dialog stays manageable
         ScrollPane scrollPane = new ScrollPane(ScrollPane.SCROLLBARS_AS_NEEDED);
         scrollPane.add(canvas);
-        scrollPane.setPreferredSize(new Dimension(620, 480));
+        scrollPane.setPreferredSize(new Dimension(800, 680));
         add(scrollPane, BorderLayout.CENTER);
 
         // ── button row ──────────────────────────────────────────────────────
