@@ -4,25 +4,34 @@ import java.awt.*;
 import java.awt.event.*;
 
 /**
- * "New Project" dialog — single flat-form canvas.
+ * "New Project" dialog — single flat-form canvas with inline descriptions.
  *
- * <p>Four fields are stacked vertically on one canvas:</p>
+ * <p>Five rows are stacked vertically on a scrollable canvas:</p>
  * <ol>
  *   <li>Name — free-text field</li>
- *   <li>Working Directory — free-text field with a folder-browse button</li>
- *   <li>Operating System — pop-list (blank default; Linux / Windows)</li>
- *   <li>Variant — pop-list (blank default; populated when OS changes)</li>
+ *   <li>Working Directory — free-text field with a folder-browse button
+ *       (pre-filled with the user's home directory)</li>
+ *   <li>Operating System — pop-list (blank default; Linux / Windows) followed by
+ *       a read-only description area showing the format name and overview</li>
+ *   <li>Variant — pop-list (blank default; populated when OS changes) followed by
+ *       a read-only description area showing architecture, linking style, toolchain
+ *       commands, and the full variant description</li>
  * </ol>
- * <p>OK and Cancel buttons appear at the bottom.</p>
+ * <p>OK and Cancel buttons appear at the bottom.  OK is enabled only when all
+ * four fields contain a non-blank value.</p>
  */
 public class NewProjectWizard extends Dialog {
 
     // ── form fields ──────────────────────────────────────────────────────────
-    private final TextField nameField    = new TextField(50);
-    private final TextField dirField     = new TextField(50);
-    private final Button    browseBtn    = new Button("Browse…");
-    private final Choice    osChoice     = new Choice();
+    private final TextField nameField     = new TextField(50);
+    private final TextField dirField      = new TextField(50);
+    private final Button    browseBtn     = new Button("Browse…");
+    private final Choice    osChoice      = new Choice();
     private final Choice    variantChoice = new Choice();
+
+    // ── description panels ───────────────────────────────────────────────────
+    private final TextArea osDescArea      = makeDescArea(3);
+    private final TextArea variantDescArea = makeDescArea(7);
 
     // ── buttons ──────────────────────────────────────────────────────────────
     private final Button okBtn     = new Button("OK");
@@ -39,7 +48,7 @@ public class NewProjectWizard extends Dialog {
         buildUi();
         pack();
         setResizable(true);
-        setMinimumSize(new Dimension(560, 260));
+        setMinimumSize(new Dimension(620, 400));
         setLocationRelativeTo(owner);
     }
 
@@ -48,10 +57,10 @@ public class NewProjectWizard extends Dialog {
     /** Returns {@code true} if the user pressed OK, {@code false} for Cancel. */
     public boolean isConfirmed() { return confirmed; }
 
-    public String getProjectName()     { return nameField.getText().trim(); }
-    public String getWorkingDirectory(){ return dirField.getText().trim(); }
-    public String getSelectedOs()      { return selectedText(osChoice); }
-    public String getSelectedVariant() { return selectedText(variantChoice); }
+    public String getProjectName()      { return nameField.getText().trim(); }
+    public String getWorkingDirectory() { return dirField.getText().trim(); }
+    public String getSelectedOs()       { return selectedText(osChoice); }
+    public String getSelectedVariant()  { return selectedText(variantChoice); }
 
     // ────────────────────────────────────────────────────────────────────────
     // UI construction
@@ -67,42 +76,58 @@ public class NewProjectWizard extends Dialog {
         title.setForeground(Color.WHITE);
         Panel titlePanel = new Panel(new BorderLayout());
         titlePanel.add(title, BorderLayout.CENTER);
-        titlePanel.setPreferredSize(new Dimension(560, 36));
+        titlePanel.setPreferredSize(new Dimension(620, 36));
         add(titlePanel, BorderLayout.NORTH);
 
-        // ── canvas (all four rows) ───────────────────────────────────────────
+        // ── scrollable canvas ────────────────────────────────────────────────
         Panel canvas = new Panel(new GridBagLayout());
         canvas.setBackground(Color.WHITE);
 
-        // Row 0 – Name
-        addFormRow(canvas, 0, "Name:", nameField, null);
+        int gbRow = 0;   // running GridBag row counter
 
-        // Row 1 – Working Directory
+        // ── Name ─────────────────────────────────────────────────────────────
+        gbRow = addLabeledControl(canvas, gbRow, "Name:", nameField,
+                "The project name is used as the source-file prefix (e.g. hello → hello.asm).");
+
+        // ── Working Directory ─────────────────────────────────────────────────
+        // Pre-populate with the user's home directory
+        dirField.setText(System.getProperty("user.home", ""));
+
         Panel dirPanel = new Panel(new BorderLayout(4, 0));
         dirPanel.setBackground(Color.WHITE);
         dirPanel.add(dirField, BorderLayout.CENTER);
         dirPanel.add(browseBtn, BorderLayout.EAST);
-        addFormRow(canvas, 1, "Working Directory:", dirPanel, null);
+        gbRow = addLabeledControl(canvas, gbRow, "Working Directory:", dirPanel,
+                "All generated files (.asm, .o, binary) will be written into this folder.");
 
-        // Row 2 – Operating System
-        osChoice.addItem("");           // blank default
+        // ── Operating System ──────────────────────────────────────────────────
+        osChoice.addItem("");          // blank default
         osChoice.addItem("Linux");
         osChoice.addItem("Windows");
-        addFormRow(canvas, 2, "Operating System:", osChoice, null);
+        gbRow = addLabeledControl(canvas, gbRow, "Operating System:", osChoice,
+                "Select the target OS to load the matching executable-format definition.");
+        // OS description area (full-width, initially hidden)
+        gbRow = addDescriptionArea(canvas, gbRow, osDescArea);
 
-        // Row 3 – Variant (blank until OS is chosen)
-        variantChoice.addItem("");      // blank default
-        addFormRow(canvas, 3, "Variant:", variantChoice,
-                   "Populated after an operating system is selected.");
+        // ── Variant ───────────────────────────────────────────────────────────
+        variantChoice.addItem("");     // blank default
+        gbRow = addLabeledControl(canvas, gbRow, "Variant:", variantChoice,
+                "Select the executable format variant after choosing an operating system.");
+        // Variant description area (full-width, initially hidden)
+        gbRow = addDescriptionArea(canvas, gbRow, variantDescArea);
 
-        // spacer row keeps content pinned to the top
+        // spacer row keeps content pinned to top
         GridBagConstraints sp = new GridBagConstraints();
-        sp.gridx = 0; sp.gridy = 4; sp.gridwidth = 3;
+        sp.gridx = 0; sp.gridy = gbRow; sp.gridwidth = 2;
         sp.fill = GridBagConstraints.BOTH;
         sp.weighty = 1.0;
         canvas.add(new Panel(), sp);
 
-        add(canvas, BorderLayout.CENTER);
+        // Wrap canvas in a scroll pane so the dialog stays manageable
+        ScrollPane scrollPane = new ScrollPane(ScrollPane.SCROLLBARS_AS_NEEDED);
+        scrollPane.add(canvas);
+        scrollPane.setPreferredSize(new Dimension(620, 480));
+        add(scrollPane, BorderLayout.CENTER);
 
         // ── button row ──────────────────────────────────────────────────────
         okBtn.setEnabled(false);
@@ -114,7 +139,7 @@ public class NewProjectWizard extends Dialog {
         // ── wire events ─────────────────────────────────────────────────────
         browseBtn.addActionListener(e -> browseForDirectory());
         osChoice.addItemListener(e -> onOsChanged());
-        variantChoice.addItemListener(e -> refreshOkButton());
+        variantChoice.addItemListener(e -> onVariantChanged());
         nameField.addTextListener(e -> refreshOkButton());
         dirField.addTextListener(e -> refreshOkButton());
         okBtn.addActionListener(e -> { confirmed = true; dispose(); });
@@ -122,53 +147,85 @@ public class NewProjectWizard extends Dialog {
         addWindowListener(new WindowAdapter() {
             @Override public void windowClosing(WindowEvent e) { dispose(); }
         });
+
+        // Trigger OK-button state for the pre-filled directory
+        refreshOkButton();
     }
 
+    // ── layout helpers ────────────────────────────────────────────────────────
+
     /**
-     * Adds a label + control (+ optional hint) as a single form row.
-     *
-     * @param canvas  the parent panel
-     * @param row     GridBag row index
-     * @param label   row label text
-     * @param control the AWT Component to place in the value column
-     * @param hint    optional small hint text placed below the control (may be null)
+     * Appends a label + control row (plus a small italic hint line) to {@code canvas}
+     * and returns the next available GridBag row index.
      */
-    private static void addFormRow(Panel canvas, int row,
-                                   String label, Component control, String hint) {
+    private static int addLabeledControl(Panel canvas, int startRow,
+                                         String labelText, Component control,
+                                         String hint) {
+        // Label column (col 0)
         GridBagConstraints lc = new GridBagConstraints();
-        lc.gridx = 0; lc.gridy = row * 2;
+        lc.gridx = 0; lc.gridy = startRow;
         lc.anchor = GridBagConstraints.NORTHWEST;
-        lc.insets = new Insets(row == 0 ? 16 : 10, 16, 2, 8);
-        Label lbl = new Label(label, Label.RIGHT);
-        lbl.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        lc.insets = new Insets(startRow == 0 ? 16 : 12, 16, 2, 8);
+        Label lbl = new Label(labelText, Label.RIGHT);
+        lbl.setFont(new Font("SansSerif", Font.BOLD, 12));
         canvas.add(lbl, lc);
 
+        // Control column (col 1)
         GridBagConstraints fc = new GridBagConstraints();
-        fc.gridx = 1; fc.gridy = row * 2;
+        fc.gridx = 1; fc.gridy = startRow;
         fc.fill = GridBagConstraints.HORIZONTAL;
         fc.weightx = 1.0;
         fc.anchor = GridBagConstraints.NORTHWEST;
-        fc.insets = new Insets(row == 0 ? 16 : 10, 0, 2, 16);
+        fc.insets = new Insets(startRow == 0 ? 16 : 12, 0, 2, 16);
         canvas.add(control, fc);
+
+        int nextRow = startRow + 1;
 
         if (hint != null) {
             GridBagConstraints hc = new GridBagConstraints();
-            hc.gridx = 1; hc.gridy = row * 2 + 1;
+            hc.gridx = 1; hc.gridy = nextRow;
             hc.anchor = GridBagConstraints.NORTHWEST;
-            hc.insets = new Insets(0, 0, 4, 16);
+            hc.insets = new Insets(0, 2, 4, 16);
             Label hintLbl = new Label(hint, Label.LEFT);
             hintLbl.setFont(new Font("SansSerif", Font.ITALIC, 10));
             hintLbl.setForeground(Color.DARK_GRAY);
             canvas.add(hintLbl, hc);
+            nextRow++;
         }
+
+        return nextRow;
+    }
+
+    /**
+     * Appends a full-width read-only description {@link TextArea} to {@code canvas}
+     * (spanning both label and control columns) and returns the next GridBag row.
+     * The area is initially empty.
+     */
+    private static int addDescriptionArea(Panel canvas, int startRow, TextArea area) {
+        GridBagConstraints dc = new GridBagConstraints();
+        dc.gridx = 0; dc.gridy = startRow; dc.gridwidth = 2;
+        dc.fill = GridBagConstraints.BOTH;
+        dc.weightx = 1.0;
+        dc.anchor = GridBagConstraints.NORTHWEST;
+        dc.insets = new Insets(2, 16, 8, 16);
+        canvas.add(area, dc);
+        return startRow + 1;
+    }
+
+    /** Creates a styled read-only description {@link TextArea}. */
+    private static TextArea makeDescArea(int rows) {
+        TextArea ta = new TextArea("", rows, 60, TextArea.SCROLLBARS_VERTICAL_ONLY);
+        ta.setEditable(false);
+        ta.setFont(new Font("Monospaced", Font.PLAIN, 11));
+        ta.setBackground(new Color(0xF0, 0xF4, 0xFF));
+        ta.setForeground(new Color(0x1A, 0x1A, 0x2E));
+        return ta;
     }
 
     // ── event handlers ────────────────────────────────────────────────────────
 
     /** Opens a FileDialog to let the user navigate to a directory. */
     private void browseForDirectory() {
-        // AWT has no dedicated directory chooser; we use FileDialog and take
-        // the directory portion of whatever path the user accepts.
         FileDialog fd = new FileDialog(this, "Select Working Directory", FileDialog.LOAD);
         // On macOS this property switches to a folder-picker mode.
         System.setProperty("apple.awt.fileDialogForDirectories", "true");
@@ -177,21 +234,24 @@ public class NewProjectWizard extends Dialog {
 
         String dir = fd.getDirectory();
         if (dir != null && !dir.isEmpty()) {
-            // FileDialog.getDirectory() already returns the parent directory path;
-            // we use it directly whether the user selected a file or a folder.
+            // FileDialog.getDirectory() already returns the parent directory path.
             dirField.setText(dir);
             refreshOkButton();
         }
     }
 
-    /** Called when the OS pop-list changes — reloads variants. */
+    /** Called when the OS pop-list changes — reloads variants and updates OS description. */
     private void onOsChanged() {
-        variantChoice.removeAll();
-        variantChoice.addItem("");          // keep blank as first entry
+        // Reset downstream state — null currentDef first so any spurious item
+        // events fired by removeAll() see a clean state.
         currentDef = null;
+        variantDescArea.setText("");
+        variantChoice.removeAll();
+        variantChoice.addItem("");
 
         String os = selectedText(osChoice);
         if (os.isEmpty()) {
+            osDescArea.setText("");
             refreshOkButton();
             return;
         }
@@ -199,11 +259,16 @@ public class NewProjectWizard extends Dialog {
         try {
             currentDef = JsonLoader.load(os);
         } catch (Exception ex) {
-            showError("Could not load definition for " + os + ":\n" + ex.getMessage());
+            osDescArea.setText("Could not load definition for " + os + ":\n" + ex.getMessage());
             refreshOkButton();
             return;
         }
 
+        // Populate OS description area
+        osDescArea.setText(buildOsDescription(currentDef));
+        osDescArea.setCaretPosition(0);
+
+        // Populate variant choices
         if (currentDef.variants != null) {
             for (OsDefinition.Variant v : currentDef.variants) {
                 variantChoice.addItem(v.name != null ? v.name : v.id);
@@ -212,13 +277,130 @@ public class NewProjectWizard extends Dialog {
         refreshOkButton();
     }
 
-    /** Enables the OK button only when all four fields are filled. */
+    /** Called when the Variant pop-list changes — updates the variant description. */
+    private void onVariantChanged() {
+        String selected = selectedText(variantChoice);
+        if (selected.isEmpty() || currentDef == null || currentDef.variants == null) {
+            variantDescArea.setText("");
+            refreshOkButton();
+            return;
+        }
+
+        int idx = variantChoice.getSelectedIndex();
+        // The variant Choice always has a blank item at index 0, followed by the
+        // real variants from currentDef.variants.  idx > 0 means a real variant
+        // is selected, and variantIdx maps it to the variants list (0-based).
+        if (idx <= 0) {
+            variantDescArea.setText("");
+            refreshOkButton();
+            return;
+        }
+        int variantIdx = idx - 1;
+
+        if (variantIdx < 0 || variantIdx >= currentDef.variants.size()) {
+            variantDescArea.setText("");
+            refreshOkButton();
+            return;
+        }
+
+        OsDefinition.Variant v = currentDef.variants.get(variantIdx);
+        variantDescArea.setText(buildVariantDescription(v));
+        variantDescArea.setCaretPosition(0);
+        refreshOkButton();
+    }
+
+    /** Enables OK only when all four fields are non-blank. */
     private void refreshOkButton() {
         boolean ready = !nameField.getText().trim().isEmpty()
                      && !dirField.getText().trim().isEmpty()
                      && !selectedText(osChoice).isEmpty()
                      && !selectedText(variantChoice).isEmpty();
         okBtn.setEnabled(ready);
+    }
+
+    // ── description builders ──────────────────────────────────────────────────
+
+    private static String buildOsDescription(OsDefinition def) {
+        StringBuilder sb = new StringBuilder();
+        if (def.format_full_name != null) {
+            sb.append("Format : ").append(def.format_full_name).append('\n');
+        }
+        if (def.format != null) {
+            sb.append("Short  : ").append(def.format).append('\n');
+        }
+        if (def.description != null && !def.description.isBlank()) {
+            sb.append('\n').append(wrap(def.description, 80)).append('\n');
+        }
+        return sb.toString();
+    }
+
+    private static String buildVariantDescription(OsDefinition.Variant v) {
+        StringBuilder sb = new StringBuilder();
+
+        // ── summary line ────────────────────────────────────────────────────
+        if (v.architecture != null) sb.append("Architecture : ").append(v.architecture).append('\n');
+        if (v.bits > 0)             sb.append("Bits         : ").append(v.bits).append('\n');
+        if (v.linking != null)      sb.append("Linking      : ").append(v.linking).append('\n');
+
+        // ── description ─────────────────────────────────────────────────────
+        if (v.description != null && !v.description.isBlank()) {
+            sb.append('\n');
+            sb.append(wrap(v.description, 80)).append('\n');
+        }
+
+        // ── toolchain commands ───────────────────────────────────────────────
+        if (v.toolchain != null) {
+            sb.append('\n');
+            sb.append("─── Toolchain ").append("─".repeat(66)).append('\n');
+            if (v.toolchain.assemble != null)
+                sb.append("Assemble        : ").append(v.toolchain.assemble).append('\n');
+            if (v.toolchain.link != null)
+                sb.append("Link            : ").append(v.toolchain.link).append('\n');
+            if (v.toolchain.assemble_and_link != null)
+                sb.append("Assemble + Link : ").append(v.toolchain.assemble_and_link).append('\n');
+        }
+
+        // ── required components summary ──────────────────────────────────────
+        if (v.required_components != null && !v.required_components.isEmpty()) {
+            sb.append('\n');
+            sb.append("─── Required Components (").append(v.required_components.size())
+              .append(") ").append("─".repeat(50)).append('\n');
+            for (OsDefinition.Component c : v.required_components) {
+                String marker = c.required ? "  [required]" : "  [optional]";
+                sb.append("  • ").append(c.name != null ? c.name : "?").append(marker);
+                if (c.size_bytes != null) sb.append("  size=").append(c.size_bytes);
+                sb.append('\n');
+                if (c.description != null && !c.description.isBlank()) {
+                    sb.append("    ").append(wrap(c.description, 76).replace("\n", "\n    "))
+                      .append('\n');
+                }
+            }
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * Wraps {@code text} at approximately {@code maxWidth} characters, breaking
+     * only on space boundaries.
+     */
+    private static String wrap(String text, int maxWidth) {
+        if (text == null) return "";
+        String[] words = text.split("\\s+");
+        StringBuilder out = new StringBuilder();
+        int col = 0;
+        for (String word : words) {
+            if (col > 0 && col + 1 + word.length() > maxWidth) {
+                out.append('\n');
+                col = 0;
+            } else if (col > 0) {
+                out.append(' ');
+                col++;
+            }
+            out.append(word);
+            col += word.length();
+        }
+        return out.toString();
     }
 
     // ── utilities ─────────────────────────────────────────────────────────────
