@@ -789,7 +789,7 @@ public class SasmTranslator {
             case "cx zero"         -> "JCXZ";
             case "carry"           -> "JC";
             case "no carry"        -> "JNC";
-            default                -> "J??" ;  // unknown condition
+            default                -> "; unknown condition: " + cond;
         };
     }
 
