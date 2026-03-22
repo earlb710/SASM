@@ -868,10 +868,10 @@ public class SasmTranslator {
      *
      * <p>Each occurrence of {@code @alias.symbol} is replaced with
      * {@code alias_symbol} — a flat, NASM-compatible label that
-     * namespaces the symbol under the alias.  If the alias was declared
-     * via a preceding {@code #REF} directive, the resolution is
-     * validated; otherwise the replacement is still performed so the
-     * intent is visible in the generated assembly.</p>
+     * namespaces the symbol under the alias.  The replacement is
+     * performed for every {@code @word.word} pattern regardless of
+     * whether the alias was declared via a {@code #REF} directive,
+     * so the intent is always visible in the generated assembly.</p>
      */
     private String resolveAliasRefs(String line) {
         Matcher m = ALIAS_REF.matcher(line);
