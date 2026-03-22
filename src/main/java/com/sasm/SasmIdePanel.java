@@ -15,19 +15,21 @@ import java.util.Arrays;
  *
  * <p>Layout:
  * <pre>
- * ┌────────────────────────────────────────────────────────────┐
- * │  [file tree (List)]   │  [text editor (TextArea)          ]│
- * │  ▸ core/              │                                    │
- * │    hello.sasm         │  ; Assembly source …               │
- * │  ▸ linux-64/          │                                    │
- * └────────────────────────────────────────────────────────────┘
+ * ┌──────────────────────────────────────────────────────────────────────┐
+ * │  [file tree]   │  [SASM editor (2/3)]    │  [ASM output (1/3)]      │
+ * │  ▸ core/       │  move 42 to ax          │  MOV AX, 42             │
+ * │    hello.sasm  │  add bx to ax           │  ADD AX, BX             │
+ * │  ▸ linux-64/   │  push ax                │  PUSH AX                │
+ * └──────────────────────────────────────────────────────────────────────┘
  * </pre>
  *
  * <p>The file tree shows the {@code core/} directory first, followed by
  * variant subdirectories in alphabetical order.  Clicking a file in the
- * list loads it into the editor.  Unsaved changes are written back
- * automatically whenever the user switches to a different file, opens a
- * new project, or the IDE exits.</p>
+ * list loads it into the SASM editor.  The right-hand assembler output
+ * pane shows the NASM translation of the SASM source, updated in real
+ * time as the user types.  Unsaved changes are written back automatically
+ * whenever the user switches to a different file, opens a new project, or
+ * the IDE exits.</p>
  */
 public class SasmIdePanel extends Panel {
 
@@ -35,10 +37,18 @@ public class SasmIdePanel extends Panel {
     private final Label    treeHeader = new Label("Project Files", Label.CENTER);
     private final List     fileList   = new List(20, false);
 
-    // ── editor (right pane) ───────────────────────────────────────────────────
+    // ── editor (centre pane — SASM source, 2/3 width) ──────────────────────
     private final Label    editorHeader = new Label("", Label.LEFT);
     private final TextArea editor       = new TextArea("", 30, 80,
                                                        TextArea.SCROLLBARS_BOTH);
+
+    // ── assembler output (right pane — NASM, 1/3 width) ─────────────────────
+    private final Label    asmHeader = new Label("  Assembler Output", Label.LEFT);
+    private final TextArea asmOutput = new TextArea("", 30, 40,
+                                                    TextArea.SCROLLBARS_BOTH);
+
+    // ── SASM → NASM translator ───────────────────────────────────────────────
+    private final SasmTranslator translator = new SasmTranslator();
 
     // ── state ─────────────────────────────────────────────────────────────────
     private ProjectFile project;
@@ -81,6 +91,7 @@ public class SasmIdePanel extends Panel {
         currentFile = null;
         dirty       = false;
         editor.setText("");
+        asmOutput.setText("");
         editorHeader.setText("  (no file open)");
         treeHeader.setText(pf != null && pf.name != null ? pf.name : "Project Files");
         refreshFileList();
@@ -193,6 +204,7 @@ public class SasmIdePanel extends Panel {
         currentFile = null;
         dirty       = false;
         editor.setText("");
+        asmOutput.setText("");
         editorHeader.setText("  (no file open)");
         refreshFileList();
         if (onFileStateChanged != null) onFileStateChanged.run();
@@ -338,7 +350,7 @@ public class SasmIdePanel extends Panel {
         setLayout(new BorderLayout());
         setBackground(new Color(0xF8, 0xF9, 0xFA));
 
-        // ── left pane ─────────────────────────────────────────────────────────
+        // ── left pane (file tree) ─────────────────────────────────────────────
         Panel leftPane = new Panel(new BorderLayout(0, 0));
         leftPane.setBackground(new Color(0xE8, 0xEC, 0xF4));
 
@@ -353,23 +365,53 @@ public class SasmIdePanel extends Panel {
         leftPane.add(fileList, BorderLayout.CENTER);
         leftPane.setPreferredSize(new Dimension(210, 0));
 
-        // ── right pane ────────────────────────────────────────────────────────
-        Panel rightPane = new Panel(new BorderLayout(0, 0));
+        // ── centre pane (SASM editor — 2/3 of remaining width) ───────────────
+        Panel editorPane = new Panel(new BorderLayout(0, 0));
 
         editorHeader.setFont(new Font("SansSerif", Font.BOLD, 12));
         editorHeader.setBackground(new Color(0x2B, 0x57, 0x97));
         editorHeader.setForeground(Color.WHITE);
         editorHeader.setPreferredSize(new Dimension(0, 28));
-        rightPane.add(editorHeader, BorderLayout.NORTH);
+        editorPane.add(editorHeader, BorderLayout.NORTH);
 
         editor.setFont(new Font("Monospaced", Font.PLAIN, 13));
         editor.setBackground(new Color(0x1E, 0x1E, 0x1E));
         editor.setForeground(new Color(0xD4, 0xD4, 0xD4));
-        rightPane.add(editor, BorderLayout.CENTER);
+        editorPane.add(editor, BorderLayout.CENTER);
 
-        // ── assemble ──────────────────────────────────────────────────────────
+        // ── right pane (assembler output — 1/3 of remaining width) ───────────
+        Panel asmPane = new Panel(new BorderLayout(0, 0));
+
+        asmHeader.setFont(new Font("SansSerif", Font.BOLD, 12));
+        asmHeader.setBackground(new Color(0x2B, 0x57, 0x97));
+        asmHeader.setForeground(Color.WHITE);
+        asmHeader.setPreferredSize(new Dimension(0, 28));
+        asmPane.add(asmHeader, BorderLayout.NORTH);
+
+        asmOutput.setFont(new Font("Monospaced", Font.PLAIN, 13));
+        asmOutput.setBackground(new Color(0x0A, 0x14, 0x28));
+        asmOutput.setForeground(new Color(0x7F, 0xDB, 0xCA));
+        asmOutput.setEditable(false);
+        asmPane.add(asmOutput, BorderLayout.CENTER);
+
+        // ── split the editor area 2/3 : 1/3 ─────────────────────────────────
+        Panel codeArea = new Panel(new GridBagLayout());
+        GridBagConstraints gc = new GridBagConstraints();
+        gc.fill    = GridBagConstraints.BOTH;
+        gc.gridy   = 0;
+        gc.weighty = 1.0;
+
+        gc.gridx   = 0;
+        gc.weightx = 2.0;  // 2/3
+        codeArea.add(editorPane, gc);
+
+        gc.gridx   = 1;
+        gc.weightx = 1.0;  // 1/3
+        codeArea.add(asmPane, gc);
+
+        // ── assemble panels ──────────────────────────────────────────────────
         add(leftPane,  BorderLayout.WEST);
-        add(rightPane, BorderLayout.CENTER);
+        add(codeArea,  BorderLayout.CENTER);
 
         // ── wire events ───────────────────────────────────────────────────────
         fileList.addItemListener(e -> {
@@ -386,7 +428,22 @@ public class SasmIdePanel extends Panel {
             }
         });
 
-        editor.addTextListener(e -> dirty = true);
+        editor.addTextListener(e -> {
+            dirty = true;
+            updateAsmOutput();
+        });
+    }
+
+    /** Translates the current editor content and updates the assembler pane. */
+    private void updateAsmOutput() {
+        String source = editor.getText();
+        try {
+            String asm = translator.translate(source);
+            asmOutput.setText(asm);
+            asmOutput.setCaretPosition(0);
+        } catch (Exception ex) {
+            asmOutput.setText("; Translation error: " + ex.getMessage());
+        }
     }
 
     // ── file I/O ──────────────────────────────────────────────────────────────
@@ -400,10 +457,12 @@ public class SasmIdePanel extends Panel {
             currentFile = f;
             editorHeader.setText("  " + f.getParentFile().getName() + "/" + f.getName());
             dirty = false;
+            updateAsmOutput();
         } catch (IOException ex) {
             editor.setText("; Could not open '" + f.getName() + "':\n; " + ex.getMessage());
             currentFile = null;
             dirty = false;
+            asmOutput.setText("");
         }
         if (onFileStateChanged != null) onFileStateChanged.run();
     }
