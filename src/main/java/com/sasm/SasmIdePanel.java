@@ -287,6 +287,11 @@ public class SasmIdePanel extends Panel {
      * Creates a new {@code .sasm} file in the given target directory,
      * seeds it with a starter template, and opens it in the editor.
      *
+     * <p>When the target directory is a <em>variant</em> directory (i.e. not
+     * {@code core/}), a placeholder stub file with the same name is also
+     * created in every other variant directory that does not already contain
+     * it.  This ensures that {@code #REF} imports resolve for all variants.</p>
+     *
      * @param baseName  file name without extension
      * @param targetDir the directory in which to create the file
      * @throws IOException           if the file cannot be written
@@ -314,8 +319,44 @@ public class SasmIdePanel extends Panel {
                     + "    ; TODO\n";
             Files.writeString(newFile.toPath(), starter, StandardCharsets.UTF_8);
         }
+
+        // ── placeholder stubs for sibling variants ───────────────────────
+        // When adding to a variant dir (not core), create a placeholder in
+        // every other variant dir so that #REF imports resolve everywhere.
+        File workDir = new File(project.workingDirectory);
+        boolean isVariantDir = targetDir.getParentFile().equals(workDir)
+                && !targetDir.getName().equals("core");
+        if (isVariantDir) {
+            createPlaceholderInSiblingVariants(fileName, targetDir, workDir);
+        }
+
         refreshFileList();
         openFile(newFile);
+    }
+
+    /**
+     * Creates a minimal placeholder {@code .sasm} stub in every variant
+     * subdirectory that is a sibling of {@code originDir} and does not
+     * already contain a file with the given name.
+     */
+    private void createPlaceholderInSiblingVariants(
+            String fileName, File originDir, File workDir) throws IOException {
+
+        File[] siblings = workDir.listFiles(
+                f -> f.isDirectory()
+                        && !f.getName().equals("core")
+                        && !f.getName().startsWith(".")
+                        && !f.equals(originDir));
+        if (siblings == null) return;
+
+        String stub = "; " + fileName + "  (placeholder)\n"
+                + "; Auto-generated stub — implement the variant-specific version here.\n";
+        for (File sibling : siblings) {
+            File target = new File(sibling, fileName);
+            if (!target.exists()) {
+                Files.writeString(target.toPath(), stub, StandardCharsets.UTF_8);
+            }
+        }
     }
 
     /**
