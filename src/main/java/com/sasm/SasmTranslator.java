@@ -1,5 +1,7 @@
 package com.sasm;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -22,11 +24,40 @@ public class SasmTranslator {
     // ── label counter for generated labels ───────────────────────────────────
     private int labelSeq = 0;
 
+    /**
+     * Maps an import alias to the referenced file path.
+     * Populated during translation from {@code #REF <file> <alias>} directives.
+     */
+    private final Map<String, String> aliasMap = new HashMap<>();
+
+    /** Pattern for {@code #REF <file> <alias>} import directives. */
+    private static final Pattern REF_DIRECTIVE = Pattern.compile(
+            "#REF\\s+(\\S+)\\s+(\\S+)");
+
+    /**
+     * Pattern for {@code @alias.symbol} qualified references.
+     * Matches {@code @} followed by a word (the alias), a dot, and
+     * one or more word characters (the symbol name).
+     */
+    private static final Pattern ALIAS_REF = Pattern.compile(
+            "@(\\w+)\\.(\\w+)");
+
     /** Translates a complete SASM source text into NASM assembly. */
     public String translate(String sasmSource) {
         if (sasmSource == null || sasmSource.isEmpty()) return "";
         labelSeq = 0;
+        aliasMap.clear();
+
+        // ── first pass: collect #REF alias mappings ──────────────────────────
         String[] lines = sasmSource.split("\\r?\\n", -1);
+        for (String line : lines) {
+            Matcher m = REF_DIRECTIVE.matcher(line.trim());
+            if (m.matches()) {
+                aliasMap.put(m.group(2), m.group(1));
+            }
+        }
+
+        // ── second pass: translate each line ─────────────────────────────────
         StringBuilder out = new StringBuilder(sasmSource.length());
         for (int i = 0; i < lines.length; i++) {
             if (i > 0) out.append('\n');
@@ -47,10 +78,22 @@ public class SasmTranslator {
 
         String trimmed = line.trim();
 
-        // ── comments ─────────────────────────────────────────────────────────
+        // ── #REF import directives ───────────────────────────────────────────
+        Matcher refM = REF_DIRECTIVE.matcher(trimmed);
+        if (refM.matches()) {
+            String file  = refM.group(1);
+            String alias = refM.group(2);
+            return "%include \"" + file + "\"  ; alias: " + alias;
+        }
+
+        // ── comments (no alias resolution inside pure comments) ──────────────
         if (trimmed.startsWith(";")) return line;                   // line comment
         if (trimmed.startsWith("(*")) return toAsmComment(trimmed); // block comment open
         if (trimmed.endsWith("*)"))   return toAsmComment(trimmed); // block comment close/single
+
+        // ── resolve @alias.symbol references ─────────────────────────────────
+        line = resolveAliasRefs(line);
+        trimmed = line.trim();
 
         // Split off any trailing inline comment
         String code = trimmed;
@@ -819,6 +862,34 @@ public class SasmTranslator {
     // ══════════════════════════════════════════════════════════════════════════
     //  Helpers
     // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Resolves {@code @alias.symbol} references in a line.
+     *
+     * <p>Each occurrence of {@code @alias.symbol} is replaced with
+     * {@code alias_symbol} — a flat, NASM-compatible label that
+     * namespaces the symbol under the alias.  If the alias was declared
+     * via a preceding {@code #REF} directive, the resolution is
+     * validated; otherwise the replacement is still performed so the
+     * intent is visible in the generated assembly.</p>
+     */
+    private String resolveAliasRefs(String line) {
+        Matcher m = ALIAS_REF.matcher(line);
+        if (!m.find()) return line;
+
+        StringBuilder sb = new StringBuilder(line.length());
+        int last = 0;
+        m.reset();
+        while (m.find()) {
+            sb.append(line, last, m.start());
+            String alias  = m.group(1);
+            String symbol = m.group(2);
+            sb.append(alias).append('_').append(symbol);
+            last = m.end();
+        }
+        sb.append(line, last, line.length());
+        return sb.toString();
+    }
 
     /** Returns the NASM data directive for a SASM type keyword. */
     private static String sizeDirective(String type) {

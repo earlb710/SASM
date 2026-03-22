@@ -21,7 +21,8 @@
 13. [Flag Control](#flag-control)
 14. [Processor Control](#processor-control)
 15. [x86-64 Considerations](#x86-64-64-bit-considerations)
-16. [Full Examples](#full-examples)
+16. [File Imports](#file-imports)
+17. [Full Examples](#full-examples)
 
 > **See also:** [`doc/instruction_8086.md`](doc/instruction_8086.md) — comprehensive Intel 8086 instruction set reference with status, operands, and compatibility notes.  
 > **See also:** [`doc/instruction_x86_64.md`](doc/instruction_x86_64.md) — x86-64 (64-bit) instruction set reference: new registers, new instructions, and removed instructions.
@@ -1480,6 +1481,104 @@ record_tick:
 
 ---
 
+## File Imports
+
+SASM provides a file-import mechanism that lets you reference symbols from external assembly files using a short alias.
+
+### Syntax
+
+```sasm
+#REF <file> <alias>
+```
+
+* `<file>` — the path to the assembly file to include (e.g. `math_utils.asm`, `../lib/io.asm`).
+* `<alias>` — a short name used to qualify symbols from that file.
+
+The `#REF` directive must appear at the top of the file, before any code or data.
+
+### Referencing Imported Symbols
+
+Once a file has been imported with an alias, its symbols are accessed using the `@alias.symbol` notation:
+
+```sasm
+@alias.symbol_name
+```
+
+This can appear anywhere a label or operand is expected — in instructions, data declarations, `call`, `goto`, etc.
+
+### Translation
+
+The SASM-to-NASM translator converts:
+
+| SASM | NASM equivalent |
+|------|-----------------|
+| `#REF math_utils.asm math` | `%include "math_utils.asm"` |
+| `@math.add_numbers` | `math_add_numbers` |
+| `@math.pi_value` | `math_pi_value` |
+
+The `@alias.symbol` form is translated to a flat `alias_symbol` label name, which the included file is expected to define.
+
+### Example
+
+**Main file (`main.sasm`):**
+
+```sasm
+#REF math_utils.asm math
+#REF io_lib.asm io
+
+section .text
+global _start
+
+_start:
+    move @math.initial_value to ax
+    call @math.compute
+    move ax to @io.output_buffer
+    call @io.print_result
+
+    move 60 to rax
+    move 0 to rdi
+    syscall
+```
+
+**Included file (`math_utils.asm`) — must define the prefixed labels:**
+
+```asm
+math_initial_value: DW 42
+math_compute:
+    ADD AX, AX
+    RET
+```
+
+*Equivalent NASM output for `main.sasm`:*
+
+```asm
+%include "math_utils.asm"  ; alias: math
+%include "io_lib.asm"  ; alias: io
+
+section .text
+global _start
+
+_start:
+    MOV ax, math_initial_value
+    CALL math_compute
+    MOV io_output_buffer, ax
+    CALL io_print_result
+
+    MOV rax, 60
+    MOV rdi, 0
+    SYSCALL
+```
+
+### Rules
+
+* `#REF` directives should appear at the top of the source file, before `section` directives.
+* Each alias must be unique within a file.
+* The imported file's symbols should use the `alias_` prefix naming convention so that `@alias.symbol` resolves correctly.
+* `@alias.symbol` references inside pure comments (`;` lines and `(* *)` blocks) are **not** resolved — they are preserved verbatim.
+* The `@` character is only special when followed by a known `alias.symbol` pattern; standalone `@` has no special meaning.
+
+---
+
 ## Full Examples
 
 Complete example source files live in the [`example/`](example/) directory. The table below summarises each file; click the filename to read the annotated source.
@@ -1501,6 +1600,7 @@ Complete example source files live in the [`example/`](example/) directory. The 
 | [`example/13_array_params.sasm`](example/13_array_params.sasm) | Arrays as parameters — passing and returning array pointers via register and stack conventions |
 | [`example/14_global_static_vars.sasm`](example/14_global_static_vars.sasm) | Global static variables — module-level `var <name> as <type>` and `var <name> as <type> = <val>` |
 | [`example/15_x86_64.sasm`](example/15_x86_64.sasm) | x86-64 (64-bit) — `qword` data types, 64-bit registers, System V and Windows x64 calling conventions, Linux `syscall` |
+| [`example/16_file_imports.sasm`](example/16_file_imports.sasm) | File imports — `#REF <file> <alias>` directives and `@alias.symbol` qualified references |
 
 ### Quick-reference snippets
 
