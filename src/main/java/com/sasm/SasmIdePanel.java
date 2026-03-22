@@ -218,6 +218,22 @@ public class SasmIdePanel extends Panel {
     public boolean hasOpenFile() { return currentFile != null; }
 
     /**
+     * If the currently open file no longer exists on disk, clears the
+     * editor and resets file state.  Called after bulk deletions such as
+     * removing an entire variant directory.
+     */
+    public void clearIfCurrentFileDeleted() {
+        if (currentFile != null && !currentFile.exists()) {
+            currentFile = null;
+            dirty       = false;
+            editor.setText("");
+            asmOutput.setText("");
+            editorHeader.setText("  (no file open)");
+            if (onFileStateChanged != null) onFileStateChanged.run();
+        }
+    }
+
+    /**
      * Registers a callback that is invoked whenever the open-file state
      * changes.  Pass {@code null} to remove an existing callback.
      */
@@ -282,6 +298,9 @@ public class SasmIdePanel extends Panel {
         if (sel == null) return null;
         return sel.isDirectory() ? sel : sel.getParentFile();
     }
+
+    /** Returns the file-list component (for attaching context menus). */
+    java.awt.List getFileListComponent() { return fileList; }
 
     /**
      * Creates a new {@code .sasm} file in the given target directory,

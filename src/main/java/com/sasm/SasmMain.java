@@ -176,6 +176,60 @@ public class SasmMain {
             propertiesItem.setEnabled(dirSel);
         });
 
+        // ── right-click context menus on file list ──────────────────────────
+        PopupMenu filePopup = new PopupMenu();
+        MenuItem ctxAddFileFromFile = new MenuItem("Add New File");
+        MenuItem ctxRenameFile      = new MenuItem("Rename");
+        MenuItem ctxDeleteFile      = new MenuItem("Delete");
+        filePopup.add(ctxAddFileFromFile);
+        filePopup.addSeparator();
+        filePopup.add(ctxRenameFile);
+        filePopup.add(ctxDeleteFile);
+
+        PopupMenu dirPopup = new PopupMenu();
+        MenuItem ctxBuild          = new MenuItem("Build");
+        MenuItem ctxAddFileFromDir = new MenuItem("Add New File");
+        MenuItem ctxRenameVariant  = new MenuItem("Rename");
+        MenuItem ctxDeleteVariant  = new MenuItem("Delete");
+        dirPopup.add(ctxBuild);
+        dirPopup.add(ctxAddFileFromDir);
+        dirPopup.addSeparator();
+        dirPopup.add(ctxRenameVariant);
+        dirPopup.add(ctxDeleteVariant);
+
+        java.awt.List fileListComp = idePanel.getFileListComponent();
+        fileListComp.add(filePopup);
+        fileListComp.add(dirPopup);
+
+        fileListComp.addMouseListener(new MouseAdapter() {
+            @Override public void mousePressed(MouseEvent e)  { maybeShowPopup(e); }
+            @Override public void mouseReleased(MouseEvent e) { maybeShowPopup(e); }
+
+            private void maybeShowPopup(MouseEvent e) {
+                if (!e.isPopupTrigger()) return;
+                File sel = idePanel.getSelectedEntry();
+                if (sel == null) return;
+
+                if (sel.isFile()) {
+                    filePopup.show(fileListComp, e.getX(), e.getY());
+                } else if (sel.isDirectory()) {
+                    boolean isVariant = !"core".equals(sel.getName());
+                    ctxBuild.setEnabled(isVariant);
+                    ctxRenameVariant.setEnabled(isVariant);
+                    ctxDeleteVariant.setEnabled(isVariant);
+                    dirPopup.show(fileListComp, e.getX(), e.getY());
+                }
+            }
+        });
+
+        ctxAddFileFromFile.addActionListener(e -> promptAddNewFile());
+        ctxRenameFile.addActionListener(e -> promptRenameFile());
+        ctxDeleteFile.addActionListener(e -> promptDeleteFile());
+        ctxBuild.addActionListener(e -> promptBuildVariant());
+        ctxAddFileFromDir.addActionListener(e -> promptAddNewFile());
+        ctxRenameVariant.addActionListener(e -> promptRenameVariant());
+        ctxDeleteVariant.addActionListener(e -> promptDeleteVariant());
+
         cardPanel.add(welcome,  CARD_WELCOME);
         cardPanel.add(idePanel, CARD_IDE);
         frame.add(cardPanel, BorderLayout.CENTER);
@@ -691,6 +745,187 @@ public class SasmMain {
         statusBar.setText(" Variant updated: " + updated.variantName);
         idePanel.refreshFileList();
         updateWelcomeSub();
+    }
+
+    // ── variant context-menu actions ─────────────────────────────────────────
+
+    /** Placeholder for building a variant (assembling its SASM files). */
+    private static void promptBuildVariant() {
+        String dirName = idePanel.getSelectedDirectoryName();
+        if (dirName == null || "core".equals(dirName)) return;
+        statusBar.setText(" Build: " + dirName + " — (not yet implemented)");
+    }
+
+    /** Prompts for a new name and renames the selected variant directory. */
+    private static void promptRenameVariant() {
+        if (currentProject == null) return;
+        String dirName = idePanel.getSelectedDirectoryName();
+        if (dirName == null || "core".equals(dirName)) return;
+
+        // Find the matching VariantEntry
+        List<ProjectFile.VariantEntry> variants = currentProject.getVariants();
+        int targetIdx = -1;
+        for (int i = 0; i < variants.size(); i++) {
+            if (dirName.equals(variants.get(i).variantName)) {
+                targetIdx = i;
+                break;
+            }
+        }
+        if (targetIdx < 0) {
+            statusBar.setText(" No variant entry found for: " + dirName);
+            return;
+        }
+
+        Dialog dlg = new Dialog(mainFrame, "Rename Variant", true);
+        dlg.setLayout(new BorderLayout(8, 8));
+
+        Panel inputRow = new Panel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+        inputRow.add(new Label("New variant name:"));
+        TextField nameFld = new TextField(dirName, 30);
+        inputRow.add(nameFld);
+        dlg.add(inputRow, BorderLayout.CENTER);
+
+        Label errLbl = new Label("", Label.CENTER);
+        errLbl.setForeground(Color.RED);
+        errLbl.setFont(new Font("SansSerif", Font.ITALIC, 11));
+        dlg.add(errLbl, BorderLayout.NORTH);
+
+        Button okBtn     = new Button("OK");
+        Button cancelBtn = new Button("Cancel");
+        Panel bp = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        bp.add(okBtn);
+        bp.add(cancelBtn);
+        dlg.add(bp, BorderLayout.SOUTH);
+
+        final int idx = targetIdx;
+        Runnable doRename = () -> {
+            String newName = nameFld.getText().trim();
+            if (newName.isEmpty()) {
+                errLbl.setText("Name must not be empty.");
+                return;
+            }
+            if (!newName.matches("[A-Za-z0-9_\\-]+")) {
+                errLbl.setText("Only letters, digits, _ and - are allowed.");
+                return;
+            }
+            if (newName.equals(dirName)) {
+                dlg.dispose();
+                return;
+            }
+
+            File oldDir = new File(currentProject.workingDirectory, dirName);
+            File newDir = new File(currentProject.workingDirectory, newName);
+            if (newDir.exists()) {
+                errLbl.setText("A directory named '" + newName + "' already exists.");
+                return;
+            }
+            if (oldDir.isDirectory() && !oldDir.renameTo(newDir)) {
+                errLbl.setText("Could not rename directory on disk.");
+                return;
+            }
+
+            variants.get(idx).variantName = newName;
+
+            if (currentProjectFile != null) {
+                try {
+                    JsonLoader.saveProjectFile(currentProject, currentProjectFile);
+                } catch (Exception ex) {
+                    errLbl.setText("Could not save project: " + ex.getMessage());
+                    return;
+                }
+            }
+
+            idePanel.refreshFileList();
+            updateWelcomeSub();
+            statusBar.setText(" Variant renamed: " + dirName + " → " + newName);
+            dlg.dispose();
+        };
+
+        okBtn.addActionListener(e -> doRename.run());
+        nameFld.addActionListener(e -> doRename.run());
+        cancelBtn.addActionListener(e -> dlg.dispose());
+        dlg.addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) { dlg.dispose(); }
+        });
+
+        dlg.pack();
+        dlg.setMinimumSize(new Dimension(400, dlg.getHeight()));
+        dlg.setLocationRelativeTo(mainFrame);
+        dlg.setVisible(true);
+    }
+
+    /** Confirms and deletes the selected variant directory and its project entry. */
+    private static void promptDeleteVariant() {
+        if (currentProject == null) return;
+        String dirName = idePanel.getSelectedDirectoryName();
+        if (dirName == null || "core".equals(dirName)) return;
+
+        Dialog dlg = new Dialog(mainFrame, "Delete Variant", true);
+        dlg.setLayout(new BorderLayout(8, 8));
+
+        Label msg = new Label(
+                "Permanently delete variant '" + dirName + "' and all its files?",
+                Label.CENTER);
+        msg.setFont(new Font("SansSerif", Font.PLAIN, 13));
+        Panel msgPanel = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 12));
+        msgPanel.add(msg);
+        dlg.add(msgPanel, BorderLayout.CENTER);
+
+        Button deleteBtn = new Button("Delete");
+        deleteBtn.setForeground(Color.RED);
+        Button cancelBtn = new Button("Cancel");
+        Panel bp = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        bp.add(deleteBtn);
+        bp.add(cancelBtn);
+        dlg.add(bp, BorderLayout.SOUTH);
+
+        deleteBtn.addActionListener(e -> {
+            try {
+                File varDir = new File(currentProject.workingDirectory, dirName);
+                if (varDir.isDirectory()) {
+                    deleteDirectoryRecursive(varDir);
+                }
+
+                List<ProjectFile.VariantEntry> variants = currentProject.getVariants();
+                variants.removeIf(v -> dirName.equals(v.variantName));
+
+                if (currentProjectFile != null) {
+                    JsonLoader.saveProjectFile(currentProject, currentProjectFile);
+                }
+
+                idePanel.clearIfCurrentFileDeleted();
+                idePanel.refreshFileList();
+                updateWelcomeSub();
+                statusBar.setText(" Variant deleted: " + dirName);
+            } catch (Exception ex) {
+                statusBar.setText(" Could not delete variant: " + ex.getMessage());
+            }
+            dlg.dispose();
+        });
+        cancelBtn.addActionListener(e -> dlg.dispose());
+        dlg.addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) { dlg.dispose(); }
+        });
+
+        dlg.pack();
+        dlg.setMinimumSize(new Dimension(480, dlg.getHeight()));
+        dlg.setLocationRelativeTo(mainFrame);
+        dlg.setVisible(true);
+    }
+
+    /** Recursively deletes a directory and all its contents. */
+    private static void deleteDirectoryRecursive(File dir) throws java.io.IOException {
+        File[] entries = dir.listFiles();
+        if (entries != null) {
+            for (File f : entries) {
+                if (f.isDirectory()) {
+                    deleteDirectoryRecursive(f);
+                } else {
+                    Files.delete(f.toPath());
+                }
+            }
+        }
+        Files.delete(dir.toPath());
     }
 
     // ── project helpers ──────────────────────────────────────────────────────
