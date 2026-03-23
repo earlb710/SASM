@@ -8,6 +8,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
+import javax.swing.*;
+import javax.swing.event.*;
+import javax.swing.text.BadLocationException;
 
 /**
  * Main IDE workspace panel — displayed in the centre of the application frame
@@ -38,14 +41,19 @@ public class SasmIdePanel extends Panel {
     private final List     fileList   = new List(20, false);
 
     // ── editor (centre pane — SASM source, 2/3 width) ──────────────────────
-    private final Label    editorHeader = new Label("", Label.LEFT);
-    private final TextArea editor       = new TextArea("", 30, 80,
-                                                       TextArea.SCROLLBARS_BOTH);
+    private final Label     editorHeader = new Label("", Label.LEFT);
+    private final JTextArea editor       = new JTextArea(30, 80);
+    private JScrollPane     editorScroll;
+    private LineNumberComponent editorLineNumbers;
 
     // ── assembler output (right pane — NASM, 1/3 width) ─────────────────────
-    private final Label    asmHeader = new Label("  Assembler Output", Label.LEFT);
-    private final TextArea asmOutput = new TextArea("", 30, 40,
-                                                    TextArea.SCROLLBARS_BOTH);
+    private final Label     asmHeader = new Label("  Assembler Output", Label.LEFT);
+    private final JTextArea asmOutput = new JTextArea(30, 40);
+    private JScrollPane     asmScroll;
+    private LineNumberComponent asmLineNumbers;
+
+    /** Guards against recursive scroll synchronisation. */
+    private boolean syncingScroll = false;
 
     // ── SASM → NASM translator ───────────────────────────────────────────────
     private final SasmTranslator translator = new SasmTranslator();
@@ -437,7 +445,14 @@ public class SasmIdePanel extends Panel {
         editor.setFont(new Font("Monospaced", Font.PLAIN, 13));
         editor.setBackground(new Color(0x1E, 0x1E, 0x1E));
         editor.setForeground(new Color(0xD4, 0xD4, 0xD4));
-        editorPane.add(editor, BorderLayout.CENTER);
+        editor.setCaretColor(new Color(0xD4, 0xD4, 0xD4));
+        editor.setTabSize(4);
+
+        editorLineNumbers = new LineNumberComponent(editor);
+        editorScroll = new JScrollPane(editor);
+        editorScroll.setRowHeaderView(editorLineNumbers);
+        editorScroll.getVerticalScrollBar().setUnitIncrement(16);
+        editorPane.add(editorScroll, BorderLayout.CENTER);
 
         // ── right pane (assembler output — 1/3 of remaining width) ───────────
         Panel asmPane = new Panel(new BorderLayout(0, 0));
@@ -451,8 +466,15 @@ public class SasmIdePanel extends Panel {
         asmOutput.setFont(new Font("Monospaced", Font.PLAIN, 13));
         asmOutput.setBackground(new Color(0x0A, 0x14, 0x28));
         asmOutput.setForeground(new Color(0x7F, 0xDB, 0xCA));
+        asmOutput.setCaretColor(new Color(0x7F, 0xDB, 0xCA));
         asmOutput.setEditable(false);
-        asmPane.add(asmOutput, BorderLayout.CENTER);
+        asmOutput.setTabSize(4);
+
+        asmLineNumbers = new LineNumberComponent(asmOutput);
+        asmScroll = new JScrollPane(asmOutput);
+        asmScroll.setRowHeaderView(asmLineNumbers);
+        asmScroll.getVerticalScrollBar().setUnitIncrement(16);
+        asmPane.add(asmScroll, BorderLayout.CENTER);
 
         // ── split the editor area 2/3 : 1/3 ─────────────────────────────────
         Panel codeArea = new Panel(new GridBagLayout());
@@ -488,9 +510,32 @@ public class SasmIdePanel extends Panel {
             }
         });
 
-        editor.addTextListener(e -> {
-            dirty = true;
-            updateAsmOutput();
+        editor.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e)  { onTextChange(); }
+            @Override public void removeUpdate(DocumentEvent e)  { onTextChange(); }
+            @Override public void changedUpdate(DocumentEvent e)  { onTextChange(); }
+            private void onTextChange() {
+                dirty = true;
+                updateAsmOutput();
+                editorLineNumbers.repaint();
+                asmLineNumbers.repaint();
+            }
+        });
+
+        // ── synchronised vertical scrolling ───────────────────────────────
+        editorScroll.getVerticalScrollBar().addAdjustmentListener(e -> {
+            if (!syncingScroll) {
+                syncingScroll = true;
+                asmScroll.getVerticalScrollBar().setValue(e.getValue());
+                syncingScroll = false;
+            }
+        });
+        asmScroll.getVerticalScrollBar().addAdjustmentListener(e -> {
+            if (!syncingScroll) {
+                syncingScroll = true;
+                editorScroll.getVerticalScrollBar().setValue(e.getValue());
+                syncingScroll = false;
+            }
         });
     }
 
@@ -528,4 +573,63 @@ public class SasmIdePanel extends Panel {
     }
 
     private static String nvl(String s) { return s != null ? s : ""; }
+
+    // ── line-number gutter ────────────────────────────────────────────────────
+
+    /**
+     * A component that paints right-aligned line numbers, designed to be used
+     * as the {@link JScrollPane#setRowHeaderView row header} of a
+     * {@link JScrollPane} wrapping a {@link JTextArea}.
+     */
+    private static class LineNumberComponent extends JPanel {
+
+        private final JTextArea textArea;
+
+        LineNumberComponent(JTextArea textArea) {
+            this.textArea = textArea;
+            setFont(textArea.getFont());
+            setBackground(new Color(0x2B, 0x2B, 0x2B));
+            setForeground(new Color(0x85, 0x85, 0x85));
+        }
+
+        /** Width adapts to the number of digits required. */
+        @Override
+        public Dimension getPreferredSize() {
+            int lines  = textArea.getLineCount();
+            int digits = Math.max(String.valueOf(lines).length(), 3);
+            FontMetrics fm = textArea.getFontMetrics(textArea.getFont());
+            int width = fm.charWidth('0') * digits + 12;
+            return new Dimension(width, textArea.getPreferredSize().height);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            g.setFont(getFont());
+            FontMetrics fm = g.getFontMetrics();
+            Rectangle clip = g.getClipBounds();
+            int lineCount = textArea.getLineCount();
+
+            g.setColor(getForeground());
+            for (int i = 0; i < lineCount; i++) {
+                try {
+                    int offset = textArea.getLineStartOffset(i);
+                    @SuppressWarnings("deprecation")
+                    java.awt.Rectangle r = textArea.modelToView(offset);
+                    if (r == null) continue;
+
+                    // Skip lines above or below the visible clip
+                    if (r.y + r.height < clip.y) continue;
+                    if (r.y > clip.y + clip.height) break;
+
+                    String num = String.valueOf(i + 1);
+                    int x = getWidth() - fm.stringWidth(num) - 5;
+                    int y = r.y + fm.getAscent();
+                    g.drawString(num, x, y);
+                } catch (BadLocationException e) {
+                    break;
+                }
+            }
+        }
+    }
 }
