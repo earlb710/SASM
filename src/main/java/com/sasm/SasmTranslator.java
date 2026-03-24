@@ -1146,10 +1146,12 @@ public class SasmTranslator {
      * If {@code operand} is a bare identifier that was declared with
      * {@code var}, wraps it in square brackets so the generated assembly
      * accesses the value rather than the address.  Operands already
-     * wrapped in brackets (e.g. {@code [myVar]}) are returned unchanged.
+     * wrapped in brackets (e.g. {@code [myVar]}), register names, or
+     * numeric literals are returned unchanged.
      */
     private String wrapIfVar(String operand) {
         if (operand.startsWith("[")) return operand;            // already bracketed
+        if (regWidth(operand) != null) return operand;          // register name
         if (declaredVars.contains(operand)) return "[" + operand + "]";
         return operand;
     }
