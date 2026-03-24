@@ -55,6 +55,16 @@ public class SasmIdePanel extends Panel {
     /** Guards against recursive scroll synchronisation. */
     private boolean syncingScroll = false;
 
+    /**
+     * Debounce timer for SASM→NASM translation.  Instead of translating on
+     * every keystroke, the timer is restarted each time the editor content
+     * changes.  Translation fires only after the user pauses for the delay.
+     */
+    private final Timer translateTimer = new Timer(150, e -> updateAsmOutput());
+    {
+        translateTimer.setRepeats(false);
+    }
+
     // ── SASM → NASM translator ───────────────────────────────────────────────
     private final SasmTranslator translator = new SasmTranslator();
 
@@ -516,9 +526,8 @@ public class SasmIdePanel extends Panel {
             @Override public void changedUpdate(DocumentEvent e)  { onTextChange(); }
             private void onTextChange() {
                 dirty = true;
-                updateAsmOutput();
+                translateTimer.restart();
                 editorLineNumbers.repaint();
-                asmLineNumbers.repaint();
             }
         });
 
@@ -544,11 +553,22 @@ public class SasmIdePanel extends Panel {
         String source = editor.getText();
         try {
             String asm = translator.translate(source);
+            // Suppress scroll sync while replacing output text so the
+            // setText-induced scroll reset doesn't fight with the user's
+            // scroll position in the editor.
+            syncingScroll = true;
             asmOutput.setText(asm);
             asmOutput.setCaretPosition(0);
+            syncingScroll = false;
+            // After text change, synchronise asm scroll to editor position
+            asmScroll.getVerticalScrollBar()
+                    .setValue(editorScroll.getVerticalScrollBar().getValue());
         } catch (Exception ex) {
+            syncingScroll = true;
             asmOutput.setText("; Translation error: " + ex.getMessage());
+            syncingScroll = false;
         }
+        asmLineNumbers.repaint();
     }
 
     // ── file I/O ──────────────────────────────────────────────────────────────
@@ -605,21 +625,31 @@ public class SasmIdePanel extends Panel {
         @Override
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
+            Rectangle clip = g.getClipBounds();
+            if (clip == null) return;
+
+            int lineCount = textArea.getLineCount();
+            if (lineCount == 0) return;
+
             g.setFont(getFont());
             FontMetrics fm = g.getFontMetrics();
-            Rectangle clip = g.getClipBounds();
-            int lineCount = textArea.getLineCount();
-
             g.setColor(getForeground());
-            for (int i = 0; i < lineCount; i++) {
+
+            // Determine the first visible line by looking up the offset at
+            // the top of the clip region, avoiding an O(n) scan from line 0.
+            int startLine = textArea.getDocument().getDefaultRootElement()
+                    .getElementIndex(textArea.viewToModel(
+                            new Point(0, clip.y)));
+            if (startLine < 0) startLine = 0;
+
+            for (int i = startLine; i < lineCount; i++) {
                 try {
                     int offset = textArea.getLineStartOffset(i);
                     @SuppressWarnings("deprecation")
                     java.awt.Rectangle r = textArea.modelToView(offset);
                     if (r == null) continue;
 
-                    // Skip lines above or below the visible clip
-                    if (r.y + r.height < clip.y) continue;
+                    // Past the visible clip — stop painting
                     if (r.y > clip.y + clip.height) break;
 
                     String num = String.valueOf(i + 1);
