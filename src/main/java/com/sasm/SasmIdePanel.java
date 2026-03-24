@@ -36,6 +36,9 @@ import javax.swing.text.BadLocationException;
  */
 public class SasmIdePanel extends JPanel {
 
+    /** Number of text lines scrolled per mouse-wheel notch. */
+    private static final int WHEEL_SCROLL_LINES = 5;
+
     // ── file list (left pane) ─────────────────────────────────────────────────
     private final JLabel   treeHeader = new JLabel("Project Files", SwingConstants.CENTER);
     private final DefaultListModel<String> fileListModel = new DefaultListModel<>();
@@ -522,7 +525,7 @@ public class SasmIdePanel extends JPanel {
             JScrollBar vsb = editorScroll.getVerticalScrollBar();
             int lineHeight = editor.getFontMetrics(editor.getFont()).getHeight();
             int delta = (int) Math.round(
-                    e.getPreciseWheelRotation() * lineHeight * 5);
+                    e.getPreciseWheelRotation() * lineHeight * WHEEL_SCROLL_LINES);
             if (delta != 0) {
                 vsb.setValue(vsb.getValue() + delta);
             }
