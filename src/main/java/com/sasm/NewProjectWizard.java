@@ -2,6 +2,8 @@ package com.sasm;
 
 import java.awt.*;
 import java.awt.event.*;
+import javax.swing.*;
+import javax.swing.event.*;
 
 /**
  * "New Project" dialog — collects only a project name and working directory.
@@ -18,19 +20,19 @@ import java.awt.event.*;
  * <p>Variant-specific settings (OS, output type, format variant, processor)
  * are now managed separately via the <em>Add Variant</em> dialog.</p>
  */
-public class NewProjectWizard extends Dialog {
+public class NewProjectWizard extends JDialog {
 
     /** Regex that every valid project name must fully match. */
     private static final String PROJECT_NAME_PATTERN = "[A-Za-z0-9_\\-]+";
 
     // ── form fields ──────────────────────────────────────────────────────────
-    private final TextField nameField  = new TextField(50);
-    private final TextField dirField   = new TextField(50);
-    private final Button    browseBtn  = new Button("Browse…");
+    private final JTextField nameField  = new JTextField(50);
+    private final JTextField dirField   = new JTextField(50);
+    private final JButton    browseBtn  = new JButton("Browse…");
 
     // ── buttons ──────────────────────────────────────────────────────────────
-    private final Button okBtn     = new Button("OK");
-    private final Button cancelBtn = new Button("Cancel");
+    private final JButton okBtn     = new JButton("OK");
+    private final JButton cancelBtn = new JButton("Cancel");
 
     // ── result state (read by caller after dispose) ───────────────────────────
     private boolean confirmed = false;
@@ -84,19 +86,20 @@ public class NewProjectWizard extends Dialog {
         setLayout(new BorderLayout(0, 0));
 
         // ── title banner ────────────────────────────────────────────────────
-        Label title = new Label(
+        JLabel title = new JLabel(
                 preFill != null ? "Project Properties" : "New Project",
-                Label.CENTER);
+                SwingConstants.CENTER);
         title.setFont(new Font("SansSerif", Font.BOLD, 16));
         title.setBackground(new Color(0x2B, 0x57, 0x97));
         title.setForeground(Color.WHITE);
-        Panel titlePanel = new Panel(new BorderLayout());
+        title.setOpaque(true);
+        JPanel titlePanel = new JPanel(new BorderLayout());
         titlePanel.add(title, BorderLayout.CENTER);
         titlePanel.setPreferredSize(new Dimension(600, 36));
         add(titlePanel, BorderLayout.NORTH);
 
         // ── form canvas ──────────────────────────────────────────────────────
-        Panel canvas = new Panel(new GridBagLayout());
+        JPanel canvas = new JPanel(new GridBagLayout());
         canvas.setBackground(Color.WHITE);
 
         int gbRow = 0;
@@ -108,7 +111,7 @@ public class NewProjectWizard extends Dialog {
         // ── Working Directory ─────────────────────────────────────────────────
         dirField.setText(System.getProperty("user.home", "") + java.io.File.separator + "sasm");
 
-        Panel dirPanel = new Panel(new BorderLayout(4, 0));
+        JPanel dirPanel = new JPanel(new BorderLayout(4, 0));
         dirPanel.setBackground(Color.WHITE);
         dirPanel.add(dirField, BorderLayout.CENTER);
         dirPanel.add(browseBtn, BorderLayout.EAST);
@@ -120,21 +123,26 @@ public class NewProjectWizard extends Dialog {
         sp.gridx = 0; sp.gridy = gbRow; sp.gridwidth = 2;
         sp.fill = GridBagConstraints.BOTH;
         sp.weighty = 1.0;
-        canvas.add(new Panel(), sp);
+        canvas.add(new JPanel(), sp);
 
         add(canvas, BorderLayout.CENTER);
 
         // ── button row ──────────────────────────────────────────────────────
         okBtn.setEnabled(false);
-        Panel btnRow = new Panel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
+        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
         btnRow.add(okBtn);
         btnRow.add(cancelBtn);
         add(btnRow, BorderLayout.SOUTH);
 
         // ── wire events ─────────────────────────────────────────────────────
         browseBtn.addActionListener(e -> browseForDirectory());
-        nameField.addTextListener(e -> refreshOkButton());
-        dirField.addTextListener(e -> refreshOkButton());
+        DocumentListener refreshListener = new DocumentListener() {
+            public void insertUpdate(DocumentEvent e) { refreshOkButton(); }
+            public void removeUpdate(DocumentEvent e) { refreshOkButton(); }
+            public void changedUpdate(DocumentEvent e) { refreshOkButton(); }
+        };
+        nameField.getDocument().addDocumentListener(refreshListener);
+        dirField.getDocument().addDocumentListener(refreshListener);
         okBtn.addActionListener(e -> onOkPressed());
         cancelBtn.addActionListener(e -> dispose());
         addWindowListener(new WindowAdapter() {
@@ -150,14 +158,14 @@ public class NewProjectWizard extends Dialog {
      * Appends a label + control row (plus a small italic hint line) to {@code canvas}
      * and returns the next available GridBag row index.
      */
-    private static int addLabeledControl(Panel canvas, int startRow,
+    private static int addLabeledControl(JPanel canvas, int startRow,
                                          String labelText, Component control,
                                          String hint) {
         GridBagConstraints lc = new GridBagConstraints();
         lc.gridx = 0; lc.gridy = startRow;
         lc.anchor = GridBagConstraints.NORTHWEST;
         lc.insets = new Insets(startRow == 0 ? 16 : 12, 16, 2, 8);
-        Label lbl = new Label(labelText, Label.RIGHT);
+        JLabel lbl = new JLabel(labelText, SwingConstants.RIGHT);
         lbl.setFont(new Font("SansSerif", Font.BOLD, 12));
         canvas.add(lbl, lc);
 
@@ -176,7 +184,7 @@ public class NewProjectWizard extends Dialog {
             hc.gridx = 1; hc.gridy = nextRow;
             hc.anchor = GridBagConstraints.NORTHWEST;
             hc.insets = new Insets(0, 2, 4, 16);
-            Label hintLbl = new Label(hint, Label.LEFT);
+            JLabel hintLbl = new JLabel(hint, SwingConstants.LEFT);
             hintLbl.setFont(new Font("SansSerif", Font.ITALIC, 10));
             hintLbl.setForeground(Color.DARK_GRAY);
             canvas.add(hintLbl, hc);
@@ -258,14 +266,14 @@ public class NewProjectWizard extends Dialog {
     }
 
     private void showError(String msg) {
-        Dialog err = new Dialog(this, "Error", true);
+        JDialog err = new JDialog(this, "Error", true);
         err.setLayout(new BorderLayout(8, 8));
-        TextArea ta = new TextArea(msg, 6, 50, TextArea.SCROLLBARS_NONE);
+        JTextArea ta = new JTextArea(msg, 6, 50);
         ta.setEditable(false);
         err.add(ta, BorderLayout.CENTER);
-        Button ok = new Button("OK");
+        JButton ok = new JButton("OK");
         ok.addActionListener(e -> err.dispose());
-        Panel bp = new Panel(new FlowLayout(FlowLayout.CENTER));
+        JPanel bp = new JPanel(new FlowLayout(FlowLayout.CENTER));
         bp.add(ok);
         err.add(bp, BorderLayout.SOUTH);
         err.addWindowListener(new WindowAdapter() {
