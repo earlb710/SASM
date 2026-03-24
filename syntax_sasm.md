@@ -1096,10 +1096,19 @@ produces one assembly instruction:
 | `ax = cx >> 1` | `MOV ax, cx` / `SHR ax, 1` | Logical right shift |
 | `eax = eax >> 8` | `SHR eax, 8` | Optimized when `dst = op1` |
 | `ax = bx << cl` | `MOV ax, bx` / `SHL ax, cl` | Shift count in `cl` register |
+| `rax = rbx << 3` | `MOV rax, rbx` / `SHL rax, 3` | 64-bit left shift |
+| `rax = rax >> 1` | `SHR rax, 1` | 64-bit right shift, optimized |
 
 Operands may be registers, immediates, or memory references.
 The `+` and `-` characters inside square brackets (e.g. `[buffer + bx]`) are
 treated as address arithmetic, not expression operators.
+
+**What happens to the bits shifted off?**  The last bit shifted out is placed
+into the **Carry Flag (CF)**.  For `<<` (SHL) the most-significant bit that
+"falls off" the left end goes to CF; for `>>` (SHR) the least-significant bit
+that "falls off" the right end goes to CF.  All other shifted-out bits are
+discarded.  You can test CF afterward with `jump if carry` / `jump if no carry`
+or use it in a `rotate left carry` / `rotate right carry` instruction.
 
 ---
 
