@@ -864,7 +864,7 @@ public class SasmTranslator {
 
         // Tokenize the RHS into operands and operators
         List<String> operands = new ArrayList<>();
-        List<Integer> operators = new ArrayList<>(); // '+', '-', '*', 'd' (div), 'L' (<<), 'R' (>>), 'A' (&& bitwise AND), 'O' (|| bitwise OR)
+        List<Integer> operators = new ArrayList<>(); // '+', '-', '*', 'd' (div), 'L' (<<), 'R' (>>), 'A' (&& bitwise AND), 'O' (|| bitwise OR); unary '!' handled separately
         splitExprTokens(rhs, operands, operators);
 
         if (operands.isEmpty()) return null;
