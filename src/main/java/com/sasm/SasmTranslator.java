@@ -275,9 +275,13 @@ public class SasmTranslator {
 
     private static final Pattern SWAP = Pattern.compile(
             "swap\\s+(.+?)\\s+and\\s+(.+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SWOP = Pattern.compile(
+            "swop\\s+(.+?)\\s*,\\s*(.+)", Pattern.CASE_INSENSITIVE);
 
     private String trySwap(String code) {
         Matcher m = SWAP.matcher(code);
+        if (m.matches()) return "    XCHG " + m.group(1) + ", " + m.group(2);
+        m = SWOP.matcher(code);
         if (m.matches()) return "    XCHG " + m.group(1) + ", " + m.group(2);
         return null;
     }

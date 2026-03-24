@@ -1000,6 +1000,7 @@ reverse_bytes:
 | `push all` | `PUSHA` | Push all general-purpose registers |
 | `pop all` | `POPA` | Pop all general-purpose registers |
 | `swap <op1> and <op2>` | `XCHG op1, op2` | Exchange values of `op1` and `op2` |
+| `swop <op1>, <op2>` | `XCHG op1, op2` | Exchange values of `op1` and `op2` (comma syntax) |
 | `translate` | `XLAT` | Set `al` = `[bx + al]` (table lookup) |
 | `read byte from <port> to al` | `IN AL, port` | Read byte from I/O port into `al` |
 | `read word from <port> to ax` | `IN AX, port` | Read word from I/O port into `ax` |
@@ -1111,8 +1112,13 @@ produces one assembly instruction:
 | `ax = !bx` | `MOV ax, bx` / `NOT ax` | Bitwise NOT (one's complement) |
 | `ax = !ax` | `NOT ax` | Optimized when `dst = src` |
 | `rax = !rbx` | `MOV rax, rbx` / `NOT rax` | 64-bit bitwise NOT |
+| `ax = [myVar] + 5` | `MOV ax, [myVar]` / `ADD ax, 5` | Variable (memory) as operand |
+| `[counter] = [counter] + 1` | `ADD [counter], 1` | Variable as both destination and operand |
+| `ax = [buf + si] && 0xFF` | `MOV ax, [buf + si]` / `AND ax, 0xFF` | Indexed memory with bitwise AND |
 
-Operands may be registers, immediates, or memory references.
+Operands may be registers, immediates, or memory references (variables).
+When a variable defined with `var` is used in an expression, wrap it in
+square brackets (e.g. `[myVar]`) to access its value.
 The `+` and `-` characters inside square brackets (e.g. `[buffer + bx]`) are
 treated as address arithmetic, not expression operators.
 
