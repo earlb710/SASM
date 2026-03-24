@@ -1,0 +1,1496 @@
+{
+  "os": "linux",
+  "format": "ELF",
+  "format_full_name": "Executable and Linkable Format \u2014 Shared Library (ELF .so)",
+  "description": "The Linux ELF shared library format. A shared library uses the same ELF format as an executable; the differences lie in the file type (ET_DYN), mandatory position-independent code, the dynamic symbol table and string table, and the absence of a fixed entry point.",
+  "source_reference": "doc/shared_library_format_linux.md",
+  "variants": [
+    {
+      "id": "so64_dynamic",
+      "name": "ELF64 64-bit Shared Library (exports functions, may import from other libraries)",
+      "architecture": "x86_64",
+      "bits": 64,
+      "e_type": "ET_DYN",
+      "e_type_value": 3,
+      "e_machine": "EM_X86_64",
+      "e_machine_value": 62,
+      "linking": "dynamic",
+      "description": "64-bit Linux shared library (.so) with exported symbols and optional imports from other shared libraries. All code must be position-independent using RIP-relative addressing. e_type is always ET_DYN (3) and e_entry is 0 or an unused stub.",
+      "toolchain": {
+        "assemble": "nasm -f elf64 mylib.asm -o mylib.o",
+        "link": "ld -shared -soname libmylib.so.1 -o libmylib.so.1.0.0 mylib.o"
+      },
+      "required_components": [
+        {
+          "name": "ELF Header",
+          "offset_in_file": "0x0000",
+          "size_bytes": 64,
+          "required": true,
+          "description": "Mandatory 64-byte header at the very start of the file. Identical to an executable ELF header except e_type = ET_DYN (3) and e_entry = 0 (or an unused stub address). Identifies the file as a shared library.",
+          "fields": [
+            {
+              "name": "e_ident[0..3]",
+              "offset": "0x00",
+              "size_bytes": 4,
+              "value": "0x7F 0x45 0x4C 0x46",
+              "note": "Magic: \\x7FELF"
+            },
+            {
+              "name": "e_ident[4]",
+              "offset": "0x04",
+              "size_bytes": 1,
+              "value": "0x02",
+              "note": "EI_CLASS: 2 = ELFCLASS64"
+            },
+            {
+              "name": "e_ident[5]",
+              "offset": "0x05",
+              "size_bytes": 1,
+              "value": "0x01",
+              "note": "EI_DATA: 1 = little-endian"
+            },
+            {
+              "name": "e_ident[6]",
+              "offset": "0x06",
+              "size_bytes": 1,
+              "value": "0x01",
+              "note": "EI_VERSION: must be 1"
+            },
+            {
+              "name": "e_ident[7]",
+              "offset": "0x07",
+              "size_bytes": 1,
+              "value": "0x00",
+              "note": "EI_OSABI: 0 = System V / Linux"
+            },
+            {
+              "name": "e_ident[8..15]",
+              "offset": "0x08",
+              "size_bytes": 8,
+              "value": "0x00 * 8",
+              "note": "Padding; set to 0"
+            },
+            {
+              "name": "e_type",
+              "offset": "0x10",
+              "size_bytes": 2,
+              "value": "0x0003",
+              "note": "ET_DYN: shared object / shared library"
+            },
+            {
+              "name": "e_machine",
+              "offset": "0x12",
+              "size_bytes": 2,
+              "value": "0x003E",
+              "note": "EM_X86_64 (62)"
+            },
+            {
+              "name": "e_version",
+              "offset": "0x14",
+              "size_bytes": 4,
+              "value": "0x00000001",
+              "note": "Must be 1"
+            },
+            {
+              "name": "e_entry",
+              "offset": "0x18",
+              "size_bytes": 8,
+              "value": "0x0000000000000000",
+              "note": "0 \u2014 shared libraries are not executed directly; no entry point"
+            },
+            {
+              "name": "e_phoff",
+              "offset": "0x20",
+              "size_bytes": 8,
+              "value": "0x0000000000000040",
+              "note": "Offset of Program Header Table (immediately after ELF header)"
+            },
+            {
+              "name": "e_shoff",
+              "offset": "0x28",
+              "size_bytes": 8,
+              "value": "variable",
+              "note": "Offset of Section Header Table; 0 if stripped"
+            },
+            {
+              "name": "e_flags",
+              "offset": "0x30",
+              "size_bytes": 4,
+              "value": "0x00000000",
+              "note": "Architecture flags; 0 for x86-64"
+            },
+            {
+              "name": "e_ehsize",
+              "offset": "0x34",
+              "size_bytes": 2,
+              "value": "0x0040",
+              "note": "Size of this ELF header = 64"
+            },
+            {
+              "name": "e_phentsize",
+              "offset": "0x36",
+              "size_bytes": 2,
+              "value": "0x0038",
+              "note": "Size of one Program Header entry = 56"
+            },
+            {
+              "name": "e_phnum",
+              "offset": "0x38",
+              "size_bytes": 2,
+              "value": "variable",
+              "note": "Number of Program Header entries"
+            },
+            {
+              "name": "e_shentsize",
+              "offset": "0x3A",
+              "size_bytes": 2,
+              "value": "0x0040",
+              "note": "Size of one Section Header entry = 64"
+            },
+            {
+              "name": "e_shnum",
+              "offset": "0x3C",
+              "size_bytes": 2,
+              "value": "variable",
+              "note": "Number of Section Header entries; 0 if none"
+            },
+            {
+              "name": "e_shstrndx",
+              "offset": "0x3E",
+              "size_bytes": 2,
+              "value": "variable",
+              "note": "Index of .shstrtab section; SHN_UNDEF(0) if no section headers"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === ELF64 Header for Shared Library (64 bytes at file offset 0x0000) ===\nelf_header:\n    db 0x7F, 'E', 'L', 'F'     ; e_ident magic\n    db 2                        ; EI_CLASS  = ELFCLASS64\n    db 1                        ; EI_DATA   = little-endian\n    db 1                        ; EI_VERSION\n    db 0                        ; EI_OSABI  = System V\n    times 8 db 0                ; EI_ABIVERSION + padding\n    dw 3                        ; e_type    = ET_DYN (shared library)\n    dw 62                       ; e_machine = EM_X86_64\n    dd 1                        ; e_version\n    dq 0                        ; e_entry   = 0 (no entry point)\n    dq phdr_table               ; e_phoff  (Program Header Table offset)\n    dq shdr_table               ; e_shoff  (Section Header Table offset; 0 if stripped)\n    dd 0                        ; e_flags\n    dw 64                       ; e_ehsize\n    dw 56                       ; e_phentsize\n    dw PHDR_COUNT               ; e_phnum\n    dw 64                       ; e_shentsize\n    dw SHDR_COUNT               ; e_shnum\n    dw SHSTRNDX                 ; e_shstrndx"
+          }
+        },
+        {
+          "name": "PT_DYNAMIC Segment",
+          "offset_in_file": "Program Header Table",
+          "size_bytes": 56,
+          "required": true,
+          "description": "Points to the .dynamic section, which lists all shared library dependencies (DT_NEEDED), the SONAME (DT_SONAME), and all dynamic linking metadata. Required for every shared library. No PT_INTERP is present \u2014 libraries are not executed directly.",
+          "fields": [
+            {
+              "name": "p_type",
+              "offset": "0x00",
+              "size_bytes": 4,
+              "value": "0x00000002",
+              "note": "PT_DYNAMIC"
+            },
+            {
+              "name": "p_flags",
+              "offset": "0x04",
+              "size_bytes": 4,
+              "value": "0x00000006",
+              "note": "PF_R | PF_W"
+            },
+            {
+              "name": "p_offset",
+              "offset": "0x08",
+              "size_bytes": 8,
+              "value": "variable",
+              "note": "File offset of the .dynamic section"
+            },
+            {
+              "name": "p_vaddr",
+              "offset": "0x10",
+              "size_bytes": 8,
+              "value": "variable",
+              "note": "Virtual address of the .dynamic section"
+            },
+            {
+              "name": "p_paddr",
+              "offset": "0x18",
+              "size_bytes": 8,
+              "value": "same as p_vaddr",
+              "note": "Physical address; ignored by Linux"
+            },
+            {
+              "name": "p_filesz",
+              "offset": "0x20",
+              "size_bytes": 8,
+              "value": "variable",
+              "note": "Size of the .dynamic section in the file"
+            },
+            {
+              "name": "p_memsz",
+              "offset": "0x28",
+              "size_bytes": 8,
+              "value": "same as p_filesz",
+              "note": "Size in memory"
+            },
+            {
+              "name": "p_align",
+              "offset": "0x30",
+              "size_bytes": 8,
+              "value": "0x0000000000000008",
+              "note": "8-byte alignment"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === PT_DYNAMIC Program Header Entry (56 bytes) ===\nphdr_dynamic:\n    dd 2                        ; p_type   = PT_DYNAMIC\n    dd 6                        ; p_flags  = PF_R | PF_W\n    dq dynamic_offset           ; p_offset\n    dq dynamic_vaddr            ; p_vaddr\n    dq dynamic_vaddr            ; p_paddr\n    dq dynamic_size             ; p_filesz\n    dq dynamic_size             ; p_memsz\n    dq 8                        ; p_align\n\n; === .dynamic Section (array of Elf64_Dyn entries, 16 bytes each) ===\nsection .dynamic\ndynamic:\n    dq 14, soname_offset        ; DT_SONAME  'libmylib.so.1'\n    dq  1, dynstr_needed_offset ; DT_NEEDED  (if importing from another .so)\n    dq  5, dynstr_vaddr         ; DT_STRTAB  -> .dynstr\n    dq 10, dynstr_size          ; DT_STRSZ\n    dq  6, dynsym_vaddr         ; DT_SYMTAB  -> .dynsym\n    dq 11, 24                   ; DT_SYMENT  = 24\n    dq 0x6FFFFEF5, gnu_hash_va  ; DT_GNU_HASH -> .gnu.hash\n    dq  7, rela_dyn_vaddr       ; DT_RELA    -> .rela.dyn\n    dq  8, rela_dyn_size        ; DT_RELASZ\n    dq  9, 24                   ; DT_RELAENT = 24\n    dq  3, gotplt_vaddr         ; DT_PLTGOT  -> .got.plt\n    dq  2, rela_plt_size        ; DT_PLTRELSZ\n    dq 20, 7                    ; DT_PLTREL  = DT_RELA\n    dq 23, rela_plt_vaddr       ; DT_JMPREL  -> .rela.plt\n    dq  0, 0                    ; DT_NULL    (terminator)"
+          }
+        },
+        {
+          "name": "Dynamic Symbol Table (.dynsym)",
+          "offset_in_file": "inside read-execute PT_LOAD segment, 8-byte aligned",
+          "size_bytes": "24 bytes per symbol (Elf64_Sym)",
+          "required": true,
+          "description": "Runtime-visible symbol table containing all exported functions/data and any imported symbols. Exported symbols have st_shndx pointing to a valid section and st_value set to the symbol's virtual address. Imported symbols have st_shndx = SHN_UNDEF (0) and st_value = 0. Entry 0 is always the null symbol.",
+          "fields": [
+            {
+              "name": "st_name",
+              "offset": "0x00",
+              "size_bytes": 4,
+              "value": "string table offset",
+              "note": "Offset into .dynstr for symbol name"
+            },
+            {
+              "name": "st_info",
+              "offset": "0x04",
+              "size_bytes": 1,
+              "value": "0x12",
+              "note": "STB_GLOBAL (1) << 4 | STT_FUNC (2) for exported functions"
+            },
+            {
+              "name": "st_other",
+              "offset": "0x05",
+              "size_bytes": 1,
+              "value": "0x00",
+              "note": "STV_DEFAULT (0) \u2014 symbol is exported"
+            },
+            {
+              "name": "st_shndx",
+              "offset": "0x06",
+              "size_bytes": 2,
+              "value": "section index",
+              "note": "Section where symbol is defined; SHN_UNDEF (0) for imports"
+            },
+            {
+              "name": "st_value",
+              "offset": "0x08",
+              "size_bytes": 8,
+              "value": "VA of symbol",
+              "note": "Virtual address of the function/data; 0 for imports"
+            },
+            {
+              "name": "st_size",
+              "offset": "0x10",
+              "size_bytes": 8,
+              "value": "function byte size",
+              "note": "Size of the symbol; 0 if unknown"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .dynsym Section (24 bytes per Elf64_Sym entry) ===\nsection .dynsym\ndynsym:\n    ; Entry 0: null symbol (required)\n    dd 0                        ; st_name  = 0 (empty string)\n    db 0                        ; st_info  = STB_LOCAL | STT_NOTYPE\n    db 0                        ; st_other = STV_DEFAULT\n    dw 0                        ; st_shndx = SHN_UNDEF\n    dq 0                        ; st_value = 0\n    dq 0                        ; st_size  = 0\n\n    ; Entry 1: export 'add_numbers' function\n    dd add_numbers_name_offset  ; st_name  (offset in .dynstr)\n    db 0x12                     ; st_info  = STB_GLOBAL | STT_FUNC\n    db 0                        ; st_other = STV_DEFAULT\n    dw .text_shndx              ; st_shndx = section index of .text\n    dq add_numbers              ; st_value = VA of add_numbers\n    dq add_numbers_size         ; st_size  = function length\n\n    ; Entry 2: import 'printf' (if importing from libc)\n    dd printf_name_offset       ; st_name\n    db 0x12                     ; st_info  = STB_GLOBAL | STT_FUNC\n    db 0                        ; st_other = STV_DEFAULT\n    dw 0                        ; st_shndx = SHN_UNDEF (imported)\n    dq 0                        ; st_value = 0\n    dq 0                        ; st_size  = 0"
+          }
+        },
+        {
+          "name": "Dynamic String Table (.dynstr)",
+          "offset_in_file": "inside read-execute PT_LOAD segment, 1-byte aligned",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "Null-terminated ASCII strings referenced by .dynsym entries (via st_name) and by .dynamic entries (DT_SONAME, DT_NEEDED). The first byte must be 0x00 (empty string for the null symbol at .dynsym index 0).",
+          "fields": [
+            {
+              "name": "byte 0",
+              "offset": "0x00",
+              "size_bytes": 1,
+              "value": "0x00",
+              "note": "Empty string for null symbol"
+            },
+            {
+              "name": "SONAME string",
+              "offset": "variable",
+              "size_bytes": 0,
+              "value": "e.g. 'libmylib.so.1\\0'",
+              "note": "Canonical library name referenced by DT_SONAME"
+            },
+            {
+              "name": "symbol names",
+              "offset": "variable",
+              "size_bytes": 0,
+              "value": "null-terminated strings",
+              "note": "One per exported/imported symbol"
+            },
+            {
+              "name": "DT_NEEDED names",
+              "offset": "variable",
+              "size_bytes": 0,
+              "value": "e.g. 'libc.so.6\\0'",
+              "note": "One per required shared library"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .dynstr Section (null-terminated ASCII strings) ===\nsection .dynstr\ndynstr:\n    db 0                        ; offset 0: empty string (null symbol)\nsoname_offset equ $ - dynstr\n    db 'libmylib.so.1', 0       ; DT_SONAME library name\nadd_numbers_name_offset equ $ - dynstr\n    db 'add_numbers', 0         ; exported function name\nget_value_name_offset equ $ - dynstr\n    db 'get_value', 0           ; exported function name\nlibc_name_offset equ $ - dynstr\n    db 'libc.so.6', 0           ; DT_NEEDED library name (if importing)\ndynstr_end:\ndynstr_size equ dynstr_end - dynstr"
+          }
+        },
+        {
+          "name": "GNU Hash Table (.gnu.hash)",
+          "offset_in_file": "inside read-execute PT_LOAD segment, 8-byte aligned",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "Modern GNU hash table for fast dynamic symbol lookup, pointed to by DT_GNU_HASH in .dynamic. Contains a header (nbuckets, symoffset, bloom_size, bloom_shift), a Bloom filter array, a bucket array, and a chain array with one 32-bit hash per symbol.",
+          "fields": [
+            {
+              "name": "nbuckets",
+              "offset": "0x00",
+              "size_bytes": 4,
+              "value": "variable",
+              "note": "Number of hash buckets"
+            },
+            {
+              "name": "symoffset",
+              "offset": "0x04",
+              "size_bytes": 4,
+              "value": "variable",
+              "note": "Index of first symbol in the hash chains (skips local symbols)"
+            },
+            {
+              "name": "bloom_size",
+              "offset": "0x08",
+              "size_bytes": 4,
+              "value": "variable",
+              "note": "Number of 8-byte Bloom filter words"
+            },
+            {
+              "name": "bloom_shift",
+              "offset": "0x0C",
+              "size_bytes": 4,
+              "value": "variable",
+              "note": "Bloom filter shift count"
+            },
+            {
+              "name": "bloom[]",
+              "offset": "0x10",
+              "size_bytes": 0,
+              "value": "variable",
+              "note": "Bloom filter array; enables fast 'definitely not here' checks"
+            },
+            {
+              "name": "buckets[]",
+              "offset": "after bloom",
+              "size_bytes": 0,
+              "value": "variable",
+              "note": "Each bucket is a .dynsym index or 0 if empty"
+            },
+            {
+              "name": "chains[]",
+              "offset": "after buckets",
+              "size_bytes": 0,
+              "value": "variable",
+              "note": "One 32-bit hash per symbol; bit 0 set marks end of chain"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .gnu.hash Section (GNU hash table for symbol lookup) ===\n; The linker (ld -shared) generates this section automatically.\n; For hand-crafted shared libraries, the structure is:\nsection .gnu.hash\ngnu_hash:\n    dd NBUCKETS                 ; nbuckets\n    dd SYMOFFSET                ; symoffset (first hashed symbol index)\n    dd BLOOM_SIZE               ; bloom_size (number of 8-byte bloom words)\n    dd BLOOM_SHIFT              ; bloom_shift\n    ; bloom filter: BLOOM_SIZE \u00d7 8-byte words\n    ; buckets: NBUCKETS \u00d7 4-byte entries\n    ; chains: one 4-byte hash per symbol from symoffset onward"
+          }
+        },
+        {
+          "name": "Relocation Table (.rela.dyn)",
+          "offset_in_file": "inside read-execute PT_LOAD segment, 8-byte aligned",
+          "size_bytes": "24 bytes per entry (Elf64_Rela)",
+          "required": true,
+          "description": "Dynamic relocation table for non-PLT fixups. Contains R_X86_64_RELATIVE entries for internal pointer adjustments (base + addend), R_X86_64_GLOB_DAT entries for external data symbols, and other relocation types as needed. Processed by the dynamic linker at load time.",
+          "fields": [
+            {
+              "name": "r_offset",
+              "offset": "0x00",
+              "size_bytes": 8,
+              "value": "VA to patch",
+              "note": "Address in the loaded image to apply the relocation"
+            },
+            {
+              "name": "r_info",
+              "offset": "0x08",
+              "size_bytes": 8,
+              "value": "(sym_index << 32) | type",
+              "note": "Symbol index (high 32 bits) + relocation type (low 32 bits)"
+            },
+            {
+              "name": "r_addend",
+              "offset": "0x10",
+              "size_bytes": 8,
+              "value": "constant addend",
+              "note": "Addend for the relocation calculation"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .rela.dyn Section (Elf64_Rela, 24 bytes each) ===\nsection .rela.dyn\nrela_dyn:\n    ; R_X86_64_RELATIVE: internal pointer fixup (base + addend)\n    dq got_my_data_vaddr        ; r_offset: VA of GOT slot to patch\n    dq (0 << 32) | 8            ; r_info:   sym 0 | R_X86_64_RELATIVE (8)\n    dq my_data_vaddr            ; r_addend: address of my_data\n\n    ; R_X86_64_GLOB_DAT: external data symbol\n    dq got_extern_var_vaddr     ; r_offset: VA of GOT slot\n    dq (sym_idx << 32) | 6      ; r_info:   symbol index | R_X86_64_GLOB_DAT (6)\n    dq 0                        ; r_addend: 0"
+          }
+        }
+      ]
+    },
+    {
+      "id": "so64_no_deps",
+      "name": "ELF64 64-bit Shared Library (no external dependencies)",
+      "architecture": "x86_64",
+      "bits": 64,
+      "e_type": "ET_DYN",
+      "e_type_value": 3,
+      "e_machine": "EM_X86_64",
+      "e_machine_value": 62,
+      "linking": "static",
+      "description": "Self-contained 64-bit shared library with no external imports. Exports functions via .dynsym. No .plt or .got.plt needed. All code uses RIP-relative addressing.",
+      "toolchain": {
+        "assemble": "nasm -f elf64 mylib.asm -o mylib.o",
+        "link": "ld -shared -soname libmylib.so.1 -o libmylib.so.1.0.0 mylib.o"
+      },
+      "required_components": [
+        {
+          "name": "ELF Header",
+          "offset_in_file": "0x0000",
+          "size_bytes": 64,
+          "required": true,
+          "description": "Identical to so64_dynamic ELF header. e_type = ET_DYN (3), e_entry = 0. All code is self-contained; no external symbols are imported.",
+          "fields": [
+            {
+              "name": "e_ident[0..3]",
+              "offset": "0x00",
+              "size_bytes": 4,
+              "value": "0x7F 0x45 0x4C 0x46",
+              "note": "Magic: \\x7FELF"
+            },
+            {
+              "name": "e_ident[4]",
+              "offset": "0x04",
+              "size_bytes": 1,
+              "value": "0x02",
+              "note": "EI_CLASS: 2 = ELFCLASS64"
+            },
+            {
+              "name": "e_ident[5]",
+              "offset": "0x05",
+              "size_bytes": 1,
+              "value": "0x01",
+              "note": "EI_DATA: 1 = little-endian"
+            },
+            {
+              "name": "e_ident[6]",
+              "offset": "0x06",
+              "size_bytes": 1,
+              "value": "0x01",
+              "note": "EI_VERSION: must be 1"
+            },
+            {
+              "name": "e_ident[7]",
+              "offset": "0x07",
+              "size_bytes": 1,
+              "value": "0x00",
+              "note": "EI_OSABI: 0 = System V / Linux"
+            },
+            {
+              "name": "e_ident[8..15]",
+              "offset": "0x08",
+              "size_bytes": 8,
+              "value": "0x00 * 8",
+              "note": "Padding; set to 0"
+            },
+            {
+              "name": "e_type",
+              "offset": "0x10",
+              "size_bytes": 2,
+              "value": "0x0003",
+              "note": "ET_DYN: shared object"
+            },
+            {
+              "name": "e_machine",
+              "offset": "0x12",
+              "size_bytes": 2,
+              "value": "0x003E",
+              "note": "EM_X86_64 (62)"
+            },
+            {
+              "name": "e_version",
+              "offset": "0x14",
+              "size_bytes": 4,
+              "value": "0x00000001",
+              "note": "Must be 1"
+            },
+            {
+              "name": "e_entry",
+              "offset": "0x18",
+              "size_bytes": 8,
+              "value": "0x0000000000000000",
+              "note": "0 \u2014 no entry point"
+            },
+            {
+              "name": "e_phoff",
+              "offset": "0x20",
+              "size_bytes": 8,
+              "value": "0x0000000000000040",
+              "note": "Program Header Table offset"
+            },
+            {
+              "name": "e_shoff",
+              "offset": "0x28",
+              "size_bytes": 8,
+              "value": "variable",
+              "note": "Section Header Table offset; 0 if stripped"
+            },
+            {
+              "name": "e_flags",
+              "offset": "0x30",
+              "size_bytes": 4,
+              "value": "0x00000000",
+              "note": "0 for x86-64"
+            },
+            {
+              "name": "e_ehsize",
+              "offset": "0x34",
+              "size_bytes": 2,
+              "value": "0x0040",
+              "note": "64 bytes"
+            },
+            {
+              "name": "e_phentsize",
+              "offset": "0x36",
+              "size_bytes": 2,
+              "value": "0x0038",
+              "note": "56 bytes per Program Header entry"
+            },
+            {
+              "name": "e_phnum",
+              "offset": "0x38",
+              "size_bytes": 2,
+              "value": "variable",
+              "note": "Number of Program Header entries"
+            },
+            {
+              "name": "e_shentsize",
+              "offset": "0x3A",
+              "size_bytes": 2,
+              "value": "0x0040",
+              "note": "64 bytes per Section Header entry"
+            },
+            {
+              "name": "e_shnum",
+              "offset": "0x3C",
+              "size_bytes": 2,
+              "value": "variable",
+              "note": "Number of Section Header entries"
+            },
+            {
+              "name": "e_shstrndx",
+              "offset": "0x3E",
+              "size_bytes": 2,
+              "value": "variable",
+              "note": "Index of .shstrtab section"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === ELF64 Header for Self-Contained Shared Library ===\nelf_header:\n    db 0x7F, 'E', 'L', 'F'     ; magic\n    db 2                        ; EI_CLASS  = ELFCLASS64\n    db 1                        ; EI_DATA   = little-endian\n    db 1                        ; EI_VERSION\n    db 0                        ; EI_OSABI  = System V\n    times 8 db 0                ; padding\n    dw 3                        ; e_type    = ET_DYN\n    dw 62                       ; e_machine = EM_X86_64\n    dd 1                        ; e_version\n    dq 0                        ; e_entry   = 0 (no entry point)\n    dq phdr_table               ; e_phoff\n    dq shdr_table               ; e_shoff\n    dd 0                        ; e_flags\n    dw 64                       ; e_ehsize\n    dw 56                       ; e_phentsize\n    dw PHDR_COUNT               ; e_phnum\n    dw 64                       ; e_shentsize\n    dw SHDR_COUNT               ; e_shnum\n    dw SHSTRNDX                 ; e_shstrndx"
+          }
+        },
+        {
+          "name": "PT_DYNAMIC Segment",
+          "offset_in_file": "Program Header Table",
+          "size_bytes": 56,
+          "required": true,
+          "description": "Points to the .dynamic section. For a self-contained library, .dynamic contains DT_SONAME, DT_STRTAB, DT_STRSZ, DT_SYMTAB, DT_SYMENT, DT_GNU_HASH, and optionally DT_RELA/DT_RELASZ/DT_RELAENT for internal pointer fixups. No DT_NEEDED, DT_PLTGOT, or DT_JMPREL entries are present.",
+          "fields": [
+            {
+              "name": "p_type",
+              "offset": "0x00",
+              "size_bytes": 4,
+              "value": "0x00000002",
+              "note": "PT_DYNAMIC"
+            },
+            {
+              "name": "p_flags",
+              "offset": "0x04",
+              "size_bytes": 4,
+              "value": "0x00000006",
+              "note": "PF_R | PF_W"
+            },
+            {
+              "name": "p_offset",
+              "offset": "0x08",
+              "size_bytes": 8,
+              "value": "variable",
+              "note": "File offset of .dynamic"
+            },
+            {
+              "name": "p_vaddr",
+              "offset": "0x10",
+              "size_bytes": 8,
+              "value": "variable",
+              "note": "VA of .dynamic"
+            },
+            {
+              "name": "p_paddr",
+              "offset": "0x18",
+              "size_bytes": 8,
+              "value": "same as p_vaddr",
+              "note": ""
+            },
+            {
+              "name": "p_filesz",
+              "offset": "0x20",
+              "size_bytes": 8,
+              "value": "variable",
+              "note": "Size of .dynamic"
+            },
+            {
+              "name": "p_memsz",
+              "offset": "0x28",
+              "size_bytes": 8,
+              "value": "same as p_filesz",
+              "note": ""
+            },
+            {
+              "name": "p_align",
+              "offset": "0x30",
+              "size_bytes": 8,
+              "value": "0x0000000000000008",
+              "note": "8-byte alignment"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === PT_DYNAMIC for self-contained .so (no DT_NEEDED) ===\nphdr_dynamic:\n    dd 2                        ; p_type   = PT_DYNAMIC\n    dd 6                        ; p_flags  = PF_R | PF_W\n    dq dynamic_offset           ; p_offset\n    dq dynamic_vaddr            ; p_vaddr\n    dq dynamic_vaddr            ; p_paddr\n    dq dynamic_size             ; p_filesz\n    dq dynamic_size             ; p_memsz\n    dq 8                        ; p_align\n\nsection .dynamic\ndynamic:\n    dq 14, soname_offset        ; DT_SONAME  'libmylib.so.1'\n    dq  5, dynstr_vaddr         ; DT_STRTAB  -> .dynstr\n    dq 10, dynstr_size          ; DT_STRSZ\n    dq  6, dynsym_vaddr         ; DT_SYMTAB  -> .dynsym\n    dq 11, 24                   ; DT_SYMENT  = 24\n    dq 0x6FFFFEF5, gnu_hash_va  ; DT_GNU_HASH -> .gnu.hash\n    dq  0, 0                    ; DT_NULL    (terminator)"
+          }
+        },
+        {
+          "name": "Dynamic Symbol Table (.dynsym)",
+          "offset_in_file": "inside read-execute PT_LOAD segment, 8-byte aligned",
+          "size_bytes": "24 bytes per symbol (Elf64_Sym)",
+          "required": true,
+          "description": "Contains only exported symbols (no SHN_UNDEF imports). All st_shndx values point to valid sections and all st_value fields hold the symbol's VA. Entry 0 is the null symbol.",
+          "fields": [
+            {
+              "name": "st_name",
+              "offset": "0x00",
+              "size_bytes": 4,
+              "value": "string table offset",
+              "note": "Offset into .dynstr"
+            },
+            {
+              "name": "st_info",
+              "offset": "0x04",
+              "size_bytes": 1,
+              "value": "0x12",
+              "note": "STB_GLOBAL | STT_FUNC for exported functions"
+            },
+            {
+              "name": "st_other",
+              "offset": "0x05",
+              "size_bytes": 1,
+              "value": "0x00",
+              "note": "STV_DEFAULT"
+            },
+            {
+              "name": "st_shndx",
+              "offset": "0x06",
+              "size_bytes": 2,
+              "value": "section index",
+              "note": "Section where symbol is defined (never SHN_UNDEF)"
+            },
+            {
+              "name": "st_value",
+              "offset": "0x08",
+              "size_bytes": 8,
+              "value": "VA of symbol",
+              "note": "Virtual address of the symbol"
+            },
+            {
+              "name": "st_size",
+              "offset": "0x10",
+              "size_bytes": 8,
+              "value": "symbol size",
+              "note": "Size of the symbol in bytes"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .dynsym for self-contained library (exports only) ===\nsection .dynsym\ndynsym:\n    ; Entry 0: null symbol\n    dd 0\n    db 0\n    db 0\n    dw 0\n    dq 0\n    dq 0\n\n    ; Entry 1: export 'add_numbers'\n    dd add_numbers_name_offset\n    db 0x12                     ; STB_GLOBAL | STT_FUNC\n    db 0                        ; STV_DEFAULT\n    dw .text_shndx\n    dq add_numbers\n    dq add_numbers_end - add_numbers\n\n    ; Entry 2: export 'get_value'\n    dd get_value_name_offset\n    db 0x12                     ; STB_GLOBAL | STT_FUNC\n    db 0                        ; STV_DEFAULT\n    dw .text_shndx\n    dq get_value\n    dq get_value_end - get_value"
+          }
+        },
+        {
+          "name": "Dynamic String Table (.dynstr)",
+          "offset_in_file": "inside read-execute PT_LOAD segment, 1-byte aligned",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "Null-terminated strings for all exported symbol names and the SONAME. No DT_NEEDED library names are present since the library has no external dependencies.",
+          "fields": [
+            {
+              "name": "byte 0",
+              "offset": "0x00",
+              "size_bytes": 1,
+              "value": "0x00",
+              "note": "Empty string for null symbol"
+            },
+            {
+              "name": "SONAME string",
+              "offset": "variable",
+              "size_bytes": 0,
+              "value": "'libmylib.so.1\\0'",
+              "note": "Canonical library name"
+            },
+            {
+              "name": "symbol names",
+              "offset": "variable",
+              "size_bytes": 0,
+              "value": "null-terminated strings",
+              "note": "One per exported symbol"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .dynstr for self-contained library ===\nsection .dynstr\ndynstr:\n    db 0                        ; offset 0: empty string\nsoname_offset equ $ - dynstr\n    db 'libmylib.so.1', 0       ; SONAME\nadd_numbers_name_offset equ $ - dynstr\n    db 'add_numbers', 0\nget_value_name_offset equ $ - dynstr\n    db 'get_value', 0\ndynstr_end:\ndynstr_size equ dynstr_end - dynstr"
+          }
+        },
+        {
+          "name": "GNU Hash Table (.gnu.hash)",
+          "offset_in_file": "inside read-execute PT_LOAD segment, 8-byte aligned",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "GNU hash table for fast symbol lookup by the dynamic linker. Same structure as so64_dynamic: header, Bloom filter, buckets, and chains. Automatically generated by ld -shared.",
+          "fields": [
+            {
+              "name": "nbuckets",
+              "offset": "0x00",
+              "size_bytes": 4,
+              "value": "variable",
+              "note": "Number of hash buckets"
+            },
+            {
+              "name": "symoffset",
+              "offset": "0x04",
+              "size_bytes": 4,
+              "value": "variable",
+              "note": "First hashed symbol index"
+            },
+            {
+              "name": "bloom_size",
+              "offset": "0x08",
+              "size_bytes": 4,
+              "value": "variable",
+              "note": "Number of 8-byte Bloom filter words"
+            },
+            {
+              "name": "bloom_shift",
+              "offset": "0x0C",
+              "size_bytes": 4,
+              "value": "variable",
+              "note": "Bloom filter shift count"
+            },
+            {
+              "name": "bloom[]",
+              "offset": "0x10",
+              "size_bytes": 0,
+              "value": "variable",
+              "note": "Bloom filter array"
+            },
+            {
+              "name": "buckets[]",
+              "offset": "after bloom",
+              "size_bytes": 0,
+              "value": "variable",
+              "note": "Hash bucket array"
+            },
+            {
+              "name": "chains[]",
+              "offset": "after buckets",
+              "size_bytes": 0,
+              "value": "variable",
+              "note": "Per-symbol hash values; bit 0 marks end of chain"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .gnu.hash (generated by linker) ===\n; For a self-contained library with N exported symbols:\nsection .gnu.hash\ngnu_hash:\n    dd NBUCKETS\n    dd SYMOFFSET\n    dd BLOOM_SIZE\n    dd BLOOM_SHIFT\n    ; bloom filter words, buckets, and chains follow"
+          }
+        }
+      ]
+    },
+    {
+      "id": "so32_dynamic",
+      "name": "ELF32 32-bit Shared Library (exports functions, may import)",
+      "architecture": "x86",
+      "bits": 32,
+      "e_type": "ET_DYN",
+      "e_type_value": 3,
+      "e_machine": "EM_386",
+      "e_machine_value": 3,
+      "linking": "dynamic",
+      "description": "32-bit Linux shared library. Uses GOT-pointer thunk for position-independent code since 32-bit x86 lacks RIP-relative addressing. All code must use __x86.get_pc_thunk and GOT-relative addressing.",
+      "toolchain": {
+        "assemble": "nasm -f elf32 mylib.asm -o mylib.o",
+        "link": "ld -shared -melf_i386 -soname libmylib.so.1 -o libmylib.so.1.0.0 mylib.o"
+      },
+      "required_components": [
+        {
+          "name": "ELF Header (32-bit)",
+          "offset_in_file": "0x0000",
+          "size_bytes": 52,
+          "required": true,
+          "description": "52-byte ELF32 header. EI_CLASS = 1 (ELFCLASS32), e_machine = 3 (EM_386), e_type = ET_DYN (3), e_entry = 0. Addresses and offsets are 4 bytes. Program Header entries are 32 bytes each.",
+          "fields": [
+            {
+              "name": "e_ident[0..3]",
+              "offset": "0x00",
+              "size_bytes": 4,
+              "value": "0x7F 0x45 0x4C 0x46",
+              "note": "Magic: \\x7FELF"
+            },
+            {
+              "name": "e_ident[4]",
+              "offset": "0x04",
+              "size_bytes": 1,
+              "value": "0x01",
+              "note": "EI_CLASS: 1 = ELFCLASS32"
+            },
+            {
+              "name": "e_ident[5]",
+              "offset": "0x05",
+              "size_bytes": 1,
+              "value": "0x01",
+              "note": "EI_DATA: 1 = little-endian"
+            },
+            {
+              "name": "e_ident[6]",
+              "offset": "0x06",
+              "size_bytes": 1,
+              "value": "0x01",
+              "note": "EI_VERSION: must be 1"
+            },
+            {
+              "name": "e_ident[7]",
+              "offset": "0x07",
+              "size_bytes": 1,
+              "value": "0x00",
+              "note": "EI_OSABI: 0 = System V / Linux"
+            },
+            {
+              "name": "e_ident[8..15]",
+              "offset": "0x08",
+              "size_bytes": 8,
+              "value": "0x00 * 8",
+              "note": "Padding; set to 0"
+            },
+            {
+              "name": "e_type",
+              "offset": "0x10",
+              "size_bytes": 2,
+              "value": "0x0003",
+              "note": "ET_DYN: shared object"
+            },
+            {
+              "name": "e_machine",
+              "offset": "0x12",
+              "size_bytes": 2,
+              "value": "0x0003",
+              "note": "EM_386 (3)"
+            },
+            {
+              "name": "e_version",
+              "offset": "0x14",
+              "size_bytes": 4,
+              "value": "0x00000001",
+              "note": "Must be 1"
+            },
+            {
+              "name": "e_entry",
+              "offset": "0x18",
+              "size_bytes": 4,
+              "value": "0x00000000",
+              "note": "0 \u2014 no entry point for shared library"
+            },
+            {
+              "name": "e_phoff",
+              "offset": "0x1C",
+              "size_bytes": 4,
+              "value": "0x00000034",
+              "note": "Program Header Table at offset 52 (immediately after header)"
+            },
+            {
+              "name": "e_shoff",
+              "offset": "0x20",
+              "size_bytes": 4,
+              "value": "variable",
+              "note": "Section Header Table offset"
+            },
+            {
+              "name": "e_flags",
+              "offset": "0x24",
+              "size_bytes": 4,
+              "value": "0x00000000",
+              "note": "0 for x86"
+            },
+            {
+              "name": "e_ehsize",
+              "offset": "0x28",
+              "size_bytes": 2,
+              "value": "0x0034",
+              "note": "52 bytes"
+            },
+            {
+              "name": "e_phentsize",
+              "offset": "0x2A",
+              "size_bytes": 2,
+              "value": "0x0020",
+              "note": "32 bytes per Program Header entry"
+            },
+            {
+              "name": "e_phnum",
+              "offset": "0x2C",
+              "size_bytes": 2,
+              "value": "variable",
+              "note": "Number of Program Header entries"
+            },
+            {
+              "name": "e_shentsize",
+              "offset": "0x2E",
+              "size_bytes": 2,
+              "value": "0x0028",
+              "note": "40 bytes per Section Header entry"
+            },
+            {
+              "name": "e_shnum",
+              "offset": "0x30",
+              "size_bytes": 2,
+              "value": "variable",
+              "note": "Number of Section Header entries"
+            },
+            {
+              "name": "e_shstrndx",
+              "offset": "0x32",
+              "size_bytes": 2,
+              "value": "variable",
+              "note": "Index of .shstrtab section"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === ELF32 Header for 32-bit Shared Library (52 bytes) ===\nelf_header:\n    db 0x7F, 'E', 'L', 'F'     ; magic\n    db 1                        ; EI_CLASS  = ELFCLASS32\n    db 1                        ; EI_DATA   = little-endian\n    db 1                        ; EI_VERSION\n    db 0                        ; EI_OSABI\n    times 8 db 0                ; padding\n    dw 3                        ; e_type    = ET_DYN (shared library)\n    dw 3                        ; e_machine = EM_386\n    dd 1                        ; e_version\n    dd 0                        ; e_entry   = 0 (no entry point)\n    dd phdr_table               ; e_phoff\n    dd shdr_table               ; e_shoff\n    dd 0                        ; e_flags\n    dw 52                       ; e_ehsize\n    dw 32                       ; e_phentsize\n    dw PHDR_COUNT               ; e_phnum\n    dw 40                       ; e_shentsize\n    dw SHDR_COUNT               ; e_shnum\n    dw SHSTRNDX                 ; e_shstrndx"
+          }
+        },
+        {
+          "name": "PT_DYNAMIC Segment",
+          "offset_in_file": "Program Header Table",
+          "size_bytes": 32,
+          "required": true,
+          "description": "32-bit PT_DYNAMIC entry (32 bytes). Points to the .dynamic section. Each .dynamic entry is 8 bytes (Elf32_Dyn: 4-byte d_tag + 4-byte d_val). DT_SYMENT = 16 (size of Elf32_Sym).",
+          "fields": [
+            {
+              "name": "p_type",
+              "offset": "0x00",
+              "size_bytes": 4,
+              "value": "0x00000002",
+              "note": "PT_DYNAMIC"
+            },
+            {
+              "name": "p_offset",
+              "offset": "0x04",
+              "size_bytes": 4,
+              "value": "variable",
+              "note": "File offset of .dynamic"
+            },
+            {
+              "name": "p_vaddr",
+              "offset": "0x08",
+              "size_bytes": 4,
+              "value": "variable",
+              "note": "VA of .dynamic"
+            },
+            {
+              "name": "p_paddr",
+              "offset": "0x0C",
+              "size_bytes": 4,
+              "value": "same as p_vaddr",
+              "note": ""
+            },
+            {
+              "name": "p_filesz",
+              "offset": "0x10",
+              "size_bytes": 4,
+              "value": "variable",
+              "note": "Size of .dynamic"
+            },
+            {
+              "name": "p_memsz",
+              "offset": "0x14",
+              "size_bytes": 4,
+              "value": "same as p_filesz",
+              "note": ""
+            },
+            {
+              "name": "p_flags",
+              "offset": "0x18",
+              "size_bytes": 4,
+              "value": "0x00000006",
+              "note": "PF_R | PF_W (NOTE: p_flags at offset 0x18 in ELF32)"
+            },
+            {
+              "name": "p_align",
+              "offset": "0x1C",
+              "size_bytes": 4,
+              "value": "0x00000004",
+              "note": "4-byte alignment"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === ELF32 PT_DYNAMIC Program Header Entry (32 bytes) ===\nphdr_dynamic:\n    dd 2                        ; p_type   = PT_DYNAMIC\n    dd dynamic_offset           ; p_offset\n    dd dynamic_vaddr            ; p_vaddr\n    dd dynamic_vaddr            ; p_paddr\n    dd dynamic_size             ; p_filesz\n    dd dynamic_size             ; p_memsz\n    dd 6                        ; p_flags  = PF_R | PF_W\n    dd 4                        ; p_align\n\n; === .dynamic Section (Elf32_Dyn, 8 bytes each) ===\nsection .dynamic\ndynamic:\n    dd 14, soname_offset        ; DT_SONAME\n    dd  1, dynstr_needed_offset ; DT_NEEDED\n    dd  5, dynstr_vaddr         ; DT_STRTAB\n    dd 10, dynstr_size          ; DT_STRSZ\n    dd  6, dynsym_vaddr         ; DT_SYMTAB\n    dd 11, 16                   ; DT_SYMENT = 16 (Elf32_Sym)\n    dd 0x6FFFFEF5, gnu_hash_va  ; DT_GNU_HASH\n    dd 17, rel_dyn_vaddr        ; DT_REL    -> .rel.dyn\n    dd 18, rel_dyn_size         ; DT_RELSZ\n    dd 19, 8                    ; DT_RELENT = 8\n    dd  3, got_vaddr            ; DT_PLTGOT\n    dd  2, rel_plt_size         ; DT_PLTRELSZ\n    dd 20, 17                   ; DT_PLTREL = DT_REL\n    dd 23, rel_plt_vaddr        ; DT_JMPREL\n    dd  0, 0                    ; DT_NULL"
+          }
+        },
+        {
+          "name": "Dynamic Symbol Table (.dynsym, 16-byte entries)",
+          "offset_in_file": "inside read-execute PT_LOAD segment, 4-byte aligned",
+          "size_bytes": "16 bytes per symbol (Elf32_Sym)",
+          "required": true,
+          "description": "32-bit dynamic symbol table. Each Elf32_Sym entry is 16 bytes. The field order differs from ELF64: st_name, st_value, st_size come first, followed by st_info, st_other, st_shndx.",
+          "fields": [
+            {
+              "name": "st_name",
+              "offset": "0x00",
+              "size_bytes": 4,
+              "value": "string table offset",
+              "note": "Offset into .dynstr"
+            },
+            {
+              "name": "st_value",
+              "offset": "0x04",
+              "size_bytes": 4,
+              "value": "VA of symbol",
+              "note": "32-bit virtual address; 0 for imports"
+            },
+            {
+              "name": "st_size",
+              "offset": "0x08",
+              "size_bytes": 4,
+              "value": "symbol size",
+              "note": "Size of the symbol in bytes"
+            },
+            {
+              "name": "st_info",
+              "offset": "0x0C",
+              "size_bytes": 1,
+              "value": "0x12",
+              "note": "STB_GLOBAL (1) << 4 | STT_FUNC (2)"
+            },
+            {
+              "name": "st_other",
+              "offset": "0x0D",
+              "size_bytes": 1,
+              "value": "0x00",
+              "note": "STV_DEFAULT"
+            },
+            {
+              "name": "st_shndx",
+              "offset": "0x0E",
+              "size_bytes": 2,
+              "value": "section index",
+              "note": "Section index; SHN_UNDEF (0) for imports"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .dynsym Section (16 bytes per Elf32_Sym entry) ===\nsection .dynsym\ndynsym:\n    ; Entry 0: null symbol\n    dd 0                        ; st_name\n    dd 0                        ; st_value\n    dd 0                        ; st_size\n    db 0                        ; st_info\n    db 0                        ; st_other\n    dw 0                        ; st_shndx\n\n    ; Entry 1: export 'add_numbers'\n    dd add_numbers_name_offset  ; st_name\n    dd add_numbers              ; st_value (32-bit VA)\n    dd add_numbers_size         ; st_size\n    db 0x12                     ; st_info  = STB_GLOBAL | STT_FUNC\n    db 0                        ; st_other = STV_DEFAULT\n    dw .text_shndx              ; st_shndx\n\n    ; Entry 2: import 'printf' from libc\n    dd printf_name_offset       ; st_name\n    dd 0                        ; st_value = 0 (undefined)\n    dd 0                        ; st_size  = 0\n    db 0x12                     ; st_info  = STB_GLOBAL | STT_FUNC\n    db 0                        ; st_other\n    dw 0                        ; st_shndx = SHN_UNDEF"
+          }
+        },
+        {
+          "name": "Dynamic String Table (.dynstr)",
+          "offset_in_file": "inside read-execute PT_LOAD segment, 1-byte aligned",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "Same layout as the 64-bit .dynstr: null-terminated ASCII strings for all symbol names, the SONAME, and DT_NEEDED library names. First byte is 0x00.",
+          "fields": [
+            {
+              "name": "byte 0",
+              "offset": "0x00",
+              "size_bytes": 1,
+              "value": "0x00",
+              "note": "Empty string for null symbol"
+            },
+            {
+              "name": "SONAME string",
+              "offset": "variable",
+              "size_bytes": 0,
+              "value": "'libmylib.so.1\\0'",
+              "note": "DT_SONAME canonical name"
+            },
+            {
+              "name": "symbol names",
+              "offset": "variable",
+              "size_bytes": 0,
+              "value": "null-terminated strings",
+              "note": "Exported and imported symbol names"
+            },
+            {
+              "name": "DT_NEEDED names",
+              "offset": "variable",
+              "size_bytes": 0,
+              "value": "'libc.so.6\\0'",
+              "note": "Required library names"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .dynstr Section (32-bit shared library) ===\nsection .dynstr\ndynstr:\n    db 0                        ; offset 0: empty string\nsoname_offset equ $ - dynstr\n    db 'libmylib.so.1', 0       ; SONAME\nadd_numbers_name_offset equ $ - dynstr\n    db 'add_numbers', 0\nget_value_name_offset equ $ - dynstr\n    db 'get_value', 0\nlibc_name_offset equ $ - dynstr\n    db 'libc.so.6', 0           ; DT_NEEDED\ndynstr_end:\ndynstr_size equ dynstr_end - dynstr"
+          }
+        },
+        {
+          "name": "Relocation Table (.rel.dyn, no addend)",
+          "offset_in_file": "inside read-execute PT_LOAD segment, 4-byte aligned",
+          "size_bytes": "8 bytes per entry (Elf32_Rel)",
+          "required": true,
+          "description": "32-bit relocation table using Elf32_Rel (no addend field). Contains R_386_RELATIVE entries for internal pointer fixups, R_386_GLOB_DAT for external data, and R_386_JMP_SLOT for PLT GOT slots (in .rel.plt). Each entry is 8 bytes: 4-byte r_offset + 4-byte r_info.",
+          "fields": [
+            {
+              "name": "r_offset",
+              "offset": "0x00",
+              "size_bytes": 4,
+              "value": "VA to patch",
+              "note": "Address in the loaded image to apply the relocation"
+            },
+            {
+              "name": "r_info",
+              "offset": "0x04",
+              "size_bytes": 4,
+              "value": "(sym_index << 8) | type",
+              "note": "Symbol index (high 24 bits) + relocation type (low 8 bits)"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .rel.dyn Section (Elf32_Rel, 8 bytes each, no addend) ===\nsection .rel.dyn\nrel_dyn:\n    ; R_386_RELATIVE: internal pointer fixup\n    dd got_my_data_vaddr        ; r_offset: VA of GOT slot to patch\n    dd (0 << 8) | 8             ; r_info:   sym 0 | R_386_RELATIVE (8)\n\n    ; R_386_GLOB_DAT: external data symbol\n    dd got_extern_vaddr         ; r_offset\n    dd (sym_idx << 8) | 6       ; r_info:   symbol index | R_386_GLOB_DAT (6)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "so32_no_deps",
+      "name": "ELF32 32-bit Shared Library (no external dependencies)",
+      "architecture": "x86",
+      "bits": 32,
+      "e_type": "ET_DYN",
+      "e_type_value": 3,
+      "e_machine": "EM_386",
+      "e_machine_value": 3,
+      "linking": "static",
+      "description": "Self-contained 32-bit shared library. No external imports. Uses GOT-pointer thunk for PIC. No .plt needed.",
+      "toolchain": {
+        "assemble": "nasm -f elf32 mylib.asm -o mylib.o",
+        "link": "ld -shared -melf_i386 -soname libmylib.so.1 -o libmylib.so.1.0.0 mylib.o"
+      },
+      "required_components": [
+        {
+          "name": "ELF Header (32-bit)",
+          "offset_in_file": "0x0000",
+          "size_bytes": 52,
+          "required": true,
+          "description": "52-byte ELF32 header. Same as so32_dynamic: EI_CLASS = 1, e_machine = EM_386 (3), e_type = ET_DYN (3), e_entry = 0. Self-contained \u2014 no imported symbols.",
+          "fields": [
+            {
+              "name": "e_ident[0..3]",
+              "offset": "0x00",
+              "size_bytes": 4,
+              "value": "0x7F 0x45 0x4C 0x46",
+              "note": "Magic: \\x7FELF"
+            },
+            {
+              "name": "e_ident[4]",
+              "offset": "0x04",
+              "size_bytes": 1,
+              "value": "0x01",
+              "note": "EI_CLASS: 1 = ELFCLASS32"
+            },
+            {
+              "name": "e_ident[5]",
+              "offset": "0x05",
+              "size_bytes": 1,
+              "value": "0x01",
+              "note": "EI_DATA: 1 = little-endian"
+            },
+            {
+              "name": "e_ident[6]",
+              "offset": "0x06",
+              "size_bytes": 1,
+              "value": "0x01",
+              "note": "EI_VERSION: must be 1"
+            },
+            {
+              "name": "e_ident[7]",
+              "offset": "0x07",
+              "size_bytes": 1,
+              "value": "0x00",
+              "note": "EI_OSABI: 0 = System V / Linux"
+            },
+            {
+              "name": "e_ident[8..15]",
+              "offset": "0x08",
+              "size_bytes": 8,
+              "value": "0x00 * 8",
+              "note": "Padding; set to 0"
+            },
+            {
+              "name": "e_type",
+              "offset": "0x10",
+              "size_bytes": 2,
+              "value": "0x0003",
+              "note": "ET_DYN: shared object"
+            },
+            {
+              "name": "e_machine",
+              "offset": "0x12",
+              "size_bytes": 2,
+              "value": "0x0003",
+              "note": "EM_386 (3)"
+            },
+            {
+              "name": "e_version",
+              "offset": "0x14",
+              "size_bytes": 4,
+              "value": "0x00000001",
+              "note": "Must be 1"
+            },
+            {
+              "name": "e_entry",
+              "offset": "0x18",
+              "size_bytes": 4,
+              "value": "0x00000000",
+              "note": "0 \u2014 no entry point"
+            },
+            {
+              "name": "e_phoff",
+              "offset": "0x1C",
+              "size_bytes": 4,
+              "value": "0x00000034",
+              "note": "Program Header Table at offset 52"
+            },
+            {
+              "name": "e_shoff",
+              "offset": "0x20",
+              "size_bytes": 4,
+              "value": "variable",
+              "note": "Section Header Table offset"
+            },
+            {
+              "name": "e_flags",
+              "offset": "0x24",
+              "size_bytes": 4,
+              "value": "0x00000000",
+              "note": "0 for x86"
+            },
+            {
+              "name": "e_ehsize",
+              "offset": "0x28",
+              "size_bytes": 2,
+              "value": "0x0034",
+              "note": "52 bytes"
+            },
+            {
+              "name": "e_phentsize",
+              "offset": "0x2A",
+              "size_bytes": 2,
+              "value": "0x0020",
+              "note": "32 bytes per Program Header entry"
+            },
+            {
+              "name": "e_phnum",
+              "offset": "0x2C",
+              "size_bytes": 2,
+              "value": "variable",
+              "note": "Number of Program Header entries"
+            },
+            {
+              "name": "e_shentsize",
+              "offset": "0x2E",
+              "size_bytes": 2,
+              "value": "0x0028",
+              "note": "40 bytes per Section Header entry"
+            },
+            {
+              "name": "e_shnum",
+              "offset": "0x30",
+              "size_bytes": 2,
+              "value": "variable",
+              "note": "Number of Section Header entries"
+            },
+            {
+              "name": "e_shstrndx",
+              "offset": "0x32",
+              "size_bytes": 2,
+              "value": "variable",
+              "note": "Index of .shstrtab section"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === ELF32 Header for Self-Contained 32-bit Shared Library ===\nelf_header:\n    db 0x7F, 'E', 'L', 'F'     ; magic\n    db 1                        ; EI_CLASS  = ELFCLASS32\n    db 1                        ; EI_DATA   = little-endian\n    db 1                        ; EI_VERSION\n    db 0                        ; EI_OSABI\n    times 8 db 0                ; padding\n    dw 3                        ; e_type    = ET_DYN\n    dw 3                        ; e_machine = EM_386\n    dd 1                        ; e_version\n    dd 0                        ; e_entry   = 0\n    dd phdr_table               ; e_phoff\n    dd shdr_table               ; e_shoff\n    dd 0                        ; e_flags\n    dw 52                       ; e_ehsize\n    dw 32                       ; e_phentsize\n    dw PHDR_COUNT               ; e_phnum\n    dw 40                       ; e_shentsize\n    dw SHDR_COUNT               ; e_shnum\n    dw SHSTRNDX                 ; e_shstrndx"
+          }
+        },
+        {
+          "name": "PT_DYNAMIC Segment",
+          "offset_in_file": "Program Header Table",
+          "size_bytes": 32,
+          "required": true,
+          "description": "32-bit PT_DYNAMIC entry pointing to .dynamic. No DT_NEEDED entries since the library has no external dependencies. No DT_PLTGOT or DT_JMPREL since there is no PLT.",
+          "fields": [
+            {
+              "name": "p_type",
+              "offset": "0x00",
+              "size_bytes": 4,
+              "value": "0x00000002",
+              "note": "PT_DYNAMIC"
+            },
+            {
+              "name": "p_offset",
+              "offset": "0x04",
+              "size_bytes": 4,
+              "value": "variable",
+              "note": "File offset of .dynamic"
+            },
+            {
+              "name": "p_vaddr",
+              "offset": "0x08",
+              "size_bytes": 4,
+              "value": "variable",
+              "note": "VA of .dynamic"
+            },
+            {
+              "name": "p_paddr",
+              "offset": "0x0C",
+              "size_bytes": 4,
+              "value": "same as p_vaddr",
+              "note": ""
+            },
+            {
+              "name": "p_filesz",
+              "offset": "0x10",
+              "size_bytes": 4,
+              "value": "variable",
+              "note": "Size of .dynamic"
+            },
+            {
+              "name": "p_memsz",
+              "offset": "0x14",
+              "size_bytes": 4,
+              "value": "same as p_filesz",
+              "note": ""
+            },
+            {
+              "name": "p_flags",
+              "offset": "0x18",
+              "size_bytes": 4,
+              "value": "0x00000006",
+              "note": "PF_R | PF_W"
+            },
+            {
+              "name": "p_align",
+              "offset": "0x1C",
+              "size_bytes": 4,
+              "value": "0x00000004",
+              "note": "4-byte alignment"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === ELF32 PT_DYNAMIC for self-contained .so ===\nphdr_dynamic:\n    dd 2                        ; p_type   = PT_DYNAMIC\n    dd dynamic_offset           ; p_offset\n    dd dynamic_vaddr            ; p_vaddr\n    dd dynamic_vaddr            ; p_paddr\n    dd dynamic_size             ; p_filesz\n    dd dynamic_size             ; p_memsz\n    dd 6                        ; p_flags  = PF_R | PF_W\n    dd 4                        ; p_align\n\nsection .dynamic\ndynamic:\n    dd 14, soname_offset        ; DT_SONAME\n    dd  5, dynstr_vaddr         ; DT_STRTAB\n    dd 10, dynstr_size          ; DT_STRSZ\n    dd  6, dynsym_vaddr         ; DT_SYMTAB\n    dd 11, 16                   ; DT_SYMENT = 16 (Elf32_Sym)\n    dd 0x6FFFFEF5, gnu_hash_va  ; DT_GNU_HASH\n    dd  0, 0                    ; DT_NULL"
+          }
+        },
+        {
+          "name": "Dynamic Symbol Table (.dynsym)",
+          "offset_in_file": "inside read-execute PT_LOAD segment, 4-byte aligned",
+          "size_bytes": "16 bytes per symbol (Elf32_Sym)",
+          "required": true,
+          "description": "32-bit dynamic symbol table with only exported symbols (no SHN_UNDEF imports). Each entry is 16 bytes with the ELF32 field order: st_name, st_value, st_size, st_info, st_other, st_shndx.",
+          "fields": [
+            {
+              "name": "st_name",
+              "offset": "0x00",
+              "size_bytes": 4,
+              "value": "string table offset",
+              "note": "Offset into .dynstr"
+            },
+            {
+              "name": "st_value",
+              "offset": "0x04",
+              "size_bytes": 4,
+              "value": "VA of symbol",
+              "note": "32-bit virtual address"
+            },
+            {
+              "name": "st_size",
+              "offset": "0x08",
+              "size_bytes": 4,
+              "value": "symbol size",
+              "note": "Size in bytes"
+            },
+            {
+              "name": "st_info",
+              "offset": "0x0C",
+              "size_bytes": 1,
+              "value": "0x12",
+              "note": "STB_GLOBAL | STT_FUNC"
+            },
+            {
+              "name": "st_other",
+              "offset": "0x0D",
+              "size_bytes": 1,
+              "value": "0x00",
+              "note": "STV_DEFAULT"
+            },
+            {
+              "name": "st_shndx",
+              "offset": "0x0E",
+              "size_bytes": 2,
+              "value": "section index",
+              "note": "Never SHN_UNDEF for self-contained library"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .dynsym for 32-bit self-contained library ===\nsection .dynsym\ndynsym:\n    ; Entry 0: null symbol\n    dd 0, 0, 0\n    db 0, 0\n    dw 0\n\n    ; Entry 1: export 'add_numbers'\n    dd add_numbers_name_offset\n    dd add_numbers\n    dd add_numbers_size\n    db 0x12                     ; STB_GLOBAL | STT_FUNC\n    db 0\n    dw .text_shndx\n\n    ; Entry 2: export 'get_value'\n    dd get_value_name_offset\n    dd get_value\n    dd get_value_size\n    db 0x12\n    db 0\n    dw .text_shndx"
+          }
+        },
+        {
+          "name": "Dynamic String Table (.dynstr)",
+          "offset_in_file": "inside read-execute PT_LOAD segment, 1-byte aligned",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "Null-terminated strings for exported symbol names and the SONAME. No DT_NEEDED library names since the library has no external dependencies.",
+          "fields": [
+            {
+              "name": "byte 0",
+              "offset": "0x00",
+              "size_bytes": 1,
+              "value": "0x00",
+              "note": "Empty string for null symbol"
+            },
+            {
+              "name": "SONAME string",
+              "offset": "variable",
+              "size_bytes": 0,
+              "value": "'libmylib.so.1\\0'",
+              "note": "Canonical library name"
+            },
+            {
+              "name": "symbol names",
+              "offset": "variable",
+              "size_bytes": 0,
+              "value": "null-terminated strings",
+              "note": "One per exported symbol"
+            }
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === .dynstr for 32-bit self-contained library ===\nsection .dynstr\ndynstr:\n    db 0                        ; empty string\nsoname_offset equ $ - dynstr\n    db 'libmylib.so.1', 0\nadd_numbers_name_offset equ $ - dynstr\n    db 'add_numbers', 0\nget_value_name_offset equ $ - dynstr\n    db 'get_value', 0\ndynstr_end:\ndynstr_size equ dynstr_end - dynstr"
+          }
+        }
+      ]
+    }
+  ]
+}

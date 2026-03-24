@@ -1,30 +1,30 @@
-; Example 13 — Arrays as Parameters
-; Demonstrates how to pass and return arrays in SASM using pointers.
-;
-; KEY RULES:
-;   * Arrays are ALWAYS passed by pointer — the caller passes the address
-;     of the first element, not a copy of the data.
-;   * Use 'address of <array> to <reg>' (emits LEA) to load the address of
-;     a static or local array into a register before the call.
-;   * Declare the pointer register as 'in' (read-only) or 'in out'
-;     (callee may modify elements) in the proc signature.
-;   * To return an array pointer, declare the register as 'out'.
-;   * The callee never owns the array data — it must not store the pointer
-;     past the lifetime of the array (especially for local arrays).
-;
-; Passing conventions at a glance:
-;   Register params:  in si as arr_ptr, in cx as length
-;   Stack params:     push si (array address), push cx (length)
-;   Returning:        out si as arr_ptr
+-- Example 13 — Arrays as Parameters
+-- Demonstrates how to pass and return arrays in SASM using pointers.
+--
+-- KEY RULES:
+--   * Arrays are ALWAYS passed by pointer — the caller passes the address
+--     of the first element, not a copy of the data.
+--   * Use 'address of <array> to <reg>' (emits LEA) to load the address of
+--     a static or local array into a register before the call.
+--   * Declare the pointer register as 'in' (read-only) or 'in out'
+--     (callee may modify elements) in the proc signature.
+--   * To return an array pointer, declare the register as 'out'.
+--   * The callee never owns the array data — it must not store the pointer
+--     past the lifetime of the array (especially for local arrays).
+--
+-- Passing conventions at a glance:
+--   Register params:  in si as arr_ptr, in cx as length
+--   Stack params:     push si (array address), push cx (length)
+--   Returning:        out si as arr_ptr
 
 
 (* ---------------------------------------------------------------
    Static array used throughout this example file.
    --------------------------------------------------------------- *)
 
-data scores  as byte[8]                           ; 8 zero-initialized bytes
-data table   as word[4] = 10, 20, 30, 40          ; 4 initialized words
-data result_buf as byte[64]                       ; output buffer
+data scores  as byte[8]                           -- 8 zero-initialized bytes
+data table   as word[4] = 10, 20, 30, 40          -- 4 initialized words
+data result_buf as byte[64]                       -- output buffer
 
 
 (* ---------------------------------------------------------------
@@ -37,19 +37,19 @@ data result_buf as byte[64]                       ; output buffer
    --------------------------------------------------------------- *)
 
 proc fill_byte ( in si as arr_ptr, in cx as length, in al as fill_val ) {
-    move 0 to bx                                  ; bx = byte index
+    move 0 to bx                                  -- bx = byte index
     repeat cx times {
-        move fill_val to byte [arr_ptr + bx]      ; arr_ptr[bx] = fill_val
+        move fill_val to byte [arr_ptr + bx]      -- arr_ptr[bx] = fill_val
         increment bx
     }
     return
 }
 
-; Caller — load address of static array 'scores' into si:
-address of scores to si                           ; si = &scores[0]  (LEA SI, scores)
-move 8 to cx                                      ; length = 8
-move 0 to al                                      ; fill value = 0
-call fill_byte                                    ; scores[0..7] = 0
+-- Caller — load address of static array 'scores' into si:
+address of scores to si                           -- si = &scores[0]  (LEA SI, scores)
+move 8 to cx                                      -- length = 8
+move 0 to al                                      -- fill value = 0
+call fill_byte                                    -- scores[0..7] = 0
 
 
 (* ---------------------------------------------------------------
@@ -65,27 +65,27 @@ call fill_byte                                    ; scores[0..7] = 0
    --------------------------------------------------------------- *)
 
 proc process_local_buf {
-    var buf as byte[16]                           ; 16-byte local array
+    var buf as byte[16]                           -- 16-byte local array
 
     (* Load the address of buf[0] into si, then call fill_byte. *)
-    address of buf to si                          ; si = &buf[0]  (LEA SI, [BP-16])
+    address of buf to si                          -- si = &buf[0]  (LEA SI, [BP-16])
     move 16 to cx
     move 0xFF to al
-    call fill_byte                                ; buf[0..15] = 0xFF
+    call fill_byte                                -- buf[0..15] = 0xFF
 
     (* Pass buf to a callee that reads it. *)
     address of buf to si
     move 16 to cx
-    call sum_bytes                                ; ax = 16 × 0xFF = 0x0FF0
+    call sum_bytes                                -- ax = 16 × 0xFF = 0x0FF0
 }
 
-; Caller:
+-- Caller:
 call process_local_buf
 
 
 (* ---------------------------------------------------------------
    Part 3: Read-only callee — sum_bytes
-   Sum all bytes in a byte array; result returned in ax.
+   Sum all bytes in a byte array-- result returned in ax.
 
    in  si as arr_ptr  — address of the first element
    in  cx as length   — number of bytes
@@ -93,21 +93,21 @@ call process_local_buf
    --------------------------------------------------------------- *)
 
 proc sum_bytes ( in si as arr_ptr, in cx as length, out ax as total ) {
-    move 0 to ax                                  ; total = 0
-    move 0 to bx                                  ; bx = byte index
+    move 0 to ax                                  -- total = 0
+    move 0 to bx                                  -- bx = byte index
     repeat cx times {
         move byte [arr_ptr + bx] to dl
-        move zero dl to dx                        ; zero-extend to word
+        move zero dl to dx                        -- zero-extend to word
         add dx to total
         increment bx
     }
     return
 }
 
-; Caller — sum the static 'scores' array:
+-- Caller — sum the static 'scores' array:
 address of scores to si
 move 8 to cx
-call sum_bytes                                    ; ax = sum of scores[0..7]
+call sum_bytes                                    -- ax = sum of scores[0..7]
 
 
 (* ---------------------------------------------------------------
@@ -120,17 +120,17 @@ call sum_bytes                                    ; ax = sum of scores[0..7]
    --------------------------------------------------------------- *)
 
 proc scale_words ( in out si as arr_ptr, in cx as length, in bx as scalar ) {
-    move 0 to di                                  ; di = byte offset (step 2 per word)
+    move 0 to di                                  -- di = byte offset (step 2 per word)
     repeat cx times {
         move word [arr_ptr + di] to ax
-        multiply by scalar                        ; dx:ax = ax × scalar (unsigned)
-        move ax to word [arr_ptr + di]            ; store low 16 bits
+        multiply by scalar                        -- dx:ax = ax × scalar (unsigned)
+        move ax to word [arr_ptr + di]            -- store low 16 bits
         add 2 to di
     }
     return
 }
 
-; Caller — double every element of 'table' (10,20,30,40 → 20,40,60,80):
+-- Caller — double every element of 'table' (10,20,30,40 → 20,40,60,80):
 address of table to si
 move 4 to cx
 move 2 to bx
@@ -160,14 +160,14 @@ proc sum_words uses stack ( arr_ptr, length ) {
     return
 }
 
-; Caller — push right-to-left:
-; (table values are now 20,40,60,80 after Part 4's scale_words call)
+-- Caller — push right-to-left:
+-- (table values are now 20,40,60,80 after Part 4's scale_words call)
 move 4 to cx
-push cx                                           ; length = 4  (first push)
+push cx                                           -- length = 4  (first push)
 address of table to si
-push si                                           ; arr_ptr = &table[0]
-call sum_words                                    ; ax = 20+40+60+80 = 200
-add 4 to sp                                       ; caller cleans 2 × 2-byte args
+push si                                           -- arr_ptr = &table[0]
+call sum_words                                    -- ax = 20+40+60+80 = 200
+add 4 to sp                                       -- caller cleans 2 × 2-byte args
 
 
 (* ---------------------------------------------------------------
@@ -178,12 +178,12 @@ add 4 to sp                                       ; caller cleans 2 × 2-byte ar
    --------------------------------------------------------------- *)
 
 proc get_result_buf ( out si as buf_ptr ) {
-    address of result_buf to buf_ptr              ; buf_ptr = &result_buf[0]
+    address of result_buf to buf_ptr              -- buf_ptr = &result_buf[0]
     return
 }
 
-; Caller — obtain the buffer address, then zero the first 8 bytes:
-call get_result_buf                               ; si = &result_buf[0]
+-- Caller — obtain the buffer address, then zero the first 8 bytes:
+call get_result_buf                               -- si = &result_buf[0]
 move 8  to cx
 move 0  to al
-call fill_byte                                    ; result_buf[0..7] = 0
+call fill_byte                                    -- result_buf[0..7] = 0

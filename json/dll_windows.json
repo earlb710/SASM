@@ -1,0 +1,500 @@
+{
+  "os": "windows",
+  "format": "PE",
+  "format_full_name": "Portable Executable — Dynamic Link Library (PE DLL)",
+  "description": "The Windows PE DLL format. A DLL uses the same Portable Executable format as an .exe; the differences lie in the IMAGE_FILE_DLL flag, the export table, an optional DllMain entry point, and base-relocation requirements.",
+  "source_reference": "doc/dll_format_windows.md",
+  "variants": [
+    {
+      "id": "pe32_dll_dynamic",
+      "name": "PE32 32-bit DLL (dynamic, exports by name, may import from other DLLs)",
+      "architecture": "x86",
+      "bits": 32,
+      "magic": "0x010B",
+      "machine": "0x014C",
+      "linking": "dynamic",
+      "description": "32-bit Windows DLL with named exports and optional imports from other DLLs. Uses stdcall calling convention for DllMain. The IMAGE_FILE_DLL flag (0x2000) must be set in the COFF Characteristics. Typical Characteristics value: 0x2102.",
+      "toolchain": {
+        "assemble": "nasm -f win32 mylib.asm -o mylib.obj",
+        "link": "link mylib.obj /dll /def:mylib.def /out:mylib.dll"
+      },
+      "required_components": [
+        {
+          "name": "MZ Header",
+          "offset_in_file": "0x0000",
+          "size_bytes": 64,
+          "required": true,
+          "description": "MS-DOS 2.0 compatible header. Windows requires the MZ magic at file offset 0 and a valid e_lfanew pointing to the PE signature. Identical layout for DLLs and EXEs.",
+          "fields": [
+            {"name": "e_magic",   "offset": "0x00", "size_bytes": 2, "value": "0x5A4D",     "note": "ASCII 'MZ' — mandatory magic bytes"},
+            {"name": "(padding)", "offset": "0x02", "size_bytes": 58, "value": "0x00 * 58", "note": "Unused; set to zero for a minimal stub"},
+            {"name": "e_lfanew",  "offset": "0x3C", "size_bytes": 4, "value": "0x00000080", "note": "File offset of the PE signature; must be >= 0x40"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === MZ Header (64 bytes at file offset 0x0000) ===\nmz_header:\n    dw 0x5A4D           ; e_magic = 'MZ'\n    dw 0x0000           ; e_cblp  (unused)\n    dw 0x0000           ; e_cp    (unused)\n    dw 0x0000           ; e_crlc  (unused)\n    dw 0x0000           ; e_cparhdr (unused)\n    dw 0x0000           ; e_minalloc\n    dw 0xFFFF           ; e_maxalloc\n    dw 0x0000           ; e_ss\n    dw 0x00B8           ; e_sp\n    dw 0x0000           ; e_csum\n    dw 0x0000           ; e_ip\n    dw 0x0000           ; e_cs\n    dw 0x0040           ; e_lfarlc\n    dw 0x0000           ; e_ovno\n    times 4 dw 0x0000   ; e_res[4]\n    dw 0x0000           ; e_oemid\n    dw 0x0000           ; e_oeminfo\n    times 10 dw 0x0000  ; e_res2[10]\n    dd 0x00000080       ; e_lfanew -> PE signature at 0x80"
+          }
+        },
+        {
+          "name": "PE Signature",
+          "offset_in_file": "0x0080",
+          "size_bytes": 4,
+          "required": true,
+          "description": "Four-byte magic at the file offset stored in e_lfanew. Must be exactly 'PE\\0\\0'.",
+          "fields": [
+            {"name": "Signature", "offset": "0x00", "size_bytes": 4, "value": "0x50 0x45 0x00 0x00", "note": "ASCII 'PE' followed by two zero bytes"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === PE Signature (4 bytes at e_lfanew = 0x0080) ===\npe_signature:\n    db 'P', 'E', 0, 0     ; 'PE\\0\\0'"
+          }
+        },
+        {
+          "name": "COFF File Header (IMAGE_FILE_DLL)",
+          "offset_in_file": "0x0084",
+          "size_bytes": 20,
+          "required": true,
+          "description": "20-byte COFF header. Machine = 0x014C (i386). Characteristics must include IMAGE_FILE_DLL (0x2000) in addition to IMAGE_FILE_EXECUTABLE_IMAGE (0x0002) and IMAGE_FILE_32BIT_MACHINE (0x0100). Typical value: 0x2102.",
+          "fields": [
+            {"name": "Machine",              "offset": "0x00", "size_bytes": 2, "value": "0x014C",     "note": "IMAGE_FILE_MACHINE_I386 (x86 32-bit)"},
+            {"name": "NumberOfSections",     "offset": "0x02", "size_bytes": 2, "value": "variable",   "note": "Count of Section Table entries (e.g. .text, .edata, .reloc, .idata)"},
+            {"name": "TimeDateStamp",        "offset": "0x04", "size_bytes": 4, "value": "0x00000000", "note": "Unix timestamp of link time; 0 is valid"},
+            {"name": "PointerToSymbolTable", "offset": "0x08", "size_bytes": 4, "value": "0x00000000", "note": "Set to 0 for image files"},
+            {"name": "NumberOfSymbols",      "offset": "0x0C", "size_bytes": 4, "value": "0x00000000", "note": "Set to 0 for image files"},
+            {"name": "SizeOfOptionalHeader", "offset": "0x10", "size_bytes": 2, "value": "0x00E0",     "note": "224 bytes for PE32"},
+            {"name": "Characteristics",      "offset": "0x12", "size_bytes": 2, "value": "0x2102",     "note": "IMAGE_FILE_EXECUTABLE_IMAGE (0x0002) | IMAGE_FILE_32BIT_MACHINE (0x0100) | IMAGE_FILE_DLL (0x2000)"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === COFF File Header (20 bytes at 0x0084) ===\ncoff_header:\n    dw 0x014C           ; Machine = IMAGE_FILE_MACHINE_I386\n    dw NUM_SECTIONS     ; NumberOfSections\n    dd 0                ; TimeDateStamp\n    dd 0                ; PointerToSymbolTable\n    dd 0                ; NumberOfSymbols\n    dw 0x00E0           ; SizeOfOptionalHeader = 224 (PE32)\n    dw 0x2102           ; Characteristics: EXECUTABLE | 32BIT | DLL"
+          }
+        },
+        {
+          "name": "Optional Header (PE32, DLL)",
+          "offset_in_file": "0x0098",
+          "size_bytes": 224,
+          "required": true,
+          "description": "224-byte PE32 Optional Header for a DLL. ImageBase defaults to 0x10000000 (DLL convention). AddressOfEntryPoint points to DllMain or is 0. DataDirectory[0] (Export Table) and DataDirectory[5] (Base Relocation Table) must be populated. DllCharacteristics typically 0x0140 (DYNAMIC_BASE | NX_COMPAT).",
+          "fields": [
+            {"name": "Magic",                       "offset": "0x00", "size_bytes": 2, "value": "0x010B",     "note": "PE32 magic"},
+            {"name": "MajorLinkerVersion",          "offset": "0x02", "size_bytes": 1, "value": "0x00",       "note": "Can be 0"},
+            {"name": "MinorLinkerVersion",          "offset": "0x03", "size_bytes": 1, "value": "0x00",       "note": "Can be 0"},
+            {"name": "SizeOfCode",                  "offset": "0x04", "size_bytes": 4, "value": "variable",   "note": "Total size of all code sections"},
+            {"name": "SizeOfInitializedData",       "offset": "0x08", "size_bytes": 4, "value": "variable",   "note": "Total size of .data + .edata + .reloc sections"},
+            {"name": "SizeOfUninitializedData",     "offset": "0x0C", "size_bytes": 4, "value": "0x00000000", "note": "Size of .bss"},
+            {"name": "AddressOfEntryPoint",         "offset": "0x10", "size_bytes": 4, "value": "variable",   "note": "RVA of DllMain; 0 if no entry point"},
+            {"name": "BaseOfCode",                  "offset": "0x14", "size_bytes": 4, "value": "0x00001000", "note": "RVA of .text"},
+            {"name": "BaseOfData",                  "offset": "0x18", "size_bytes": 4, "value": "0x00002000", "note": "RVA of .data (PE32 only; absent in PE32+)"},
+            {"name": "ImageBase",                   "offset": "0x1C", "size_bytes": 4, "value": "0x10000000", "note": "Default DLL load address (DLL convention)"},
+            {"name": "SectionAlignment",            "offset": "0x20", "size_bytes": 4, "value": "0x00001000", "note": "4 KB page alignment in memory"},
+            {"name": "FileAlignment",               "offset": "0x24", "size_bytes": 4, "value": "0x00000200", "note": "512-byte alignment in file"},
+            {"name": "Subsystem",                   "offset": "0x44", "size_bytes": 2, "value": "0x0003",     "note": "IMAGE_SUBSYSTEM_WINDOWS_CUI (or WINDOWS_GUI)"},
+            {"name": "DllCharacteristics",          "offset": "0x46", "size_bytes": 2, "value": "0x0140",     "note": "DYNAMIC_BASE (0x0040) | NX_COMPAT (0x0100)"},
+            {"name": "SizeOfStackReserve",          "offset": "0x48", "size_bytes": 4, "value": "0x00100000", "note": "1 MB virtual stack reservation"},
+            {"name": "SizeOfStackCommit",           "offset": "0x4C", "size_bytes": 4, "value": "0x00001000", "note": "4 KB initially committed"},
+            {"name": "NumberOfRvaAndSizes",         "offset": "0x5C", "size_bytes": 4, "value": "0x00000010", "note": "Always 16"},
+            {"name": "DataDirectory[0] (Export)",    "offset": "0x60", "size_bytes": 8, "value": "RVA + Size", "note": "RVA and size of the Export Directory Table"},
+            {"name": "DataDirectory[1] (Import)",    "offset": "0x68", "size_bytes": 8, "value": "RVA + Size", "note": "RVA and size of the Import Directory Table (if importing)"},
+            {"name": "DataDirectory[5] (BaseReloc)", "offset": "0x88", "size_bytes": 8, "value": "RVA + Size", "note": "RVA and size of the Base Relocation Table (.reloc)"},
+            {"name": "DataDirectory[12] (IAT)",      "offset": "0xC0", "size_bytes": 8, "value": "RVA + Size", "note": "RVA and size of the IAT (if importing)"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === Optional Header PE32 — DLL (224 bytes at 0x0098) ===\nopt_header:\n    dw 0x010B       ; Magic = PE32\n    db 0, 0         ; LinkerVersion (major, minor)\n    dd CODE_SIZE    ; SizeOfCode\n    dd DATA_SIZE    ; SizeOfInitializedData\n    dd 0            ; SizeOfUninitializedData\n    dd DLLMAIN_RVA  ; AddressOfEntryPoint (RVA of DllMain, or 0)\n    dd 0x1000       ; BaseOfCode (RVA)\n    dd 0x2000       ; BaseOfData (RVA) — PE32 only\n    dd 0x10000000   ; ImageBase (DLL default)\n    dd 0x1000       ; SectionAlignment (4 KB)\n    dd 0x0200       ; FileAlignment    (512 B)\n    dw 6, 0         ; OS version 6.0\n    dw 0, 0         ; Image version\n    dw 6, 0         ; Subsystem version 6.0\n    dd 0            ; Win32VersionValue (must be 0)\n    dd IMAGE_SIZE   ; SizeOfImage\n    dd HDR_SIZE     ; SizeOfHeaders\n    dd 0            ; CheckSum\n    dw 3            ; Subsystem = WINDOWS_CUI\n    dw 0x0140       ; DllCharacteristics: DYNAMIC_BASE | NX_COMPAT\n    dd 0x100000     ; SizeOfStackReserve\n    dd 0x1000       ; SizeOfStackCommit\n    dd 0x100000     ; SizeOfHeapReserve\n    dd 0x1000       ; SizeOfHeapCommit\n    dd 0            ; LoaderFlags\n    dd 16           ; NumberOfRvaAndSizes\n    ; DataDirectory[0] — Export Table\n    dd EXPORT_DIR_RVA, EXPORT_DIR_SIZE\n    ; DataDirectory[1] — Import Table\n    dd IMPORT_DIR_RVA, IMPORT_DIR_SIZE\n    dq 0            ; [2] Resource\n    dq 0            ; [3] Exception\n    dq 0            ; [4] Certificate\n    ; DataDirectory[5] — Base Relocation Table\n    dd RELOC_RVA, RELOC_SIZE\n    times 6 dq 0    ; [6..11]\n    ; DataDirectory[12] — IAT\n    dd IAT_RVA, IAT_SIZE\n    times 3 dq 0    ; [13..15]"
+          }
+        },
+        {
+          "name": "Export Directory Table",
+          "offset_in_file": "inside .edata or .rdata section",
+          "size_bytes": 40,
+          "required": true,
+          "description": "Single 40-byte structure pointed to by DataDirectory[0]. Contains pointers to the Export Address Table (EAT), Export Name Pointer Table, and Export Ordinal Table. The DLL name RVA and function counts are stored here.",
+          "fields": [
+            {"name": "Characteristics",        "offset": "+0",  "size_bytes": 4, "value": "0x00000000",   "note": "Reserved; set to 0"},
+            {"name": "TimeDateStamp",          "offset": "+4",  "size_bytes": 4, "value": "0x00000000",   "note": "Export table creation timestamp; 0 is valid"},
+            {"name": "MajorVersion",           "offset": "+8",  "size_bytes": 2, "value": "0x0000",       "note": "User-defined version; can be 0"},
+            {"name": "MinorVersion",           "offset": "+10", "size_bytes": 2, "value": "0x0000",       "note": "User-defined version; can be 0"},
+            {"name": "Name",                   "offset": "+12", "size_bytes": 4, "value": "RVA",          "note": "RVA to null-terminated ASCII DLL name (e.g. 'mylib.dll')"},
+            {"name": "Base",                   "offset": "+16", "size_bytes": 4, "value": "0x00000001",   "note": "Starting ordinal number (usually 1)"},
+            {"name": "NumberOfFunctions",      "offset": "+20", "size_bytes": 4, "value": "variable",     "note": "Total entries in the Export Address Table"},
+            {"name": "NumberOfNames",          "offset": "+24", "size_bytes": 4, "value": "variable",     "note": "Number of named exports (may be less than NumberOfFunctions)"},
+            {"name": "AddressOfFunctions",     "offset": "+28", "size_bytes": 4, "value": "RVA",          "note": "RVA to the Export Address Table (array of function RVAs)"},
+            {"name": "AddressOfNames",         "offset": "+32", "size_bytes": 4, "value": "RVA",          "note": "RVA to the Export Name Pointer Table (sorted array of name RVAs)"},
+            {"name": "AddressOfNameOrdinals",  "offset": "+36", "size_bytes": 4, "value": "RVA",          "note": "RVA to the Export Ordinal Table (array of 2-byte ordinals)"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === Export Directory Table (40 bytes, inside .edata section) ===\nexport_dir:\n    dd 0                    ; Characteristics (reserved)\n    dd 0                    ; TimeDateStamp\n    dw 0                    ; MajorVersion\n    dw 0                    ; MinorVersion\n    dd DLL_NAME_RVA         ; Name -> 'mylib.dll\\0'\n    dd 1                    ; Base (starting ordinal)\n    dd NUM_FUNCTIONS        ; NumberOfFunctions\n    dd NUM_NAMES            ; NumberOfNames\n    dd EAT_RVA              ; AddressOfFunctions -> EAT\n    dd NAME_PTR_RVA         ; AddressOfNames -> Name Pointer Table\n    dd ORDINAL_TBL_RVA      ; AddressOfNameOrdinals -> Ordinal Table\n\n; Export Address Table (EAT)\neat:\n    dd _Add_RVA             ; ordinal 1 -> Add\n    dd _Sub_RVA             ; ordinal 2 -> Subtract\n\n; Export Name Pointer Table (sorted lexically)\nname_ptrs:\n    dd NAME_ADD_RVA         ; -> 'Add\\0'\n    dd NAME_SUB_RVA         ; -> 'Subtract\\0'\n\n; Export Ordinal Table (parallel to Name Pointer Table)\nordinals:\n    dw 0                    ; 'Add' -> EAT[0]\n    dw 1                    ; 'Subtract' -> EAT[1]\n\n; ASCII name strings\ndll_name:   db 'mylib.dll', 0\nname_add:   db 'Add', 0\nname_sub:   db 'Subtract', 0"
+          }
+        },
+        {
+          "name": "Base Relocation Table (.reloc)",
+          "offset_in_file": "inside .reloc section",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "Pointed to by DataDirectory[5]. Array of variable-length relocation blocks, each covering one 4 KB page. Essential for DLLs since they are frequently loaded at addresses other than their preferred ImageBase (ASLR, address collisions). PE32 uses IMAGE_REL_BASED_HIGHLOW (type 3) for 32-bit fixups.",
+          "fields": [
+            {"name": "VirtualAddress", "offset": "+0", "size_bytes": 4, "value": "RVA",      "note": "Base RVA of the 4 KB page this block covers"},
+            {"name": "SizeOfBlock",    "offset": "+4", "size_bytes": 4, "value": "variable",  "note": "Total size of this block in bytes (header + entries)"},
+            {"name": "TypeOffset[]",   "offset": "+8", "size_bytes": 2, "value": "variable",  "note": "High 4 bits = relocation type (3 = HIGHLOW for PE32), low 12 bits = page offset; type 0 = padding"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === Base Relocation Table (.reloc section) ===\n; Each block covers one 4 KB page of the image.\nreloc_block_0:\n    dd 0x1000               ; VirtualAddress: RVA of the page\n    dd 12                   ; SizeOfBlock: 8 (header) + 2*2 (entries) = 12\n    dw (3 << 12) | 0x005    ; Type=HIGHLOW, Offset=0x005 in page\n    dw (0 << 12) | 0x000    ; Type=ABSOLUTE (padding to align block)\nreloc_end:"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pe32_dll_static",
+      "name": "PE32 32-bit DLL (static, no imports)",
+      "architecture": "x86",
+      "bits": 32,
+      "magic": "0x010B",
+      "machine": "0x014C",
+      "linking": "static",
+      "description": "Self-contained 32-bit DLL that does not import from any other DLL. Exports functions by name only. The IMAGE_FILE_DLL flag is set. AddressOfEntryPoint can be 0 (no DllMain) or point to a minimal DllMain.",
+      "toolchain": {
+        "assemble": "nasm -f win32 mylib.asm -o mylib.obj",
+        "link": "link mylib.obj /dll /def:mylib.def /nodefaultlib /out:mylib.dll"
+      },
+      "required_components": [
+        {
+          "name": "MZ Header",
+          "offset_in_file": "0x0000",
+          "size_bytes": 64,
+          "required": true,
+          "description": "MS-DOS 2.0 compatible header. Identical to the dynamic DLL variant. e_lfanew at offset 0x3C points to the PE signature.",
+          "fields": [
+            {"name": "e_magic",   "offset": "0x00", "size_bytes": 2, "value": "0x5A4D",     "note": "ASCII 'MZ' — mandatory magic bytes"},
+            {"name": "(padding)", "offset": "0x02", "size_bytes": 58, "value": "0x00 * 58", "note": "Unused; set to zero for a minimal stub"},
+            {"name": "e_lfanew",  "offset": "0x3C", "size_bytes": 4, "value": "0x00000080", "note": "File offset of the PE signature"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === MZ Header (64 bytes at file offset 0x0000) ===\nmz_header:\n    dw 0x5A4D           ; e_magic = 'MZ'\n    times 29 dw 0x0000  ; unused fields (58 bytes)\n    dd 0x00000080       ; e_lfanew -> PE signature at 0x80"
+          }
+        },
+        {
+          "name": "PE Signature",
+          "offset_in_file": "0x0080",
+          "size_bytes": 4,
+          "required": true,
+          "description": "Four-byte magic at e_lfanew. Must be 'PE\\0\\0'.",
+          "fields": [
+            {"name": "Signature", "offset": "0x00", "size_bytes": 4, "value": "0x50 0x45 0x00 0x00", "note": "ASCII 'PE' followed by two zero bytes"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === PE Signature (4 bytes at 0x0080) ===\npe_signature:\n    db 'P', 'E', 0, 0"
+          }
+        },
+        {
+          "name": "COFF File Header (IMAGE_FILE_DLL)",
+          "offset_in_file": "0x0084",
+          "size_bytes": 20,
+          "required": true,
+          "description": "20-byte COFF header with IMAGE_FILE_DLL flag set. Characteristics = 0x2102 (EXECUTABLE_IMAGE | 32BIT_MACHINE | DLL). Same as dynamic variant.",
+          "fields": [
+            {"name": "Machine",              "offset": "0x00", "size_bytes": 2, "value": "0x014C",     "note": "IMAGE_FILE_MACHINE_I386"},
+            {"name": "NumberOfSections",     "offset": "0x02", "size_bytes": 2, "value": "variable",   "note": "Typically fewer sections than dynamic variant (no .idata)"},
+            {"name": "SizeOfOptionalHeader", "offset": "0x10", "size_bytes": 2, "value": "0x00E0",     "note": "224 bytes for PE32"},
+            {"name": "Characteristics",      "offset": "0x12", "size_bytes": 2, "value": "0x2102",     "note": "IMAGE_FILE_EXECUTABLE_IMAGE | IMAGE_FILE_32BIT_MACHINE | IMAGE_FILE_DLL"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === COFF File Header (20 bytes at 0x0084) ===\ncoff_header:\n    dw 0x014C           ; Machine = I386\n    dw NUM_SECTIONS     ; NumberOfSections\n    dd 0                ; TimeDateStamp\n    dd 0                ; PointerToSymbolTable\n    dd 0                ; NumberOfSymbols\n    dw 0x00E0           ; SizeOfOptionalHeader = 224 (PE32)\n    dw 0x2102           ; Characteristics: EXECUTABLE | 32BIT | DLL"
+          }
+        },
+        {
+          "name": "Optional Header (PE32, static DLL)",
+          "offset_in_file": "0x0098",
+          "size_bytes": 224,
+          "required": true,
+          "description": "224-byte PE32 Optional Header. AddressOfEntryPoint is 0 (no DllMain) or points to a minimal DllMain that returns TRUE. DataDirectory[0] (Export Table) must be populated. DataDirectory[1] (Import) and DataDirectory[12] (IAT) are zeroed because this DLL has no imports.",
+          "fields": [
+            {"name": "Magic",                       "offset": "0x00", "size_bytes": 2, "value": "0x010B",     "note": "PE32 magic"},
+            {"name": "AddressOfEntryPoint",         "offset": "0x10", "size_bytes": 4, "value": "0x00000000", "note": "0 = no DllMain; or RVA of minimal DllMain"},
+            {"name": "ImageBase",                   "offset": "0x1C", "size_bytes": 4, "value": "0x10000000", "note": "Default DLL load address"},
+            {"name": "SectionAlignment",            "offset": "0x20", "size_bytes": 4, "value": "0x00001000", "note": "4 KB page alignment"},
+            {"name": "FileAlignment",               "offset": "0x24", "size_bytes": 4, "value": "0x00000200", "note": "512-byte file alignment"},
+            {"name": "DllCharacteristics",          "offset": "0x46", "size_bytes": 2, "value": "0x0140",     "note": "DYNAMIC_BASE | NX_COMPAT"},
+            {"name": "NumberOfRvaAndSizes",         "offset": "0x5C", "size_bytes": 4, "value": "0x00000010", "note": "Always 16"},
+            {"name": "DataDirectory[0] (Export)",    "offset": "0x60", "size_bytes": 8, "value": "RVA + Size", "note": "RVA and size of the Export Directory Table"},
+            {"name": "DataDirectory[1] (Import)",    "offset": "0x68", "size_bytes": 8, "value": "0x00 * 8",   "note": "Zeroed — no imports"},
+            {"name": "DataDirectory[12] (IAT)",      "offset": "0xC0", "size_bytes": 8, "value": "0x00 * 8",   "note": "Zeroed — no IAT"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === Optional Header PE32 — Static DLL (224 bytes at 0x0098) ===\nopt_header:\n    dw 0x010B       ; Magic = PE32\n    db 0, 0         ; LinkerVersion\n    dd CODE_SIZE    ; SizeOfCode\n    dd DATA_SIZE    ; SizeOfInitializedData\n    dd 0            ; SizeOfUninitializedData\n    dd 0            ; AddressOfEntryPoint = 0 (no DllMain)\n    dd 0x1000       ; BaseOfCode\n    dd 0x2000       ; BaseOfData — PE32 only\n    dd 0x10000000   ; ImageBase (DLL default)\n    dd 0x1000       ; SectionAlignment\n    dd 0x0200       ; FileAlignment\n    dw 6, 0         ; OS version 6.0\n    dw 0, 0         ; Image version\n    dw 6, 0         ; Subsystem version\n    dd 0            ; Win32VersionValue\n    dd IMAGE_SIZE   ; SizeOfImage\n    dd HDR_SIZE     ; SizeOfHeaders\n    dd 0            ; CheckSum\n    dw 3            ; Subsystem = WINDOWS_CUI\n    dw 0x0140       ; DllCharacteristics: DYNAMIC_BASE | NX_COMPAT\n    dd 0x100000     ; SizeOfStackReserve\n    dd 0x1000       ; SizeOfStackCommit\n    dd 0x100000     ; SizeOfHeapReserve\n    dd 0x1000       ; SizeOfHeapCommit\n    dd 0            ; LoaderFlags\n    dd 16           ; NumberOfRvaAndSizes\n    ; DataDirectory[0] — Export Table\n    dd EXPORT_DIR_RVA, EXPORT_DIR_SIZE\n    ; DataDirectory[1] — Import Table (none)\n    dq 0\n    times 3 dq 0    ; [2..4]\n    dq 0            ; [5] Base Reloc (optional for static)\n    times 6 dq 0    ; [6..11]\n    dq 0            ; [12] IAT (none)\n    times 3 dq 0    ; [13..15]"
+          }
+        },
+        {
+          "name": "Export Directory Table",
+          "offset_in_file": "inside .edata or .rdata section",
+          "size_bytes": 40,
+          "required": true,
+          "description": "Single 40-byte structure pointed to by DataDirectory[0]. Identical layout to the dynamic DLL variant. Lists all exported functions by name.",
+          "fields": [
+            {"name": "Characteristics",        "offset": "+0",  "size_bytes": 4, "value": "0x00000000", "note": "Reserved; set to 0"},
+            {"name": "TimeDateStamp",          "offset": "+4",  "size_bytes": 4, "value": "0x00000000", "note": "0 is valid"},
+            {"name": "Name",                   "offset": "+12", "size_bytes": 4, "value": "RVA",        "note": "RVA to null-terminated DLL name string"},
+            {"name": "Base",                   "offset": "+16", "size_bytes": 4, "value": "0x00000001", "note": "Starting ordinal (usually 1)"},
+            {"name": "NumberOfFunctions",      "offset": "+20", "size_bytes": 4, "value": "variable",   "note": "Total EAT entries"},
+            {"name": "NumberOfNames",          "offset": "+24", "size_bytes": 4, "value": "variable",   "note": "Number of named exports"},
+            {"name": "AddressOfFunctions",     "offset": "+28", "size_bytes": 4, "value": "RVA",        "note": "RVA to Export Address Table"},
+            {"name": "AddressOfNames",         "offset": "+32", "size_bytes": 4, "value": "RVA",        "note": "RVA to Export Name Pointer Table"},
+            {"name": "AddressOfNameOrdinals",  "offset": "+36", "size_bytes": 4, "value": "RVA",        "note": "RVA to Export Ordinal Table"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === Export Directory Table (40 bytes) ===\nexport_dir:\n    dd 0                    ; Characteristics\n    dd 0                    ; TimeDateStamp\n    dw 0, 0                 ; Major/MinorVersion\n    dd DLL_NAME_RVA         ; Name -> 'mylib.dll\\0'\n    dd 1                    ; Base\n    dd NUM_FUNCTIONS        ; NumberOfFunctions\n    dd NUM_NAMES            ; NumberOfNames\n    dd EAT_RVA              ; AddressOfFunctions\n    dd NAME_PTR_RVA         ; AddressOfNames\n    dd ORDINAL_TBL_RVA      ; AddressOfNameOrdinals\n\n; Example: single exported function 'Multiply'\neat:        dd _Multiply_RVA\nname_ptrs:  dd NAME_MULTIPLY_RVA\nordinals:   dw 0\ndll_name:   db 'mylib.dll', 0\nname_mul:   db 'Multiply', 0"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pe32plus_dll_dynamic",
+      "name": "PE32+ 64-bit DLL (dynamic, exports by name, may import)",
+      "architecture": "x86_64",
+      "bits": 64,
+      "magic": "0x020B",
+      "machine": "0x8664",
+      "linking": "dynamic",
+      "description": "64-bit Windows DLL with named exports. Uses the Microsoft x64 calling convention for DllMain (RCX, RDX, R8). ImageBase defaults to 0x0000000180000000. Typical Characteristics: 0x2022.",
+      "toolchain": {
+        "assemble": "nasm -f win64 mylib.asm -o mylib.obj",
+        "link": "link mylib.obj /dll /def:mylib.def /out:mylib.dll"
+      },
+      "required_components": [
+        {
+          "name": "MZ Header",
+          "offset_in_file": "0x0000",
+          "size_bytes": 64,
+          "required": true,
+          "description": "MS-DOS 2.0 compatible header. Identical for 32-bit and 64-bit PE images. e_lfanew at offset 0x3C points to the PE signature.",
+          "fields": [
+            {"name": "e_magic",   "offset": "0x00", "size_bytes": 2, "value": "0x5A4D",     "note": "ASCII 'MZ' — mandatory magic bytes"},
+            {"name": "(padding)", "offset": "0x02", "size_bytes": 58, "value": "0x00 * 58", "note": "Unused; set to zero for a minimal stub"},
+            {"name": "e_lfanew",  "offset": "0x3C", "size_bytes": 4, "value": "0x00000080", "note": "File offset of the PE signature"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === MZ Header (64 bytes at file offset 0x0000) ===\nmz_header:\n    dw 0x5A4D           ; e_magic = 'MZ'\n    dw 0x0000           ; e_cblp  (unused)\n    dw 0x0000           ; e_cp    (unused)\n    dw 0x0000           ; e_crlc  (unused)\n    dw 0x0000           ; e_cparhdr (unused)\n    dw 0x0000           ; e_minalloc\n    dw 0xFFFF           ; e_maxalloc\n    dw 0x0000           ; e_ss\n    dw 0x00B8           ; e_sp\n    dw 0x0000           ; e_csum\n    dw 0x0000           ; e_ip\n    dw 0x0000           ; e_cs\n    dw 0x0040           ; e_lfarlc\n    dw 0x0000           ; e_ovno\n    times 4 dw 0x0000   ; e_res[4]\n    dw 0x0000           ; e_oemid\n    dw 0x0000           ; e_oeminfo\n    times 10 dw 0x0000  ; e_res2[10]\n    dd 0x00000080       ; e_lfanew -> PE signature at 0x80"
+          }
+        },
+        {
+          "name": "PE Signature",
+          "offset_in_file": "0x0080",
+          "size_bytes": 4,
+          "required": true,
+          "description": "Four-byte magic at e_lfanew. Must be 'PE\\0\\0'.",
+          "fields": [
+            {"name": "Signature", "offset": "0x00", "size_bytes": 4, "value": "0x50 0x45 0x00 0x00", "note": "ASCII 'PE' followed by two zero bytes"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === PE Signature (4 bytes at 0x0080) ===\npe_signature:\n    db 'P', 'E', 0, 0"
+          }
+        },
+        {
+          "name": "COFF File Header (IMAGE_FILE_DLL, 64-bit)",
+          "offset_in_file": "0x0084",
+          "size_bytes": 20,
+          "required": true,
+          "description": "20-byte COFF header. Machine = 0x8664 (AMD64). SizeOfOptionalHeader = 240 (PE32+). Characteristics = 0x2022 (EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE | DLL).",
+          "fields": [
+            {"name": "Machine",              "offset": "0x00", "size_bytes": 2, "value": "0x8664",     "note": "IMAGE_FILE_MACHINE_AMD64"},
+            {"name": "NumberOfSections",     "offset": "0x02", "size_bytes": 2, "value": "variable",   "note": "Count of Section Table entries"},
+            {"name": "TimeDateStamp",        "offset": "0x04", "size_bytes": 4, "value": "0x00000000", "note": "Unix timestamp; 0 is valid"},
+            {"name": "PointerToSymbolTable", "offset": "0x08", "size_bytes": 4, "value": "0x00000000", "note": "Set to 0 for image files"},
+            {"name": "NumberOfSymbols",      "offset": "0x0C", "size_bytes": 4, "value": "0x00000000", "note": "Set to 0 for image files"},
+            {"name": "SizeOfOptionalHeader", "offset": "0x10", "size_bytes": 2, "value": "0x00F0",     "note": "240 bytes for PE32+"},
+            {"name": "Characteristics",      "offset": "0x12", "size_bytes": 2, "value": "0x2022",     "note": "IMAGE_FILE_EXECUTABLE_IMAGE (0x0002) | IMAGE_FILE_LARGE_ADDRESS_AWARE (0x0020) | IMAGE_FILE_DLL (0x2000)"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === COFF File Header (20 bytes at 0x0084) ===\ncoff_header:\n    dw 0x8664           ; Machine = IMAGE_FILE_MACHINE_AMD64\n    dw NUM_SECTIONS     ; NumberOfSections\n    dd 0                ; TimeDateStamp\n    dd 0                ; PointerToSymbolTable\n    dd 0                ; NumberOfSymbols\n    dw 0x00F0           ; SizeOfOptionalHeader = 240 (PE32+)\n    dw 0x2022           ; Characteristics: EXECUTABLE | LARGE_ADDR | DLL"
+          }
+        },
+        {
+          "name": "Optional Header (PE32+, DLL, ImageBase 0x0000000180000000)",
+          "offset_in_file": "0x0098",
+          "size_bytes": 240,
+          "required": true,
+          "description": "240-byte PE32+ Optional Header. BaseOfData field is absent. ImageBase and stack/heap sizes are 8 bytes. ImageBase defaults to 0x0000000180000000 (64-bit DLL convention). DataDirectory[0] (Export) and DataDirectory[5] (Base Reloc) must be populated. ILT/IAT entries are 8 bytes in PE32+.",
+          "fields": [
+            {"name": "Magic",                       "offset": "0x00", "size_bytes": 2, "value": "0x020B",               "note": "PE32+ magic"},
+            {"name": "SizeOfCode",                  "offset": "0x04", "size_bytes": 4, "value": "variable",             "note": "Total size of code sections"},
+            {"name": "AddressOfEntryPoint",         "offset": "0x10", "size_bytes": 4, "value": "variable",             "note": "RVA of DllMain; 0 if no entry point"},
+            {"name": "BaseOfCode",                  "offset": "0x14", "size_bytes": 4, "value": "0x00001000",           "note": "RVA of .text"},
+            {"name": "BaseOfData",                  "note": "ABSENT — does not exist in PE32+"},
+            {"name": "ImageBase",                   "offset": "0x18", "size_bytes": 8, "value": "0x0000000180000000",   "note": "64-bit DLL default load address"},
+            {"name": "SectionAlignment",            "offset": "0x20", "size_bytes": 4, "value": "0x00001000",           "note": "4 KB page alignment"},
+            {"name": "FileAlignment",               "offset": "0x24", "size_bytes": 4, "value": "0x00000200",           "note": "512-byte file alignment"},
+            {"name": "Subsystem",                   "offset": "0x44", "size_bytes": 2, "value": "0x0003",               "note": "IMAGE_SUBSYSTEM_WINDOWS_CUI (or WINDOWS_GUI)"},
+            {"name": "DllCharacteristics",          "offset": "0x46", "size_bytes": 2, "value": "0x0160",               "note": "HIGH_ENTROPY_VA | DYNAMIC_BASE | NX_COMPAT"},
+            {"name": "SizeOfStackReserve",          "offset": "0x48", "size_bytes": 8, "value": "0x0000000000100000",   "note": "1 MB (8-byte field)"},
+            {"name": "SizeOfStackCommit",           "offset": "0x50", "size_bytes": 8, "value": "0x0000000000001000",   "note": "4 KB (8-byte field)"},
+            {"name": "NumberOfRvaAndSizes",         "offset": "0x6C", "size_bytes": 4, "value": "0x00000010",           "note": "Always 16"},
+            {"name": "DataDirectory[0] (Export)",    "offset": "0x70", "size_bytes": 8, "value": "RVA + Size",           "note": "RVA and size of the Export Directory Table"},
+            {"name": "DataDirectory[1] (Import)",    "offset": "0x78", "size_bytes": 8, "value": "RVA + Size",           "note": "RVA and size of the Import Directory Table (if importing)"},
+            {"name": "DataDirectory[5] (BaseReloc)", "offset": "0x98", "size_bytes": 8, "value": "RVA + Size",           "note": "RVA and size of the Base Relocation Table"},
+            {"name": "DataDirectory[12] (IAT)",      "offset": "0xD0", "size_bytes": 8, "value": "RVA + Size",           "note": "RVA and size of the IAT (if importing)"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === Optional Header PE32+ — DLL (240 bytes at 0x0098) ===\nopt_header:\n    dw 0x020B               ; Magic = PE32+\n    db 0, 0                 ; LinkerVersion\n    dd CODE_SIZE            ; SizeOfCode\n    dd DATA_SIZE            ; SizeOfInitializedData\n    dd 0                    ; SizeOfUninitializedData\n    dd DLLMAIN_RVA          ; AddressOfEntryPoint (DllMain or 0)\n    dd 0x1000               ; BaseOfCode\n    ; Note: no BaseOfData field in PE32+\n    dq 0x0000000180000000   ; ImageBase (64-bit DLL default)\n    dd 0x1000               ; SectionAlignment\n    dd 0x0200               ; FileAlignment\n    dw 6, 0                 ; OS version 6.0\n    dw 0, 0                 ; Image version\n    dw 6, 0                 ; Subsystem version\n    dd 0                    ; Win32VersionValue\n    dd IMAGE_SIZE           ; SizeOfImage\n    dd HDR_SIZE             ; SizeOfHeaders\n    dd 0                    ; CheckSum\n    dw 3                    ; Subsystem = WINDOWS_CUI\n    dw 0x0160               ; DllCharacteristics: HIGH_ENTROPY_VA | DYNAMIC_BASE | NX_COMPAT\n    dq 0x100000             ; SizeOfStackReserve (8 bytes)\n    dq 0x1000               ; SizeOfStackCommit\n    dq 0x100000             ; SizeOfHeapReserve\n    dq 0x1000               ; SizeOfHeapCommit\n    dd 0                    ; LoaderFlags\n    dd 16                   ; NumberOfRvaAndSizes\n    ; DataDirectory[0] — Export Table\n    dd EXPORT_DIR_RVA, EXPORT_DIR_SIZE\n    ; DataDirectory[1] — Import Table\n    dd IMPORT_DIR_RVA, IMPORT_DIR_SIZE\n    dq 0            ; [2] Resource\n    dq 0            ; [3] Exception\n    dq 0            ; [4] Certificate\n    ; DataDirectory[5] — Base Relocation Table\n    dd RELOC_RVA, RELOC_SIZE\n    times 6 dq 0    ; [6..11]\n    ; DataDirectory[12] — IAT\n    dd IAT_RVA, IAT_SIZE\n    times 3 dq 0    ; [13..15]"
+          }
+        },
+        {
+          "name": "Export Directory Table",
+          "offset_in_file": "inside .edata or .rdata section",
+          "size_bytes": 40,
+          "required": true,
+          "description": "Single 40-byte structure pointed to by DataDirectory[0]. Layout is identical across PE32 and PE32+ — all RVAs are 32-bit even in 64-bit images. Contains pointers to the EAT, Name Pointer Table, and Ordinal Table.",
+          "fields": [
+            {"name": "Characteristics",        "offset": "+0",  "size_bytes": 4, "value": "0x00000000",   "note": "Reserved; set to 0"},
+            {"name": "TimeDateStamp",          "offset": "+4",  "size_bytes": 4, "value": "0x00000000",   "note": "0 is valid"},
+            {"name": "Name",                   "offset": "+12", "size_bytes": 4, "value": "RVA",          "note": "RVA to null-terminated DLL name"},
+            {"name": "Base",                   "offset": "+16", "size_bytes": 4, "value": "0x00000001",   "note": "Starting ordinal (usually 1)"},
+            {"name": "NumberOfFunctions",      "offset": "+20", "size_bytes": 4, "value": "variable",     "note": "Total EAT entries"},
+            {"name": "NumberOfNames",          "offset": "+24", "size_bytes": 4, "value": "variable",     "note": "Named exports count"},
+            {"name": "AddressOfFunctions",     "offset": "+28", "size_bytes": 4, "value": "RVA",          "note": "RVA to Export Address Table (4-byte RVAs even in PE32+)"},
+            {"name": "AddressOfNames",         "offset": "+32", "size_bytes": 4, "value": "RVA",          "note": "RVA to Export Name Pointer Table (sorted)"},
+            {"name": "AddressOfNameOrdinals",  "offset": "+36", "size_bytes": 4, "value": "RVA",          "note": "RVA to Export Ordinal Table"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === Export Directory Table (40 bytes, .edata section) ===\nexport_dir:\n    dd 0                    ; Characteristics\n    dd 0                    ; TimeDateStamp\n    dw 0, 0                 ; Major/MinorVersion\n    dd DLL_NAME_RVA         ; Name -> 'mylib.dll\\0'\n    dd 1                    ; Base\n    dd NUM_FUNCTIONS        ; NumberOfFunctions\n    dd NUM_NAMES            ; NumberOfNames\n    dd EAT_RVA              ; AddressOfFunctions\n    dd NAME_PTR_RVA         ; AddressOfNames\n    dd ORDINAL_TBL_RVA      ; AddressOfNameOrdinals\n\n; 64-bit DllMain entry point (Microsoft x64 calling convention)\nsection .text\nglobal DllMain\nexport DllMain\n\nDllMain:\n    ; RCX = hinstDLL, RDX = fdwReason, R8 = lpvReserved\n    mov   eax, 1            ; return TRUE\n    ret"
+          }
+        },
+        {
+          "name": "Base Relocation Table (.reloc)",
+          "offset_in_file": "inside .reloc section",
+          "size_bytes": "variable",
+          "required": true,
+          "description": "Pointed to by DataDirectory[5]. Array of relocation blocks covering 4 KB pages. PE32+ uses IMAGE_REL_BASED_DIR64 (type 10) for 64-bit address fixups instead of HIGHLOW (type 3) used by PE32.",
+          "fields": [
+            {"name": "VirtualAddress", "offset": "+0", "size_bytes": 4, "value": "RVA",      "note": "Base RVA of the 4 KB page"},
+            {"name": "SizeOfBlock",    "offset": "+4", "size_bytes": 4, "value": "variable",  "note": "Total block size in bytes"},
+            {"name": "TypeOffset[]",   "offset": "+8", "size_bytes": 2, "value": "variable",  "note": "High 4 bits = type (10 = DIR64 for PE32+), low 12 bits = page offset; type 0 = padding"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === Base Relocation Table (.reloc section, PE32+) ===\nreloc_block_0:\n    dd 0x1000               ; VirtualAddress: RVA of the page\n    dd 12                   ; SizeOfBlock: 8 (header) + 2*2 (entries) = 12\n    dw (10 << 12) | 0x008   ; Type=DIR64, Offset=0x008 in page\n    dw (0  << 12) | 0x000   ; Type=ABSOLUTE (padding)\nreloc_end:"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pe32plus_dll_static",
+      "name": "PE32+ 64-bit DLL (static, no imports)",
+      "architecture": "x86_64",
+      "bits": 64,
+      "magic": "0x020B",
+      "machine": "0x8664",
+      "linking": "static",
+      "description": "Self-contained 64-bit DLL with no imports. Exports functions by name. AddressOfEntryPoint is 0 or a minimal DllMain.",
+      "toolchain": {
+        "assemble": "nasm -f win64 mylib.asm -o mylib.obj",
+        "link": "link mylib.obj /dll /def:mylib.def /nodefaultlib /out:mylib.dll"
+      },
+      "required_components": [
+        {
+          "name": "MZ Header",
+          "offset_in_file": "0x0000",
+          "size_bytes": 64,
+          "required": true,
+          "description": "MS-DOS 2.0 compatible header. Identical for all PE images. e_lfanew at offset 0x3C points to the PE signature.",
+          "fields": [
+            {"name": "e_magic",   "offset": "0x00", "size_bytes": 2, "value": "0x5A4D",     "note": "ASCII 'MZ' — mandatory magic bytes"},
+            {"name": "(padding)", "offset": "0x02", "size_bytes": 58, "value": "0x00 * 58", "note": "Unused; set to zero"},
+            {"name": "e_lfanew",  "offset": "0x3C", "size_bytes": 4, "value": "0x00000080", "note": "File offset of the PE signature"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === MZ Header (64 bytes at file offset 0x0000) ===\nmz_header:\n    dw 0x5A4D           ; e_magic = 'MZ'\n    times 29 dw 0x0000  ; unused fields (58 bytes)\n    dd 0x00000080       ; e_lfanew -> PE signature at 0x80"
+          }
+        },
+        {
+          "name": "PE Signature",
+          "offset_in_file": "0x0080",
+          "size_bytes": 4,
+          "required": true,
+          "description": "Four-byte magic at e_lfanew. Must be 'PE\\0\\0'.",
+          "fields": [
+            {"name": "Signature", "offset": "0x00", "size_bytes": 4, "value": "0x50 0x45 0x00 0x00", "note": "ASCII 'PE' followed by two zero bytes"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === PE Signature (4 bytes at 0x0080) ===\npe_signature:\n    db 'P', 'E', 0, 0"
+          }
+        },
+        {
+          "name": "COFF File Header",
+          "offset_in_file": "0x0084",
+          "size_bytes": 20,
+          "required": true,
+          "description": "20-byte COFF header. Machine = 0x8664 (AMD64). Characteristics = 0x2022 (EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE | DLL). SizeOfOptionalHeader = 240 (PE32+).",
+          "fields": [
+            {"name": "Machine",              "offset": "0x00", "size_bytes": 2, "value": "0x8664",     "note": "IMAGE_FILE_MACHINE_AMD64"},
+            {"name": "NumberOfSections",     "offset": "0x02", "size_bytes": 2, "value": "variable",   "note": "Typically fewer sections (no .idata)"},
+            {"name": "SizeOfOptionalHeader", "offset": "0x10", "size_bytes": 2, "value": "0x00F0",     "note": "240 bytes for PE32+"},
+            {"name": "Characteristics",      "offset": "0x12", "size_bytes": 2, "value": "0x2022",     "note": "IMAGE_FILE_EXECUTABLE_IMAGE | IMAGE_FILE_LARGE_ADDRESS_AWARE | IMAGE_FILE_DLL"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === COFF File Header (20 bytes at 0x0084) ===\ncoff_header:\n    dw 0x8664           ; Machine = AMD64\n    dw NUM_SECTIONS     ; NumberOfSections\n    dd 0                ; TimeDateStamp\n    dd 0                ; PointerToSymbolTable\n    dd 0                ; NumberOfSymbols\n    dw 0x00F0           ; SizeOfOptionalHeader = 240 (PE32+)\n    dw 0x2022           ; Characteristics: EXECUTABLE | LARGE_ADDR | DLL"
+          }
+        },
+        {
+          "name": "Optional Header (PE32+, static DLL)",
+          "offset_in_file": "0x0098",
+          "size_bytes": 240,
+          "required": true,
+          "description": "240-byte PE32+ Optional Header. BaseOfData is absent. AddressOfEntryPoint is 0 (no DllMain) or a minimal DllMain RVA. ImageBase = 0x0000000180000000. DataDirectory[0] (Export) must be populated. Import and IAT directories are zeroed.",
+          "fields": [
+            {"name": "Magic",                       "offset": "0x00", "size_bytes": 2, "value": "0x020B",               "note": "PE32+ magic"},
+            {"name": "AddressOfEntryPoint",         "offset": "0x10", "size_bytes": 4, "value": "0x00000000",           "note": "0 = no DllMain; or RVA of minimal DllMain"},
+            {"name": "BaseOfData",                  "note": "ABSENT — does not exist in PE32+"},
+            {"name": "ImageBase",                   "offset": "0x18", "size_bytes": 8, "value": "0x0000000180000000",   "note": "64-bit DLL default load address"},
+            {"name": "SectionAlignment",            "offset": "0x20", "size_bytes": 4, "value": "0x00001000",           "note": "4 KB page alignment"},
+            {"name": "FileAlignment",               "offset": "0x24", "size_bytes": 4, "value": "0x00000200",           "note": "512-byte file alignment"},
+            {"name": "DllCharacteristics",          "offset": "0x46", "size_bytes": 2, "value": "0x0160",               "note": "HIGH_ENTROPY_VA | DYNAMIC_BASE | NX_COMPAT"},
+            {"name": "NumberOfRvaAndSizes",         "offset": "0x6C", "size_bytes": 4, "value": "0x00000010",           "note": "Always 16"},
+            {"name": "DataDirectory[0] (Export)",    "offset": "0x70", "size_bytes": 8, "value": "RVA + Size",           "note": "RVA and size of the Export Directory Table"},
+            {"name": "DataDirectory[1] (Import)",    "offset": "0x78", "size_bytes": 8, "value": "0x00 * 8",             "note": "Zeroed — no imports"},
+            {"name": "DataDirectory[12] (IAT)",      "offset": "0xD0", "size_bytes": 8, "value": "0x00 * 8",             "note": "Zeroed — no IAT"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === Optional Header PE32+ — Static DLL (240 bytes at 0x0098) ===\nopt_header:\n    dw 0x020B               ; Magic = PE32+\n    db 0, 0                 ; LinkerVersion\n    dd CODE_SIZE            ; SizeOfCode\n    dd DATA_SIZE            ; SizeOfInitializedData\n    dd 0                    ; SizeOfUninitializedData\n    dd 0                    ; AddressOfEntryPoint = 0 (no DllMain)\n    dd 0x1000               ; BaseOfCode\n    ; Note: no BaseOfData field in PE32+\n    dq 0x0000000180000000   ; ImageBase (64-bit DLL default)\n    dd 0x1000               ; SectionAlignment\n    dd 0x0200               ; FileAlignment\n    dw 6, 0                 ; OS version 6.0\n    dw 0, 0                 ; Image version\n    dw 6, 0                 ; Subsystem version\n    dd 0                    ; Win32VersionValue\n    dd IMAGE_SIZE           ; SizeOfImage\n    dd HDR_SIZE             ; SizeOfHeaders\n    dd 0                    ; CheckSum\n    dw 3                    ; Subsystem = WINDOWS_CUI\n    dw 0x0160               ; DllCharacteristics: HIGH_ENTROPY_VA | DYNAMIC_BASE | NX_COMPAT\n    dq 0x100000             ; SizeOfStackReserve (8 bytes)\n    dq 0x1000               ; SizeOfStackCommit\n    dq 0x100000             ; SizeOfHeapReserve\n    dq 0x1000               ; SizeOfHeapCommit\n    dd 0                    ; LoaderFlags\n    dd 16                   ; NumberOfRvaAndSizes\n    ; DataDirectory[0] — Export Table\n    dd EXPORT_DIR_RVA, EXPORT_DIR_SIZE\n    ; DataDirectory[1] — Import Table (none)\n    dq 0\n    times 3 dq 0            ; [2..4]\n    dq 0                    ; [5] Base Reloc (optional)\n    times 6 dq 0            ; [6..11]\n    dq 0                    ; [12] IAT (none)\n    times 3 dq 0            ; [13..15]"
+          }
+        },
+        {
+          "name": "Export Directory Table",
+          "offset_in_file": "inside .edata or .rdata section",
+          "size_bytes": 40,
+          "required": true,
+          "description": "Single 40-byte structure. All RVAs are 32-bit even in PE32+. Lists exported functions by name for consumers using GetProcAddress or implicit linking.",
+          "fields": [
+            {"name": "Characteristics",        "offset": "+0",  "size_bytes": 4, "value": "0x00000000", "note": "Reserved; set to 0"},
+            {"name": "TimeDateStamp",          "offset": "+4",  "size_bytes": 4, "value": "0x00000000", "note": "0 is valid"},
+            {"name": "Name",                   "offset": "+12", "size_bytes": 4, "value": "RVA",        "note": "RVA to null-terminated DLL name"},
+            {"name": "Base",                   "offset": "+16", "size_bytes": 4, "value": "0x00000001", "note": "Starting ordinal"},
+            {"name": "NumberOfFunctions",      "offset": "+20", "size_bytes": 4, "value": "variable",   "note": "Total EAT entries"},
+            {"name": "NumberOfNames",          "offset": "+24", "size_bytes": 4, "value": "variable",   "note": "Named exports count"},
+            {"name": "AddressOfFunctions",     "offset": "+28", "size_bytes": 4, "value": "RVA",        "note": "RVA to EAT"},
+            {"name": "AddressOfNames",         "offset": "+32", "size_bytes": 4, "value": "RVA",        "note": "RVA to Name Pointer Table"},
+            {"name": "AddressOfNameOrdinals",  "offset": "+36", "size_bytes": 4, "value": "RVA",        "note": "RVA to Ordinal Table"}
+          ],
+          "code_example": {
+            "language": "nasm",
+            "source": "; === Export Directory + exported function (64-bit, static DLL) ===\nsection .edata\nexport_dir:\n    dd 0                    ; Characteristics\n    dd 0                    ; TimeDateStamp\n    dw 0, 0                 ; Major/MinorVersion\n    dd DLL_NAME_RVA         ; Name\n    dd 1                    ; Base\n    dd 1                    ; NumberOfFunctions\n    dd 1                    ; NumberOfNames\n    dd EAT_RVA              ; AddressOfFunctions\n    dd NAME_PTR_RVA         ; AddressOfNames\n    dd ORDINAL_TBL_RVA      ; AddressOfNameOrdinals\n\neat:        dd _Add_RVA\nname_ptrs:  dd NAME_ADD_RVA\nordinals:   dw 0\ndll_name:   db 'mylib.dll', 0\nname_add:   db 'Add', 0\n\nsection .text\nglobal Add\nexport Add\n\nAdd:\n    ; x64: RCX = a, RDX = b\n    lea   eax, [ecx + edx]\n    ret"
+          }
+        }
+      ]
+    }
+  ]
+}

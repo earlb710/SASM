@@ -4,23 +4,20 @@ import java.awt.*;
 import java.awt.event.*;
 import java.io.File;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Entry point for the SASM IDE.
  *
  * <p>Displays an AWT {@link Frame} with a menu bar.  The <em>File → New
  * Project</em> menu item opens the {@link NewProjectWizard} dialog, which
- * presents a single flat-form canvas with five fields:
- * <ol>
- *   <li>Project name.</li>
- *   <li>Working directory (with a folder-browse button).</li>
- *   <li>Target OS (Linux / Windows pop-list).</li>
- *   <li>Executable-format variant (pop-list, populated when the OS changes).</li>
- *   <li>Processor (pop-list, filtered to processors compatible with the selected
- *       variant's architecture).</li>
- * </ol>
+ * collects a project name and working directory.  The <em>File → Add
+ * Variant</em> menu item opens the {@link AddVariantWizard} dialog, which
+ * lets the user specify a target-platform variant (OS, output type, format
+ * variant, processor) and appends it to the current project.
  *
- * <p>When the user confirms the wizard the project is saved to
+ * <p>When the user confirms a wizard the project is saved to
  * {@code <workingDirectory>/<name>.json} and the path is remembered in
  * {@code ~/.sasm/last_project.txt}.  On the next launch that project is
  * loaded automatically so the IDE picks up where the user left off.</p>
@@ -49,11 +46,20 @@ public class SasmMain {
     private static SasmIdePanel idePanel;
     private static CardLayout  cardLayout;
     private static Panel       cardPanel;
-    private static MenuItem    addFileItem;    // enabled only when a project is open
-    private static MenuItem    deleteFileItem; // enabled only when a file is open
+    private static MenuItem    addFileItem;       // enabled when a dir is selected
+    private static MenuItem    addVariantItem;    // enabled only when a project is open
+    private static MenuItem    renameProjectItem; // enabled only when a project is open
+    private static MenuItem    deleteFileItem;    // enabled only when a file is open
+    private static MenuItem    renameFileItem;    // enabled when a file is selected
+    private static MenuItem    propertiesItem;    // enabled when a dir (core/variant) is selected
 
     private static final String CARD_WELCOME = "welcome";
     private static final String CARD_IDE     = "ide";
+
+    /** The currently loaded project (kept in memory for "Add Variant"). */
+    private static ProjectFile currentProject;
+    /** File path of the persisted project JSON (for re-saving after Add Variant). */
+    private static File        currentProjectFile;
 
     // ── entry point ──────────────────────────────────────────────────────────
 
@@ -89,15 +95,40 @@ public class SasmMain {
         newProjectItem.setShortcut(new MenuShortcut(KeyEvent.VK_N));
         fileMenu.add(newProjectItem);
 
+        MenuItem openProjectItem = new MenuItem("Open Project");
+        openProjectItem.setShortcut(new MenuShortcut(KeyEvent.VK_O));
+        fileMenu.add(openProjectItem);
+
+        renameProjectItem = new MenuItem("Rename Project");
+        renameProjectItem.setEnabled(false); // enabled after a project is loaded
+        fileMenu.add(renameProjectItem);
+
+        fileMenu.addSeparator();
+
+        addVariantItem = new MenuItem("Add Variant");
+        addVariantItem.setShortcut(new MenuShortcut(KeyEvent.VK_V));
+        addVariantItem.setEnabled(false);  // enabled after a project is loaded
+        fileMenu.add(addVariantItem);
+
         addFileItem = new MenuItem("Add New SASM File");
         addFileItem.setShortcut(new MenuShortcut(KeyEvent.VK_F));
-        addFileItem.setEnabled(false);   // enabled after a project is loaded
+        addFileItem.setEnabled(false);   // enabled when a core/variant dir is selected
         fileMenu.add(addFileItem);
+
+        renameFileItem = new MenuItem("Rename File");
+        renameFileItem.setEnabled(false); // enabled when a file is selected
+        fileMenu.add(renameFileItem);
 
         deleteFileItem = new MenuItem("Delete File");
         deleteFileItem.setShortcut(new MenuShortcut(KeyEvent.VK_D));
         deleteFileItem.setEnabled(false); // enabled when a file is open
         fileMenu.add(deleteFileItem);
+
+        fileMenu.addSeparator();
+
+        propertiesItem = new MenuItem("Properties");
+        propertiesItem.setEnabled(false); // enabled when a dir (core/variant) is selected
+        fileMenu.add(propertiesItem);
 
         fileMenu.addSeparator();
 
@@ -137,6 +168,67 @@ public class SasmMain {
         idePanel = new SasmIdePanel();
         idePanel.setOnFileStateChanged(() ->
                 deleteFileItem.setEnabled(idePanel.hasOpenFile()));
+        idePanel.setOnSelectionChanged(() -> {
+            boolean dirSel  = idePanel.isDirectorySelected();
+            boolean fileSel = idePanel.isFileSelected();
+            addFileItem.setEnabled(dirSel || fileSel);
+            renameFileItem.setEnabled(fileSel);
+            propertiesItem.setEnabled(dirSel);
+        });
+
+        // ── right-click context menus on file list ──────────────────────────
+        PopupMenu filePopup = new PopupMenu();
+        MenuItem ctxAddFileFromFile = new MenuItem("Add New File");
+        MenuItem ctxRenameFile      = new MenuItem("Rename");
+        MenuItem ctxDeleteFile      = new MenuItem("Delete");
+        filePopup.add(ctxAddFileFromFile);
+        filePopup.addSeparator();
+        filePopup.add(ctxRenameFile);
+        filePopup.add(ctxDeleteFile);
+
+        PopupMenu dirPopup = new PopupMenu();
+        MenuItem ctxBuild          = new MenuItem("Build");
+        MenuItem ctxAddFileFromDir = new MenuItem("Add New File");
+        MenuItem ctxRenameVariant  = new MenuItem("Rename");
+        MenuItem ctxDeleteVariant  = new MenuItem("Delete");
+        dirPopup.add(ctxBuild);
+        dirPopup.add(ctxAddFileFromDir);
+        dirPopup.addSeparator();
+        dirPopup.add(ctxRenameVariant);
+        dirPopup.add(ctxDeleteVariant);
+
+        java.awt.List fileListComp = idePanel.getFileListComponent();
+        fileListComp.add(filePopup);
+        fileListComp.add(dirPopup);
+
+        fileListComp.addMouseListener(new MouseAdapter() {
+            @Override public void mousePressed(MouseEvent e)  { maybeShowPopup(e); }
+            @Override public void mouseReleased(MouseEvent e) { maybeShowPopup(e); }
+
+            private void maybeShowPopup(MouseEvent e) {
+                if (!e.isPopupTrigger()) return;
+                File sel = idePanel.getSelectedEntry();
+                if (sel == null) return;
+
+                if (sel.isFile()) {
+                    filePopup.show(fileListComp, e.getX(), e.getY());
+                } else if (sel.isDirectory()) {
+                    boolean isVariant = !"core".equals(sel.getName());
+                    ctxBuild.setEnabled(isVariant);
+                    ctxRenameVariant.setEnabled(isVariant);
+                    ctxDeleteVariant.setEnabled(isVariant);
+                    dirPopup.show(fileListComp, e.getX(), e.getY());
+                }
+            }
+        });
+
+        ctxAddFileFromFile.addActionListener(e -> promptAddNewFile());
+        ctxRenameFile.addActionListener(e -> promptRenameFile());
+        ctxDeleteFile.addActionListener(e -> promptDeleteFile());
+        ctxBuild.addActionListener(e -> promptBuildVariant());
+        ctxAddFileFromDir.addActionListener(e -> promptAddNewFile());
+        ctxRenameVariant.addActionListener(e -> promptRenameVariant());
+        ctxDeleteVariant.addActionListener(e -> promptDeleteVariant());
 
         cardPanel.add(welcome,  CARD_WELCOME);
         cardPanel.add(idePanel, CARD_IDE);
@@ -152,16 +244,28 @@ public class SasmMain {
             NewProjectWizard wizard = new NewProjectWizard(frame);
             wizard.setVisible(true);
             if (wizard.isConfirmed()) {
-                applyLoadedProject(toProjectFile(wizard));
-                saveLastProject(wizard.getSavedProjectFile());
+                currentProjectFile = wizard.getSavedProjectFile();
+                ProjectFile pf = toProjectFile(wizard);
+                applyLoadedProject(pf);
+                saveLastProject(currentProjectFile);
             } else {
                 statusBar.setText(" New Project cancelled");
             }
         });
 
+        openProjectItem.addActionListener(e -> promptOpenProject());
+
+        renameProjectItem.addActionListener(e -> promptRenameProject());
+
+        addVariantItem.addActionListener(e -> promptAddVariant());
+
         addFileItem.addActionListener(e -> promptAddNewFile());
 
+        renameFileItem.addActionListener(e -> promptRenameFile());
+
         deleteFileItem.addActionListener(e -> promptDeleteFile());
+
+        propertiesItem.addActionListener(e -> promptProperties());
 
         exitItem.addActionListener(e -> {
             idePanel.saveCurrentFile();
@@ -182,10 +286,184 @@ public class SasmMain {
         return frame;
     }
 
+    // ── open-project dialog ──────────────────────────────────────────────────
+
+    /** Opens a FileDialog to select and load an existing project JSON file. */
+    private static void promptOpenProject() {
+        idePanel.saveCurrentFile();
+
+        FileDialog fd = new FileDialog(mainFrame, "Open Project", FileDialog.LOAD);
+        fd.setFile("*.json");
+        if (currentProjectFile != null) {
+            fd.setDirectory(currentProjectFile.getParent());
+        }
+        fd.setVisible(true);
+
+        String dir  = fd.getDirectory();
+        String file = fd.getFile();
+        if (dir == null || file == null) {
+            statusBar.setText(" Open Project cancelled");
+            return;
+        }
+
+        File selected = new File(dir, file);
+        try {
+            ProjectFile pf = JsonLoader.loadProjectFile(selected);
+            currentProjectFile = selected;
+            applyLoadedProject(pf);
+            saveLastProject(selected);
+        } catch (Exception ex) {
+            statusBar.setText(" Could not open project: " + ex.getMessage());
+        }
+    }
+
+    // ── rename-project dialog ────────────────────────────────────────────────
+
+    /** Prompts for a new project name, renames the JSON file, and updates state. */
+    private static void promptRenameProject() {
+        if (currentProject == null || currentProjectFile == null) return;
+
+        Dialog dlg = new Dialog(mainFrame, "Rename Project", true);
+        dlg.setLayout(new BorderLayout(8, 8));
+
+        // input row
+        Panel inputRow = new Panel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+        inputRow.add(new Label("New project name:"));
+        TextField nameFld = new TextField(currentProject.name, 30);
+        inputRow.add(nameFld);
+        dlg.add(inputRow, BorderLayout.CENTER);
+
+        // error label
+        Label errLbl = new Label("", Label.CENTER);
+        errLbl.setForeground(Color.RED);
+        errLbl.setFont(new Font("SansSerif", Font.ITALIC, 11));
+        dlg.add(errLbl, BorderLayout.NORTH);
+
+        // buttons
+        Button okBtn     = new Button("OK");
+        Button cancelBtn = new Button("Cancel");
+        Panel bp = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        bp.add(okBtn);
+        bp.add(cancelBtn);
+        dlg.add(bp, BorderLayout.SOUTH);
+
+        final String NAME_PATTERN = "[A-Za-z0-9_\\-]+";
+
+        Runnable doRename = () -> {
+            String newName = nameFld.getText().trim();
+            if (newName.isEmpty()) {
+                errLbl.setText("Name must not be empty.");
+                return;
+            }
+            if (!newName.matches(NAME_PATTERN)) {
+                errLbl.setText("Only letters, digits, _ and - are allowed.");
+                return;
+            }
+            if (newName.equals(currentProject.name)) {
+                dlg.dispose();
+                return;
+            }
+
+            // Rename the file on disk
+            File parentDir = currentProjectFile.getParentFile();
+            File newFile = new File(parentDir, newName + ".json");
+            if (newFile.exists()) {
+                errLbl.setText("A project file with that name already exists.");
+                return;
+            }
+            if (!currentProjectFile.renameTo(newFile)) {
+                errLbl.setText("Could not rename project file on disk.");
+                return;
+            }
+
+            // Update in-memory state
+            currentProject.name = newName;
+            currentProjectFile  = newFile;
+
+            // Re-save so the JSON content reflects the new name
+            try {
+                JsonLoader.saveProjectFile(currentProject, newFile);
+            } catch (Exception ex) {
+                errLbl.setText("Renamed file but could not update contents: " + ex.getMessage());
+                return;
+            }
+
+            // Update last-project prefs
+            saveLastProject(newFile);
+
+            // Update UI
+            idePanel.setProject(currentProject);
+            mainFrame.setTitle(APP_TITLE + " — " + newName);
+            statusBar.setText(" Project renamed to: " + newName);
+            updateWelcomeSub();
+            dlg.dispose();
+        };
+
+        okBtn.addActionListener(e -> doRename.run());
+        nameFld.addActionListener(e -> doRename.run()); // Enter key
+        cancelBtn.addActionListener(e -> dlg.dispose());
+        dlg.addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) { dlg.dispose(); }
+        });
+
+        dlg.pack();
+        dlg.setMinimumSize(new Dimension(400, dlg.getHeight()));
+        dlg.setLocationRelativeTo(mainFrame);
+        dlg.setVisible(true);
+    }
+
+    // ── add-variant dialog ───────────────────────────────────────────────────
+
+    /** Opens the Add Variant wizard and appends the result to the current project. */
+    private static void promptAddVariant() {
+        if (currentProject == null) return;
+
+        AddVariantWizard wizard = new AddVariantWizard(mainFrame);
+        wizard.setVisible(true);
+
+        if (!wizard.isConfirmed()) {
+            statusBar.setText(" Add Variant cancelled");
+            return;
+        }
+
+        ProjectFile.VariantEntry ve = wizard.toVariantEntry();
+
+        // Create a subdirectory for the variant
+        if (currentProject.workingDirectory != null && ve.variantName != null) {
+            File variantDir = new File(currentProject.workingDirectory, ve.variantName);
+            if (!variantDir.exists()) variantDir.mkdirs();
+        }
+
+        // Append to the project's variant list
+        List<ProjectFile.VariantEntry> list = currentProject.getVariants();
+        list.add(ve);
+
+        // Re-save the project file
+        if (currentProjectFile != null) {
+            try {
+                JsonLoader.saveProjectFile(currentProject, currentProjectFile);
+            } catch (Exception ex) {
+                statusBar.setText(" Could not save project: " + ex.getMessage());
+                return;
+            }
+        }
+
+        statusBar.setText(
+                " Variant added: " + ve.variantName
+                + "  (" + nvl(ve.os) + " / " + nvl(ve.variant) + " / " + nvl(ve.processor) + ")");
+
+        // Refresh the file tree and the welcome sub-label
+        idePanel.refreshFileList();
+        updateWelcomeSub();
+    }
+
     // ── add-new-file dialog ──────────────────────────────────────────────────
 
     /** Asks the user for a file-base-name, validates it, then creates the file. */
     private static void promptAddNewFile() {
+        File targetDir = idePanel.getSelectedContextDirectory();
+        if (targetDir == null) return;
+
         Dialog dlg = new Dialog(mainFrame, "Add New SASM File", true);
         dlg.setLayout(new BorderLayout(8, 8));
 
@@ -221,8 +499,8 @@ public class SasmMain {
                 return;
             }
             try {
-                idePanel.addNewFile(raw);
-                statusBar.setText(" Created: " + raw + ".sasm");
+                idePanel.addNewFile(raw, targetDir);
+                statusBar.setText(" Created: " + raw + ".sasm in " + targetDir.getName() + "/");
                 dlg.dispose();
             } catch (Exception ex) {
                 errLbl.setText("Error: " + ex.getMessage());
@@ -286,6 +564,370 @@ public class SasmMain {
         dlg.setVisible(true);
     }
 
+    // ── rename-file dialog ───────────────────────────────────────────────────
+
+    /** Prompts for a new name and renames the currently open file. */
+    private static void promptRenameFile() {
+        if (!idePanel.hasOpenFile()) return;
+
+        Dialog dlg = new Dialog(mainFrame, "Rename File", true);
+        dlg.setLayout(new BorderLayout(8, 8));
+
+        // input row
+        Panel inputRow = new Panel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+        inputRow.add(new Label("New file name (no extension):"));
+        TextField nameFld = new TextField(30);
+        inputRow.add(nameFld);
+        dlg.add(inputRow, BorderLayout.CENTER);
+
+        // error label
+        Label errLbl = new Label("", Label.CENTER);
+        errLbl.setForeground(Color.RED);
+        errLbl.setFont(new Font("SansSerif", Font.ITALIC, 11));
+        dlg.add(errLbl, BorderLayout.NORTH);
+
+        // buttons
+        Button okBtn     = new Button("OK");
+        Button cancelBtn = new Button("Cancel");
+        Panel bp = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        bp.add(okBtn);
+        bp.add(cancelBtn);
+        dlg.add(bp, BorderLayout.SOUTH);
+
+        Runnable doRename = () -> {
+            String raw = nameFld.getText().trim();
+            if (raw.isEmpty()) {
+                errLbl.setText("File name must not be empty.");
+                return;
+            }
+            if (!raw.matches("[A-Za-z0-9_\\-]+")) {
+                errLbl.setText("Only letters, digits, _ and - are allowed.");
+                return;
+            }
+            try {
+                String oldName = idePanel.renameCurrentFile(raw);
+                if (oldName != null) {
+                    statusBar.setText(" Renamed: " + oldName + " → " + raw + ".sasm");
+                }
+                dlg.dispose();
+            } catch (Exception ex) {
+                errLbl.setText("Error: " + ex.getMessage());
+            }
+        };
+
+        okBtn.addActionListener(e -> doRename.run());
+        nameFld.addActionListener(e -> doRename.run()); // Enter key
+        cancelBtn.addActionListener(e -> dlg.dispose());
+        dlg.addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) { dlg.dispose(); }
+        });
+
+        dlg.pack();
+        dlg.setMinimumSize(new Dimension(400, dlg.getHeight()));
+        dlg.setLocationRelativeTo(mainFrame);
+        dlg.setVisible(true);
+    }
+
+    // ── properties dialog ────────────────────────────────────────────────────
+
+    /**
+     * Shows properties for the selected tree entry.
+     * <ul>
+     *   <li>{@code core/} → opens the New Project wizard pre-filled with current settings</li>
+     *   <li>variant dir → opens the Add Variant wizard pre-filled with that variant</li>
+     * </ul>
+     */
+    private static void promptProperties() {
+        if (currentProject == null) return;
+        String dirName = idePanel.getSelectedDirectoryName();
+        if (dirName == null) return;
+
+        if ("core".equals(dirName)) {
+            promptCoreProperties();
+        } else {
+            promptVariantProperties(dirName);
+        }
+    }
+
+    /**
+     * Opens the New Project wizard pre-filled with the current project's name
+     * and working directory so the user can edit project-level properties.
+     */
+    private static void promptCoreProperties() {
+        NewProjectWizard wizard = new NewProjectWizard(mainFrame, currentProject);
+        wizard.setVisible(true);
+        if (wizard.isConfirmed()) {
+            currentProject.name             = wizard.getProjectName();
+            currentProject.workingDirectory = wizard.getWorkingDirectory();
+
+            // Re-save the project file
+            File dir = new File(currentProject.workingDirectory);
+            File newProjFile = new File(dir, currentProject.name + ".json");
+
+            // If the name changed, rename the file
+            if (currentProjectFile != null && !currentProjectFile.equals(newProjFile)) {
+                if (!currentProjectFile.getAbsolutePath().equals(newProjFile.getAbsolutePath())) {
+                    if (!currentProjectFile.renameTo(newProjFile)) {
+                        statusBar.setText(" Could not rename project file on disk.");
+                        return;
+                    }
+                }
+            }
+            currentProjectFile = newProjFile;
+
+            try {
+                JsonLoader.saveProjectFile(currentProject, currentProjectFile);
+            } catch (Exception ex) {
+                statusBar.setText(" Could not save project: " + ex.getMessage());
+                return;
+            }
+            saveLastProject(currentProjectFile);
+
+            // Refresh UI
+            idePanel.setProject(currentProject);
+            mainFrame.setTitle(APP_TITLE + " — " + currentProject.name);
+            statusBar.setText(" Project properties updated.");
+            updateWelcomeSub();
+        }
+    }
+
+    /**
+     * Opens the Add Variant wizard pre-filled with the given variant's data
+     * so the user can edit that variant's properties.
+     */
+    private static void promptVariantProperties(String variantDirName) {
+        // Find the matching VariantEntry
+        ProjectFile.VariantEntry target = null;
+        int targetIdx = -1;
+        List<ProjectFile.VariantEntry> variants = currentProject.getVariants();
+        for (int i = 0; i < variants.size(); i++) {
+            if (variantDirName.equals(variants.get(i).variantName)) {
+                target = variants.get(i);
+                targetIdx = i;
+                break;
+            }
+        }
+        if (target == null) {
+            statusBar.setText(" No variant entry found for: " + variantDirName);
+            return;
+        }
+
+        AddVariantWizard wizard = new AddVariantWizard(mainFrame, target);
+        wizard.setVisible(true);
+
+        if (!wizard.isConfirmed()) return;
+
+        ProjectFile.VariantEntry updated = wizard.toVariantEntry();
+
+        // If variant name changed, rename the directory
+        if (!variantDirName.equals(updated.variantName)
+                && currentProject.workingDirectory != null) {
+            File oldDir = new File(currentProject.workingDirectory, variantDirName);
+            File newDir = new File(currentProject.workingDirectory, updated.variantName);
+            if (oldDir.isDirectory() && !newDir.exists()) {
+                oldDir.renameTo(newDir);
+            }
+        }
+
+        // Replace the variant entry in the list
+        variants.set(targetIdx, updated);
+
+        // Re-save
+        if (currentProjectFile != null) {
+            try {
+                JsonLoader.saveProjectFile(currentProject, currentProjectFile);
+            } catch (Exception ex) {
+                statusBar.setText(" Could not save project: " + ex.getMessage());
+                return;
+            }
+        }
+
+        statusBar.setText(" Variant updated: " + updated.variantName);
+        idePanel.refreshFileList();
+        updateWelcomeSub();
+    }
+
+    // ── variant context-menu actions ─────────────────────────────────────────
+
+    /** Placeholder for building a variant (assembling its SASM files). */
+    private static void promptBuildVariant() {
+        String dirName = idePanel.getSelectedDirectoryName();
+        if (dirName == null || "core".equals(dirName)) return;
+        statusBar.setText(" Build: " + dirName + " — (not yet implemented)");
+    }
+
+    /** Prompts for a new name and renames the selected variant directory. */
+    private static void promptRenameVariant() {
+        if (currentProject == null) return;
+        String dirName = idePanel.getSelectedDirectoryName();
+        if (dirName == null || "core".equals(dirName)) return;
+
+        // Find the matching VariantEntry
+        List<ProjectFile.VariantEntry> variants = currentProject.getVariants();
+        int targetIdx = -1;
+        for (int i = 0; i < variants.size(); i++) {
+            if (dirName.equals(variants.get(i).variantName)) {
+                targetIdx = i;
+                break;
+            }
+        }
+        if (targetIdx < 0) {
+            statusBar.setText(" No variant entry found for: " + dirName);
+            return;
+        }
+
+        Dialog dlg = new Dialog(mainFrame, "Rename Variant", true);
+        dlg.setLayout(new BorderLayout(8, 8));
+
+        Panel inputRow = new Panel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+        inputRow.add(new Label("New variant name:"));
+        TextField nameFld = new TextField(dirName, 30);
+        inputRow.add(nameFld);
+        dlg.add(inputRow, BorderLayout.CENTER);
+
+        Label errLbl = new Label("", Label.CENTER);
+        errLbl.setForeground(Color.RED);
+        errLbl.setFont(new Font("SansSerif", Font.ITALIC, 11));
+        dlg.add(errLbl, BorderLayout.NORTH);
+
+        Button okBtn     = new Button("OK");
+        Button cancelBtn = new Button("Cancel");
+        Panel bp = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        bp.add(okBtn);
+        bp.add(cancelBtn);
+        dlg.add(bp, BorderLayout.SOUTH);
+
+        final int idx = targetIdx;
+        Runnable doRename = () -> {
+            String newName = nameFld.getText().trim();
+            if (newName.isEmpty()) {
+                errLbl.setText("Name must not be empty.");
+                return;
+            }
+            if (!newName.matches("[A-Za-z0-9_\\-]+")) {
+                errLbl.setText("Only letters, digits, _ and - are allowed.");
+                return;
+            }
+            if (newName.equals(dirName)) {
+                dlg.dispose();
+                return;
+            }
+
+            File oldDir = new File(currentProject.workingDirectory, dirName);
+            File newDir = new File(currentProject.workingDirectory, newName);
+            if (newDir.exists()) {
+                errLbl.setText("A directory named '" + newName + "' already exists.");
+                return;
+            }
+            if (oldDir.isDirectory() && !oldDir.renameTo(newDir)) {
+                errLbl.setText("Could not rename directory on disk.");
+                return;
+            }
+
+            variants.get(idx).variantName = newName;
+
+            if (currentProjectFile != null) {
+                try {
+                    JsonLoader.saveProjectFile(currentProject, currentProjectFile);
+                } catch (Exception ex) {
+                    errLbl.setText("Could not save project: " + ex.getMessage());
+                    return;
+                }
+            }
+
+            idePanel.refreshFileList();
+            updateWelcomeSub();
+            statusBar.setText(" Variant renamed: " + dirName + " → " + newName);
+            dlg.dispose();
+        };
+
+        okBtn.addActionListener(e -> doRename.run());
+        nameFld.addActionListener(e -> doRename.run());
+        cancelBtn.addActionListener(e -> dlg.dispose());
+        dlg.addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) { dlg.dispose(); }
+        });
+
+        dlg.pack();
+        dlg.setMinimumSize(new Dimension(400, dlg.getHeight()));
+        dlg.setLocationRelativeTo(mainFrame);
+        dlg.setVisible(true);
+    }
+
+    /** Confirms and deletes the selected variant directory and its project entry. */
+    private static void promptDeleteVariant() {
+        if (currentProject == null) return;
+        String dirName = idePanel.getSelectedDirectoryName();
+        if (dirName == null || "core".equals(dirName)) return;
+
+        Dialog dlg = new Dialog(mainFrame, "Delete Variant", true);
+        dlg.setLayout(new BorderLayout(8, 8));
+
+        Label msg = new Label(
+                "Permanently delete variant '" + dirName + "' and all its files?",
+                Label.CENTER);
+        msg.setFont(new Font("SansSerif", Font.PLAIN, 13));
+        Panel msgPanel = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 12));
+        msgPanel.add(msg);
+        dlg.add(msgPanel, BorderLayout.CENTER);
+
+        Button deleteBtn = new Button("Delete");
+        deleteBtn.setForeground(Color.RED);
+        Button cancelBtn = new Button("Cancel");
+        Panel bp = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        bp.add(deleteBtn);
+        bp.add(cancelBtn);
+        dlg.add(bp, BorderLayout.SOUTH);
+
+        deleteBtn.addActionListener(e -> {
+            try {
+                File varDir = new File(currentProject.workingDirectory, dirName);
+                if (varDir.isDirectory()) {
+                    deleteDirectoryRecursive(varDir);
+                }
+
+                List<ProjectFile.VariantEntry> variants = currentProject.getVariants();
+                variants.removeIf(v -> dirName.equals(v.variantName));
+
+                if (currentProjectFile != null) {
+                    JsonLoader.saveProjectFile(currentProject, currentProjectFile);
+                }
+
+                idePanel.clearIfCurrentFileDeleted();
+                idePanel.refreshFileList();
+                updateWelcomeSub();
+                statusBar.setText(" Variant deleted: " + dirName);
+            } catch (Exception ex) {
+                statusBar.setText(" Could not delete variant: " + ex.getMessage());
+            }
+            dlg.dispose();
+        });
+        cancelBtn.addActionListener(e -> dlg.dispose());
+        dlg.addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) { dlg.dispose(); }
+        });
+
+        dlg.pack();
+        dlg.setMinimumSize(new Dimension(480, dlg.getHeight()));
+        dlg.setLocationRelativeTo(mainFrame);
+        dlg.setVisible(true);
+    }
+
+    /** Recursively deletes a directory and all its contents. */
+    private static void deleteDirectoryRecursive(File dir) throws java.io.IOException {
+        File[] entries = dir.listFiles();
+        if (entries != null) {
+            for (File f : entries) {
+                if (f.isDirectory()) {
+                    deleteDirectoryRecursive(f);
+                } else {
+                    Files.delete(f.toPath());
+                }
+            }
+        }
+        Files.delete(dir.toPath());
+    }
+
     // ── project helpers ──────────────────────────────────────────────────────
 
     private static ProjectFile loadLastProject() {
@@ -294,7 +936,9 @@ public class SasmMain {
             String path = Files.readString(LAST_PROJECT_PREFS.toPath()).trim();
             File projectJson = new File(path);
             if (!projectJson.exists()) return null;
-            return JsonLoader.loadProjectFile(projectJson);
+            ProjectFile pf = JsonLoader.loadProjectFile(projectJson);
+            currentProjectFile = projectJson;
+            return pf;
         } catch (Exception ignored) {
             return null;
         }
@@ -302,6 +946,7 @@ public class SasmMain {
 
     private static void saveLastProject(File projectFile) {
         if (projectFile == null) return;
+        currentProjectFile = projectFile;
         try {
             PREFS_DIR.mkdirs();
             Files.writeString(LAST_PROJECT_PREFS.toPath(),
@@ -316,30 +961,52 @@ public class SasmMain {
     private static void applyLoadedProject(ProjectFile pf) {
         if (pf == null || pf.name == null) return;
 
+        currentProject = pf;
+
         // Switch to IDE card
         cardLayout.show(cardPanel, CARD_IDE);
         idePanel.setProject(pf);
-        addFileItem.setEnabled(true);
+        addFileItem.setEnabled(false);    // enabled when a dir is selected in tree
+        renameFileItem.setEnabled(false);
+        propertiesItem.setEnabled(false);
+        addVariantItem.setEnabled(true);
+        renameProjectItem.setEnabled(true);
 
         // Update chrome
         mainFrame.setTitle(APP_TITLE + " — " + pf.name);
         statusBar.setText(
                 " Project: " + pf.name
                 + "  |  " + nvl(pf.workingDirectory));
-        welcomeSub.setText(
-                "Project: " + pf.name
-                + "  —  OS: " + nvl(pf.os)
-                + "  /  Variant: " + nvl(pf.variant)
-                + "  /  CPU: " + nvl(pf.processor));
+        updateWelcomeSub();
+    }
+
+    /** Refreshes the welcome sub-label with a summary of the project's variants. */
+    private static void updateWelcomeSub() {
+        if (currentProject == null) return;
+
+        List<ProjectFile.VariantEntry> vars = currentProject.getVariants();
+        if (vars.isEmpty()) {
+            welcomeSub.setText("Project: " + currentProject.name
+                    + "  —  No variants yet. Use File → Add Variant.");
+        } else {
+            StringBuilder sb = new StringBuilder("Project: " + currentProject.name + "  —  ");
+            sb.append(vars.size()).append(" variant(s): ");
+            for (int i = 0; i < vars.size(); i++) {
+                if (i > 0) sb.append(", ");
+                ProjectFile.VariantEntry v = vars.get(i);
+                sb.append(v.variantName);
+                sb.append(" (").append(nvl(v.os));
+                if (v.processor != null) sb.append('/').append(v.processor);
+                sb.append(')');
+            }
+            welcomeSub.setText(sb.toString());
+        }
     }
 
     private static ProjectFile toProjectFile(NewProjectWizard w) {
         ProjectFile pf = new ProjectFile();
         pf.name             = w.getProjectName();
         pf.workingDirectory = w.getWorkingDirectory();
-        pf.os               = w.getSelectedOs();
-        pf.variant          = w.getSelectedVariant();
-        pf.processor        = w.getSelectedProcessor();
         return pf;
     }
 
@@ -354,10 +1021,11 @@ public class SasmMain {
         TextArea ta = new TextArea(
                 "SASM IDE\n\n"
                 + "Structured Assembly Language IDE\n\n"
-                + "Use File → New Project to:\n"
-                + "  1. Select a target operating system\n"
-                + "  2. Choose an executable format variant\n"
-                + "  3. Explore the required binary components\n\n"
+                + "Use File → New Project to create a project (name + directory).\n"
+                + "Use File → Open Project to load an existing project.\n"
+                + "Use File → Rename Project to change the project name.\n"
+                + "Use File → Add Variant to add a target-platform variant\n"
+                + "  (OS, output type, format variant, processor).\n"
                 + "Use File → Add New SASM File to create .sasm source files.\n"
                 + "Use File → Delete File to permanently remove the open file.\n",
                 10, 40, TextArea.SCROLLBARS_NONE);

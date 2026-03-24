@@ -26,15 +26,39 @@ public class JsonLoader {
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     /**
-     * Maps the human-readable OS label shown in the UI to the corresponding JSON
-     * file name (without the {@code .json} suffix).
+     * Maps the human-readable OS label and output-type label shown in the UI to the
+     * corresponding JSON file name (without the {@code .json} suffix).
+     *
+     * @param osLabel     "Linux" or "Windows"
+     * @param outputType  "Executable" or "DLL / Shared Library"
      */
-    public static String fileNameForOs(String osLabel) {
+    public static String fileNameForOs(String osLabel, String outputType) {
+        boolean isDll = outputType != null
+                && outputType.toLowerCase().contains("dll");
         return switch (osLabel.toLowerCase()) {
-            case "linux"   -> "executable_linux";
-            case "windows" -> "executable_windows";
+            case "linux"   -> isDll ? "shared_library_linux" : "executable_linux";
+            case "windows" -> isDll ? "dll_windows"          : "executable_windows";
             default -> throw new IllegalArgumentException("Unknown OS: " + osLabel);
         };
+    }
+
+    /** @deprecated kept for backward compatibility; assumes "Executable" output type. */
+    @Deprecated
+    public static String fileNameForOs(String osLabel) {
+        return fileNameForOs(osLabel, "Executable");
+    }
+
+    /**
+     * Loads and parses the JSON definition file for the given OS and output type.
+     *
+     * @param osLabel    "Linux" or "Windows"
+     * @param outputType "Executable" or "DLL / Shared Library"
+     * @return the parsed {@link OsDefinition}
+     * @throws IOException if the file cannot be found or read
+     */
+    public static OsDefinition load(String osLabel, String outputType) throws IOException {
+        String fileName = fileNameForOs(osLabel, outputType) + ".json";
+        return readJson(fileName, OsDefinition.class);
     }
 
     /**
@@ -45,8 +69,7 @@ public class JsonLoader {
      * @throws IOException if the file cannot be found or read
      */
     public static OsDefinition load(String osLabel) throws IOException {
-        String fileName = fileNameForOs(osLabel) + ".json";
-        return readJson(fileName, OsDefinition.class);
+        return load(osLabel, "Executable");
     }
 
     /**
