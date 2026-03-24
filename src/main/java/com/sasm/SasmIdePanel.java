@@ -95,6 +95,12 @@ public class SasmIdePanel extends JPanel {
         int lines = editor.getLineCount();
         if (lines != lastEditorLineCount) {
             lastEditorLineCount = lines;
+            // revalidate() tells the row-header viewport that the
+            // component height has changed, keeping its scroll extent
+            // in sync with the main viewport.  Without this, the
+            // viewport retains the stale height and line numbers drift
+            // out of alignment when scrolling.
+            editorLineNumbers.revalidate();
             editorLineNumbers.repaint();
         }
     });
@@ -681,6 +687,7 @@ public class SasmIdePanel extends JPanel {
             asmOutput.setText(errMsg);
             syncingScroll = false;
         }
+        asmLineNumbers.revalidate();
         asmLineNumbers.repaint();
     }
 
@@ -740,12 +747,16 @@ public class SasmIdePanel extends JPanel {
             int digits = Math.max(String.valueOf(lines).length(), 3);
             FontMetrics fm = getFontMetrics(getFont());
             int width = fm.charWidth('0') * digits + 12;
-            // Must match the textArea's preferred height exactly so the
-            // row-header viewport scrolls pixel-for-pixel with the main
-            // viewport.  Using an independent calculation (e.g.
-            // fm.getHeight() * lines) can diverge due to the textArea's
-            // minimum-rows policy and platform font-metric differences.
-            int height = textArea.getPreferredSize().height;
+            // Replicate JTextArea's preferred-height formula:
+            //   max(lineCount, rows) * rowHeight + insets
+            // This is O(1) and matches the text area's height exactly
+            // (including its minimum-rows policy), so the row-header
+            // viewport scrolls pixel-for-pixel with the main viewport.
+            // Avoids textArea.getPreferredSize() which triggers an
+            // expensive O(n) text-layout computation on every call.
+            Insets textInsets = textArea.getInsets();
+            int height = Math.max(lines, textArea.getRows()) * fm.getHeight()
+                    + textInsets.top + textInsets.bottom;
             return new Dimension(width, height);
         }
 
