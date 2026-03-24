@@ -1,8 +1,8 @@
-; testFillArray.sasm
-; Project : Test-projects
-;
-; Fills a 10-element byte array with the value 0xAA,
-; then sums the elements to verify the fill.
+-- testFillArray.sasm
+-- Project : Test-projects
+--
+-- Fills a 10-element byte array with the value 0xAA,
+-- then sums the elements to verify the fill.
 
 section .text
 global _start
@@ -16,10 +16,10 @@ data buffer as byte[10]
    fill_array — fills 'buffer' with the value in al (10 elements).
    ----------------------------------------------------------------- *)
 proc fill_array {
-    move 0 to bx                      ; bx = byte index
-    move 10 to cx                     ; cx = element count
+    move 0 to bx                      -- bx = byte index
+    move 10 to cx                     -- cx = element count
     repeat cx times {
-        move al to byte [buffer + bx] ; buffer[bx] = al
+        move al to byte [buffer + bx] -- buffer[bx] = al
         increment bx
     }
     return
@@ -29,12 +29,12 @@ proc fill_array {
    sum_array — returns the sum of 'buffer' (10 bytes) in ax.
    ----------------------------------------------------------------- *)
 proc sum_array {
-    move 0 to ax                      ; ax = accumulator
-    move 0 to bx                      ; bx = byte index
-    move 10 to cx                     ; cx = element count
+    move 0 to ax                      -- ax = accumulator
+    move 0 to bx                      -- bx = byte index
+    move 10 to cx                     -- cx = element count
     repeat cx times {
         move byte [buffer + bx] to dl
-        move zero dl to dx            ; zero-extend byte → word
+        move zero dl to dx            -- zero-extend byte → word
         add dx to ax
         increment bx
     }
@@ -47,12 +47,12 @@ proc sum_array {
    Expected sum: 10 × 0xAA = 10 × 170 = 1700 (0x06A4).
    ----------------------------------------------------------------- *)
 _start:
-    move 0xAA to al                   ; fill value
-    call fill_array                   ; buffer[0..9] = 0xAA
+    move 0xAA to al                   -- fill value
+    call fill_array                   -- buffer[0..9] = 0xAA
 
-    call sum_array                    ; ax = 1700 (0x06A4)
+    call sum_array                    -- ax = 1700 (0x06A4)
 
-    ; Exit (Linux syscall: sys_exit with status in bl)
-    move al to bl                     ; exit code = low byte of sum (0xA4)
-    move 1 to ax                      ; sys_exit
+    -- Exit (Linux syscall: sys_exit with status in bl)
+    move al to bl                     -- exit code = low byte of sum (0xA4)
+    move 1 to ax                      -- sys_exit
     syscall 0x80

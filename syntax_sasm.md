@@ -40,7 +40,7 @@
 | Immediate (binary) | `0b` prefix | `0b1010` |
 | Character literal | single quotes | `'A'`, `'\n'` |
 | Label definition | `label:` | Follows the same rules as ASM labels |
-| Line comment | `;` | Everything after `;` on a line is ignored |
+| Line comment | `--` | Everything after `--` on a line is ignored |
 | Block comment | `(* ... *)` | Can span multiple lines |
 
 ---
@@ -108,18 +108,18 @@ Writing a 32-bit sub-register (e.g., `eax`, `r8d`) **zero-extends** the result i
 Memory operands use square brackets with an optional size qualifier.
 
 ```sasm
-[bx]                  ; byte/word at address in bx
-byte [bx]             ; force 8-bit access
-word [bx]             ; force 16-bit access
-dword [ebx]           ; force 32-bit access
-qword [rbx]           ; force 64-bit access (x86-64 only)
-[bx + si]             ; base + index
-[bx + si + 4]         ; base + index + displacement
-[ds:bx]               ; explicit segment override
-[bp + 6]              ; stack-relative (local variable or parameter)
-[rbx + rcx*8]         ; scaled-index (SIB) — x86-64 / 32-bit; scale can be 1, 2, 4, or 8
-[rbx + rcx*8 + 16]    ; scaled-index with displacement
-[rip + 0]             ; RIP-relative: address = address of next instruction + displacement
+[bx]                  -- byte/word at address in bx
+byte [bx]             -- force 8-bit access
+word [bx]             -- force 16-bit access
+dword [ebx]           -- force 32-bit access
+qword [rbx]           -- force 64-bit access (x86-64 only)
+[bx + si]             -- base + index
+[bx + si + 4]         -- base + index + displacement
+[ds:bx]               -- explicit segment override
+[bp + 6]              -- stack-relative (local variable or parameter)
+[rbx + rcx*8]         -- scaled-index (SIB) — x86-64 / 32-bit; scale can be 1, 2, 4, or 8
+[rbx + rcx*8 + 16]    -- scaled-index with displacement
+[rip + 0]             -- RIP-relative: address = address of next instruction + displacement
 ```
 
 **Size qualifiers:**
@@ -263,12 +263,12 @@ block validate_range {
     goto fail if below
     compare ax with cx
     goto fail if above
-    return                      ; in-range: return to caller
+    return                      -- in-range: return to caller
 fail:
-    move 0xFFFF to ax           ; sentinel: out of range
-}                               ; implicit RET
+    move 0xFFFF to ax           -- sentinel: out of range
+}                               -- implicit RET
 
-; Caller:
+-- Caller:
 call validate_range
 ```
 
@@ -331,8 +331,8 @@ proc clamp_byte ( in ax as value, out ax as result ) {
 **Caller:**
 
 ```sasm
-move 300 to ax          ; value = 300
-call clamp_byte         ; result → ax (= 255)
+move 300 to ax          -- value = 300
+call clamp_byte         -- result → ax (= 255)
 ```
 
 **Recommended register roles for 8086:**
@@ -391,7 +391,7 @@ proc print_substring uses stack ( src_ptr, offset, length ) {
     move length to cx
     clear direction
     repeat cx times {
-        load string byte     ; al = [ds:si], si++
+        load string byte     -- al = [ds:si], si++
         call emit_char
     }
     return
@@ -401,11 +401,11 @@ proc print_substring uses stack ( src_ptr, offset, length ) {
 **Caller:**
 
 ```sasm
-push 5                  ; length  (last arg pushed first on stack)
-push 3                  ; offset
-push si                 ; src_ptr
+push 5                  -- length  (last arg pushed first on stack)
+push 3                  -- offset
+push si                 -- src_ptr
 call print_substring
-add 6 to sp             ; caller pops 3 × 2-byte args
+add 6 to sp             -- caller pops 3 × 2-byte args
 ```
 
 ---
@@ -444,7 +444,7 @@ data scores as byte[8]
    in  cx as length    — number of elements
    in  al as fill_val  — value to write                  *)
 proc fill_byte ( in si as arr_ptr, in cx as length, in al as fill_val ) {
-    move 0 to bx                        ; bx = byte index
+    move 0 to bx                        -- bx = byte index
     repeat cx times {
         move fill_val to byte [arr_ptr + bx]
         increment bx
@@ -452,10 +452,10 @@ proc fill_byte ( in si as arr_ptr, in cx as length, in al as fill_val ) {
     return
 }
 
-; Caller — pass address of 'scores' in si:
-address of scores to si                 ; si = &scores[0]  (LEA SI, scores)
-move 8  to cx                           ; length = 8
-move 0  to al                           ; fill value = 0
+-- Caller — pass address of 'scores' in si:
+address of scores to si                 -- si = &scores[0]  (LEA SI, scores)
+move 8  to cx                           -- length = 8
+move 0  to al                           -- fill value = 0
 call fill_byte
 ```
 
@@ -477,10 +477,10 @@ proc process_local_buf {
     var buf as byte[16]
 
     (* Obtain the address of buf[0] and pass it to fill_byte. *)
-    address of buf to si                ; si = &buf[0]  (LEA SI, [BP-16])
+    address of buf to si                -- si = &buf[0]  (LEA SI, [BP-16])
     move 16 to cx
     move 0xFF to al
-    call fill_byte                      ; fills buf[0..15] with 0xFF
+    call fill_byte                      -- fills buf[0..15] with 0xFF
 }
 ```
 
@@ -523,13 +523,13 @@ proc sum_words uses stack ( arr_ptr, length ) {
     return
 }
 
-; Caller — push length first (rightmost), then address:
+-- Caller — push length first (rightmost), then address:
 move 4 to cx
-push cx                                 ; length = 4
+push cx                                 -- length = 4
 address of table to si
-push si                                 ; arr_ptr = &table[0]
-call sum_words                          ; ax = 10+20+30+40 = 100
-add 4 to sp                             ; caller cleans 2 × 2-byte args
+push si                                 -- arr_ptr = &table[0]
+call sum_words                          -- ax = 10+20+30+40 = 100
+add 4 to sp                             -- caller cleans 2 × 2-byte args
 ```
 
 #### Returning an array pointer
@@ -542,15 +542,15 @@ data result_buf as byte[64]
 (* Return the address of the module-level result buffer.
    out si as buf_ptr — segment offset of result_buf[0]   *)
 proc get_result_buf ( out si as buf_ptr ) {
-    address of result_buf to buf_ptr    ; buf_ptr = &result_buf[0]
+    address of result_buf to buf_ptr    -- buf_ptr = &result_buf[0]
     return
 }
 
-; Caller:
-call get_result_buf                     ; si = &result_buf[0]
+-- Caller:
+call get_result_buf                     -- si = &result_buf[0]
 move 8 to cx
 move 0 to al
-call fill_byte                          ; zero the first 8 bytes
+call fill_byte                          -- zero the first 8 bytes
 ```
 
 #### Convention summary
@@ -579,7 +579,7 @@ A `var` declaration placed **inside** a `proc` or `block` body reserves a named,
 
 ```sasm
 proc <name> {
-    var <name> as <type>    ; one declaration per line, before any executable statement
+    var <name> as <type>    -- one declaration per line, before any executable statement
     var <name> as <type>
     <body — refer to locals by name>
 }
@@ -677,7 +677,7 @@ block checksum8 {
         add 2 to si
     }
     move sum to ax
-}                               ; implicit RET (with frame epilogue)
+}                               -- implicit RET (with frame epilogue)
 ```
 
 ---
@@ -703,8 +703,8 @@ A `var` declaration placed **outside** any `proc` or `block` body declares a **g
 **Syntax:**
 
 ```sasm
-var <name> as <type>               ; zero-initialized
-var <name> as <type> = <value>     ; initialized to a literal
+var <name> as <type>               -- zero-initialized
+var <name> as <type> = <value>     -- initialized to a literal
 ```
 
 **Supported types:**
@@ -719,10 +719,10 @@ var <name> as <type> = <value>     ; initialized to a literal
 **Zero-initialized scalars:**
 
 ```sasm
-var counter as word             ; counter: DW 0
-var flag    as byte             ; flag:    DB 0
-var total   as dword            ; total:   DD 0
-var big     as qword            ; big:     DQ 0  (x86-64)
+var counter as word             -- counter: DW 0
+var flag    as byte             -- flag:    DB 0
+var total   as dword            -- total:   DD 0
+var big     as qword            -- big:     DQ 0  (x86-64)
 ```
 
 *Equivalent ASM:*
@@ -737,10 +737,10 @@ big:     DQ 0
 **Initialized scalars:**
 
 ```sasm
-var max_count  as word  = 100         ; max_count:  DW 100
-var error_code as byte  = 0xFF        ; error_code: DB 0FFh
+var max_count  as word  = 100         -- max_count:  DW 100
+var error_code as byte  = 0xFF        -- error_code: DB 0FFh
 var base_addr  as dword = 0x00010000
-var huge_mask  as qword = 0xFFFFFFFF00000000   ; x86-64
+var huge_mask  as qword = 0xFFFFFFFF00000000   -- x86-64
 ```
 
 *Equivalent ASM:*
@@ -757,18 +757,18 @@ huge_mask:  DQ FFFFFFFF00000000h
 A global `var` name resolves directly to its data-segment address. Use it as a plain memory operand — no bracket arithmetic needed for scalars.
 
 ```sasm
-; Write to a global variable:
-move 42 to counter              ; MOV [counter], 42 — stores 42 into the word
-move 0  to flag                 ; MOV [flag], 0
+-- Write to a global variable:
+move 42 to counter              -- MOV [counter], 42 — stores 42 into the word
+move 0  to flag                 -- MOV [flag], 0
 
-; Read from a global variable:
-move counter to ax              ; MOV AX, [counter]
-move flag    to al              ; MOV AL, [flag]
+-- Read from a global variable:
+move counter to ax              -- MOV AX, [counter]
+move flag    to al              -- MOV AL, [flag]
 
-; Operate directly on a global variable:
-increment counter               ; INC [counter]
-add 1 to counter                ; ADD [counter], 1
-compare counter with max_count  ; CMP [counter], [max_count]
+-- Operate directly on a global variable:
+increment counter               -- INC [counter]
+add 1 to counter                -- ADD [counter], 1
+compare counter with max_count  -- CMP [counter], [max_count]
 ```
 
 *Equivalent ASM:*
@@ -794,22 +794,22 @@ CMP  [counter], [max_count]
 **Example — global counter used across two procs:**
 
 ```sasm
-var call_count as word = 0      ; module-level static: tracks invocations
+var call_count as word = 0      -- module-level static: tracks invocations
 
 proc increment_and_get {
-    increment call_count        ; call_count++
-    move call_count to ax       ; return current count in ax
+    increment call_count        -- call_count++
+    move call_count to ax       -- return current count in ax
 }
 
 proc reset_count {
-    move 0 to call_count        ; call_count = 0
+    move 0 to call_count        -- call_count = 0
 }
 
-; Main sequence:
-call increment_and_get          ; ax = 1
-call increment_and_get          ; ax = 2
-call reset_count                ; call_count = 0
-call increment_and_get          ; ax = 1
+-- Main sequence:
+call increment_and_get          -- ax = 1
+call increment_and_get          -- ax = 2
+call reset_count                -- call_count = 0
+call increment_and_get          -- ax = 1
 ```
 
 *Equivalent ASM:*
@@ -836,8 +836,8 @@ A `data` declaration reserves a named array in the data segment. It must appear 
 **Syntax:**
 
 ```sasm
-data <name> as <type>[<count>]                        ; zero-initialized array
-data <name> as <type> = <v1>, <v2>, ..., <vN>         ; initialized array (count inferred from list)
+data <name> as <type>[<count>]                        -- zero-initialized array
+data <name> as <type> = <v1>, <v2>, ..., <vN>         -- initialized array (count inferred from list)
 ```
 
 **Supported types:**
@@ -852,9 +852,9 @@ data <name> as <type> = <v1>, <v2>, ..., <vN>         ; initialized array (count
 **Zero-initialized arrays** — element count is given in brackets; all elements start as zero:
 
 ```sasm
-data buf    as byte[64]        ; 64 bytes, all zero
-data table  as word[16]        ; 16 words, all zero
-data coords as dword[4]        ; 4 dwords, all zero
+data buf    as byte[64]        -- 64 bytes, all zero
+data table  as word[16]        -- 16 words, all zero
+data coords as dword[4]        -- 4 dwords, all zero
 ```
 
 *Equivalent ASM:*
@@ -886,17 +886,17 @@ masks:  DD 000000FFh, 0000FF00h, 00FF0000h, FF000000h
 Array names resolve to their data-segment address. Use the standard memory-reference syntax (see [Memory References](#memory-references)) with a byte-offset register to index into the array.
 
 ```sasm
-; byte array — bx holds the element index (= byte offset)
-move byte [primes + bx] to al        ; al = primes[bx]
-move 0x99 to byte [primes + bx]      ; primes[bx] = 0x99
+-- byte array — bx holds the element index (= byte offset)
+move byte [primes + bx] to al        -- al = primes[bx]
+move 0x99 to byte [primes + bx]      -- primes[bx] = 0x99
 
-; word array — si holds the byte offset (element index × 2)
-move word [lookup + si] to ax        ; ax = lookup[si/2]
-move ax to word [lookup + si]        ; lookup[si/2] = ax
+-- word array — si holds the byte offset (element index × 2)
+move word [lookup + si] to ax        -- ax = lookup[si/2]
+move ax to word [lookup + si]        -- lookup[si/2] = ax
 
-; dword array — ebx holds the byte offset (element index × 4)
-move dword [coords + ebx] to eax     ; eax = coords[ebx/4]
-move eax to dword [coords + ebx]     ; coords[ebx/4] = eax
+-- dword array — ebx holds the byte offset (element index × 4)
+move dword [coords + ebx] to eax     -- eax = coords[ebx/4]
+move eax to dword [coords + ebx]     -- coords[ebx/4] = eax
 ```
 
 **Rules:**
@@ -915,9 +915,9 @@ A `var` declaration with a bracketed element count reserves a named, stack-alloc
 
 ```sasm
 proc <name> {
-    var <name> as byte[<count>]    ; <count> bytes reserved on the stack
-    var <name> as word[<count>]    ; 2 × <count> bytes reserved on the stack
-    var <name> as dword[<count>]   ; 4 × <count> bytes reserved on the stack
+    var <name> as byte[<count>]    -- <count> bytes reserved on the stack
+    var <name> as word[<count>]    -- 2 × <count> bytes reserved on the stack
+    var <name> as dword[<count>]   -- 4 × <count> bytes reserved on the stack
     <body>
 }
 ```
@@ -949,16 +949,16 @@ The same form works inside a `block { }`.
 proc reverse_bytes {
     var tmp as byte[16]
 
-    move 0 to bx                        ; bx = write index into tmp
+    move 0 to bx                        -- bx = write index into tmp
     repeat cx times {
-        load string byte                ; al = [ds:si], si++
-        move al to byte [tmp + bx]      ; tmp[bx] = al
+        load string byte                -- al = [ds:si], si++
+        move al to byte [tmp + bx]      -- tmp[bx] = al
         increment bx
     }
     repeat {
         decrement bx
         move byte [tmp + bx] to al
-        store string byte               ; [es:di] = al, di++
+        store string byte               -- [es:di] = al, di++
         compare bx with 0
     } until equal
 }
@@ -1355,10 +1355,10 @@ proc add64 ( in rdi as a, in rsi as b, out rax as result ) {
     add  rsi to rax
 }
 
-; Caller:
-move 100 to rdi         ; a = 100
-move  42 to rsi         ; b = 42
-call add64              ; rax = 142
+-- Caller:
+move 100 to rdi         -- a = 100
+move  42 to rsi         -- b = 42
+call add64              -- rax = 142
 ```
 
 *Equivalent ASM:*
@@ -1393,12 +1393,12 @@ Microsoft's calling convention for 64-bit Windows uses different argument regist
 **Shadow space:** The caller must allocate **32 bytes** of stack space before any `call`, even if the callee takes fewer than four arguments. This space may be used by the callee to spill register arguments.
 
 ```sasm
-; Windows x64 caller pattern:
-subtract 32 from rsp        ; allocate shadow space
-move 10 to rcx              ; 1st arg
-move 20 to rdx              ; 2nd arg
+-- Windows x64 caller pattern:
+subtract 32 from rsp        -- allocate shadow space
+move 10 to rcx              -- 1st arg
+move 20 to rdx              -- 2nd arg
 call some_proc
-add 32 to rsp               ; reclaim shadow space
+add 32 to rsp               -- reclaim shadow space
 ```
 
 ---
@@ -1411,13 +1411,13 @@ On Linux, system calls use `syscall` with arguments in `rax` (syscall number), `
 (* Write "hello\n" to stdout.
    syscall: write(fd=1, buf=msg, len=6)
    rax = 1 (sys_write), rdi = 1 (stdout), rsi = msg, rdx = 6 *)
-var msg as byte = 0     ; placeholder — real usage uses a data label
+var msg as byte = 0     -- placeholder — real usage uses a data label
 
-move 1   to rax         ; syscall number: sys_write
-move 1   to rdi         ; fd = stdout
-address of msg to rsi   ; buf = &msg
-move 6   to rdx         ; len = 6
-syscall                 ; invoke kernel
+move 1   to rax         -- syscall number: sys_write
+move 1   to rdi         -- fd = stdout
+address of msg to rsi   -- buf = &msg
+move 6   to rdx         -- len = 6
+syscall                 -- invoke kernel
 ```
 
 *Equivalent ASM:*
@@ -1453,18 +1453,18 @@ The following instructions are **not valid** in x86-64 long mode. Using them rai
 
 ```sasm
 (* 64-bit counters and a qword array. *)
-var tick_count as qword = 0           ; DQ 0
-data timestamps as qword[4]           ; 4 × 8 bytes, zero-initialized
+var tick_count as qword = 0           -- DQ 0
+data timestamps as qword[4]           -- 4 × 8 bytes, zero-initialized
 
 proc record_tick {
-    increment tick_count              ; INC QWORD [tick_count]
-    move tick_count to rax            ; rax = current tick
+    increment tick_count              -- INC QWORD [tick_count]
+    move tick_count to rax            -- rax = current tick
 }
 
-; Store tick into timestamps[0]:
-move 0 to rbx                         ; index 0 → byte offset 0
+-- Store tick into timestamps[0]:
+move 0 to rbx                         -- index 0 → byte offset 0
 move tick_count to rax
-move rax to qword [timestamps + rbx]  ; timestamps[0] = tick_count
+move rax to qword [timestamps + rbx]  -- timestamps[0] = tick_count
 ```
 
 *Equivalent ASM:*
@@ -1574,7 +1574,7 @@ _start:
 * `#REF` directives should appear at the top of the source file, before `section` directives.
 * Each alias must be unique within a file.
 * The imported file's symbols should use the `alias_` prefix naming convention so that `@alias.symbol` resolves correctly.
-* `@alias.symbol` references inside pure comments (`;` lines and `(* *)` blocks) are **not** resolved — they are preserved verbatim.
+* `@alias.symbol` references inside pure comments (`--` lines and `(* *)` blocks) are **not** resolved — they are preserved verbatim.
 * The `@` character is only special when followed by a known `alias.symbol` pattern; standalone `@` has no special meaning.
 
 ---
@@ -1668,12 +1668,12 @@ block validate_range {
     goto fail if below
     compare ax with cx
     goto fail if above
-    return                      ; in-range
+    return                      -- in-range
 fail:
-    move 0xFFFF to ax           ; sentinel: out of range
+    move 0xFFFF to ax           -- sentinel: out of range
 }
 
-; Caller:
+-- Caller:
 call validate_range
 ```
 
@@ -1702,9 +1702,9 @@ proc clamp_byte ( in ax as value, out ax as result ) {
     return
 }
 
-; Caller:
+-- Caller:
 move 300 to ax
-call clamp_byte         ; result → ax (= 255)
+call clamp_byte         -- result → ax (= 255)
 ```
 
 ---
@@ -1721,14 +1721,14 @@ proc print_substring uses stack ( src_ptr, offset, length ) {
     return
 }
 
-; Caller wrapper (block — call-only, closing } emits RET):
+-- Caller wrapper (block — call-only, closing } emits RET):
 block call_print_substring {
     push 5 / push 3 / push si
     call print_substring
     add 6 to sp
 }
 
-; Invoke:
+-- Invoke:
 call call_print_substring
 ```
 
@@ -1750,11 +1750,11 @@ proc min3 {
     move best to ax
 }
 
-; Caller:
+-- Caller:
 move 7  to ax
 move 3  to bx
 move 12 to cx
-call min3               ; ax = 3
+call min3               -- ax = 3
 ```
 
 ```sasm
@@ -1768,7 +1768,7 @@ block checksum8 {
         add 2 to si
     }
     move sum to ax
-}                       ; implicit RET (with frame epilogue)
+}                       -- implicit RET (with frame epilogue)
 ```
 
 ---
@@ -1781,36 +1781,36 @@ block checksum8 {
 
 ```sasm
 (* Static arrays in the data segment. *)
-data scores  as byte[8]                     ; 8 zero-initialized bytes
-data weights as word  = 10, 20, 30, 40      ; 4 initialized words
+data scores  as byte[8]                     -- 8 zero-initialized bytes
+data weights as word  = 10, 20, 30, 40      -- 4 initialized words
 data offsets as dword = 0x00000000, 0x00001000, 0x00002000
 
 (* Read the third element (index 2) of the word array 'weights'.
    Word index 2 → byte offset 4 (index × 2). *)
 move 4 to si
-move word [weights + si] to ax              ; ax = 30
+move word [weights + si] to ax              -- ax = 30
 
 (* Write 99 into scores[5]. byte index 5 → byte offset 5. *)
 move 5 to bx
-move 99 to byte [scores + bx]              ; scores[5] = 99
+move 99 to byte [scores + bx]              -- scores[5] = 99
 ```
 
 ```sasm
 (* Local byte array inside a proc — build a lookup table on the stack. *)
 proc build_squares {
-    var sq as byte[8]               ; 8-byte local array
+    var sq as byte[8]               -- 8-byte local array
 
     move 0 to bx
     move 0 to cx
     repeat {
         move cl to al
-        multiply by cl              ; ax = cl × cl
-        move al to byte [sq + bx]  ; sq[bx] = cl²
+        multiply by cl              -- ax = cl × cl
+        move al to byte [sq + bx]  -- sq[bx] = cl²
         increment bx
         increment cx
         compare cx with 8
     } until equal
-    ; sq[0..7] = 0, 1, 4, 9, 16, 25, 36, 49
+    -- sq[0..7] = 0, 1, 4, 9, 16, 25, 36, 49
 }
 
 ---
@@ -1835,8 +1835,8 @@ proc fill_byte ( in si as arr_ptr, in cx as length, in al as fill_val ) {
     return
 }
 
-; Caller — pass address of static array 'scores':
-address of scores to si     ; si = &scores[0]  (LEA SI, scores)
+-- Caller — pass address of static array 'scores':
+address of scores to si     -- si = &scores[0]  (LEA SI, scores)
 move 8  to cx
 move 0  to al
 call fill_byte
@@ -1851,7 +1851,7 @@ proc get_result_buf ( out si as buf_ptr ) {
     return
 }
 
-call get_result_buf          ; si = &result_buf[0] on return
+call get_result_buf          -- si = &result_buf[0] on return
 ```
 
 ---
@@ -1862,25 +1862,25 @@ call get_result_buf          ; si = &result_buf[0] on return
 
 ```sasm
 (* Module-level static scalars. *)
-var counter    as word             ; counter:    DW 0
-var flag       as byte = 1        ; flag:       DB 1
-var base_addr  as dword = 0x1000  ; base_addr:  DD 1000h
+var counter    as word             -- counter:    DW 0
+var flag       as byte = 1        -- flag:       DB 1
+var base_addr  as dword = 0x1000  -- base_addr:  DD 1000h
 
 (* proc that reads and writes global variables. *)
 proc increment_and_get {
-    increment counter             ; counter++
-    move counter to ax            ; return current count in ax
+    increment counter             -- counter++
+    move counter to ax            -- return current count in ax
 }
 
 proc reset_count {
-    move 0 to counter             ; counter = 0
+    move 0 to counter             -- counter = 0
 }
 
-; Caller:
-call increment_and_get            ; ax = 1
-call increment_and_get            ; ax = 2
-call reset_count                  ; counter = 0
-call increment_and_get            ; ax = 1
+-- Caller:
+call increment_and_get            -- ax = 1
+call increment_and_get            -- ax = 2
+call reset_count                  -- counter = 0
+call increment_and_get            -- ax = 1
 ```
 
 *Equivalent ASM:*
@@ -1908,8 +1908,8 @@ Use 64-bit register names (`rax`, `rdi`, `rsi`, `r8`, …) and the `qword` size 
 
 ```sasm
 (* 64-bit global data. *)
-var tick_count  as qword = 0        ; DQ 0
-data timestamps as qword[4]         ; 4 qwords, zero-initialized
+var tick_count  as qword = 0        -- DQ 0
+data timestamps as qword[4]         -- 4 qwords, zero-initialized
 
 (* System V AMD64 ABI: add two 64-bit integers; return sum in rax.
    in rdi as a, in rsi as b, out rax as result *)
@@ -1926,14 +1926,14 @@ proc compute {
     add tick_count to rax
 }
 
-; System V AMD64 caller:
+-- System V AMD64 caller:
 move 100 to rdi
 move  42 to rsi
-call add64                          ; rax = 142
+call add64                          -- rax = 142
 
-; Linux syscall: exit(0)
-move 60 to rax                      ; syscall: sys_exit
-move  0 to rdi                      ; status = 0
+-- Linux syscall: exit(0)
+move 60 to rax                      -- syscall: sys_exit
+move  0 to rdi                      -- status = 0
 syscall
 ```
 

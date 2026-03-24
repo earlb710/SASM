@@ -87,7 +87,9 @@ public class SasmTranslator {
         }
 
         // ── comments (no alias resolution inside pure comments) ──────────────
-        if (trimmed.startsWith(";")) return line;                   // line comment
+        if (trimmed.startsWith("--")) {                                // line comment
+            return leading + "; " + trimmed.substring(2).stripLeading();
+        }
         if (trimmed.startsWith("(*")) return toAsmComment(trimmed); // block comment open
         if (trimmed.endsWith("*)"))   return toAsmComment(trimmed); // block comment close/single
 
@@ -95,13 +97,14 @@ public class SasmTranslator {
         line = resolveAliasRefs(line);
         trimmed = line.trim();
 
-        // Split off any trailing inline comment
+        // Split off any trailing inline comment (-- in SASM → ; in NASM)
         String code = trimmed;
         String comment = "";
-        int semiIdx = indexOfComment(trimmed);
-        if (semiIdx >= 0) {
-            code    = trimmed.substring(0, semiIdx).trim();
-            comment = "  " + trimmed.substring(semiIdx);
+        int commentIdx = indexOfComment(trimmed);
+        if (commentIdx >= 0) {
+            code    = trimmed.substring(0, commentIdx).trim();
+            String commentBody = trimmed.substring(commentIdx + 2).stripLeading();
+            comment = "  ; " + commentBody;
         }
 
         String leading = leadingWhitespace(line);
@@ -918,8 +921,8 @@ public class SasmTranslator {
     }
 
     /**
-     * Returns the index of the first semicolon that starts a comment
-     * (not inside square brackets), or -1 if none.
+     * Returns the index of the first {@code --} sequence that starts a comment
+     * (not inside square brackets or quotes), or -1 if none.
      */
     private static int indexOfComment(String line) {
         int depth = 0;
@@ -930,7 +933,10 @@ public class SasmTranslator {
             if (!inQuote) {
                 if (c == '[') depth++;
                 else if (c == ']') depth--;
-                else if (c == ';' && depth == 0) return i;
+                else if (c == '-' && depth == 0
+                        && i + 1 < line.length() && line.charAt(i + 1) == '-') {
+                    return i;
+                }
             }
         }
         return -1;
