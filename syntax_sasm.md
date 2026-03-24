@@ -1066,6 +1066,15 @@ In addition to the English-phrase syntax above, SASM supports a compact
 <dst> = <op1> div <op2>      -- unsigned division
 ```
 
+Multiple operators may be chained in a single expression.  Evaluation
+proceeds **left to right** (no operator precedence), and each operator
+produces one assembly instruction:
+
+```
+<dst> = <a> + <b> + <c>          -- three terms
+<dst> = <a> + <imm> - <b> * <imm2>  -- mixed operators and constants
+```
+
 | SASM Expression | ASM Equivalent | Notes |
 |-----------------|----------------|-------|
 | `ax = cx` | `MOV ax, cx` | Simple register-to-register move |
@@ -1076,6 +1085,9 @@ In addition to the English-phrase syntax above, SASM supports a compact
 | `ax = cx div bx` | `MOV AX, cx` / `XOR DX, DX` / `DIV bx` | Sets up accumulator pair, unsigned divide; quotient → AX |
 | `eax = ecx div ebx` | `MOV EAX, ecx` / `XOR EDX, EDX` / `DIV ebx` | 32-bit version |
 | `rax = rcx div rbx` | `MOV RAX, rcx` / `XOR RDX, RDX` / `DIV rbx` | 64-bit version |
+| `ax = bx + 3 + dx` | `MOV ax, bx` / `ADD ax, 3` / `ADD ax, dx` | Chained addition with immediate constant |
+| `ax = bx + 3 + dx * 2` | `MOV ax, bx` / `ADD ax, 3` / `ADD ax, dx` / `IMUL ax, 2` | Mixed operators, left-to-right |
+| `ax = ax + 3 + bx` | `ADD ax, 3` / `ADD ax, bx` | First operand matches `dst` — `MOV` elided |
 
 Operands may be registers, immediates, or memory references.
 The `+` and `-` characters inside square brackets (e.g. `[buffer + bx]`) are

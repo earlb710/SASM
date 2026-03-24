@@ -1,6 +1,8 @@
 package com.sasm;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -826,7 +828,7 @@ public class SasmTranslator {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  Expression Assignment  (dst = src  /  dst = op1 {+|-|*|div} op2)
+    //  Expression Assignment  (dst = src  /  dst = op1 {+|-|*|div} op2 …)
     // ══════════════════════════════════════════════════════════════════════════
 
     /** Pattern for {@code <dst> = <rhs>} expression syntax. */
@@ -839,9 +841,8 @@ public class SasmTranslator {
      *
      * <p>Supported operators (binary, outside square brackets):
      * {@code +}, {@code -}, {@code *}, {@code div}.
-     * Only a single binary operator per expression is expected;
-     * chained operations (e.g. {@code ax = bx + cx + dx}) are
-     * not supported.</p>
+     * Multiple operators are supported and evaluated left-to-right
+     * (e.g. {@code ax = bx + 3 + dx * 2}).</p>
      */
     private String tryExpression(String code) {
         if (code.indexOf('=') < 0) return null;
@@ -853,38 +854,69 @@ public class SasmTranslator {
         String rhs = m.group(2).trim();
         if (dst.isEmpty() || rhs.isEmpty()) return null;
 
-        // Locate the first binary operator at bracket depth 0
-        int[] op = findExprOperator(rhs);
+        // Tokenize the RHS into operands and operators
+        List<String> operands = new ArrayList<>();
+        List<Integer> operators = new ArrayList<>(); // '+', '-', '*', 'd' (div)
+        splitExprTokens(rhs, operands, operators);
 
-        if (op == null) {
-            // Simple assignment:  dst = src  →  MOV dst, src
-            return "    MOV " + dst + ", " + rhs;
+        if (operands.isEmpty()) return null;
+
+        // Single operand: simple assignment
+        if (operators.isEmpty()) {
+            return "    MOV " + dst + ", " + operands.get(0);
         }
 
-        String op1 = rhs.substring(0, op[0]).trim();
-        String op2 = rhs.substring(op[1]).trim();
-        int opKind = op[2]; // '+', '-', '*', or 'd' (div)
+        // Single operator: original two-operand behaviour
+        if (operators.size() == 1) {
+            String op1 = operands.get(0);
+            String op2 = operands.get(1);
+            int opKind = operators.get(0);
 
-        if (op1.isEmpty() || op2.isEmpty()) {
-            // Unary operator or malformed — treat as simple assignment
-            return "    MOV " + dst + ", " + rhs;
+            if (op1.isEmpty() || op2.isEmpty()) {
+                return "    MOV " + dst + ", " + rhs;
+            }
+
+            boolean sameAsDst = dst.equalsIgnoreCase(op1);
+
+            return switch (opKind) {
+                case '+' -> sameAsDst
+                        ? "    ADD " + dst + ", " + op2
+                        : "    MOV " + dst + ", " + op1 + "\n    ADD " + dst + ", " + op2;
+                case '-' -> sameAsDst
+                        ? "    SUB " + dst + ", " + op2
+                        : "    MOV " + dst + ", " + op1 + "\n    SUB " + dst + ", " + op2;
+                case '*' -> sameAsDst
+                        ? "    IMUL " + dst + ", " + op2
+                        : "    MOV " + dst + ", " + op1 + "\n    IMUL " + dst + ", " + op2;
+                case 'd' -> buildDiv(dst, op1, op2);
+                default  -> null;
+            };
         }
 
-        boolean sameAsDst = dst.equalsIgnoreCase(op1);
+        // Multiple operators: emit left-to-right instruction sequence
+        StringBuilder sb = new StringBuilder();
+        String first = operands.get(0);
 
-        return switch (opKind) {
-            case '+' -> sameAsDst
-                    ? "    ADD " + dst + ", " + op2
-                    : "    MOV " + dst + ", " + op1 + "\n    ADD " + dst + ", " + op2;
-            case '-' -> sameAsDst
-                    ? "    SUB " + dst + ", " + op2
-                    : "    MOV " + dst + ", " + op1 + "\n    SUB " + dst + ", " + op2;
-            case '*' -> sameAsDst
-                    ? "    IMUL " + dst + ", " + op2
-                    : "    MOV " + dst + ", " + op1 + "\n    IMUL " + dst + ", " + op2;
-            case 'd' -> buildDiv(dst, op1, op2);
-            default  -> null;
-        };
+        if (!dst.equalsIgnoreCase(first)) {
+            sb.append("    MOV ").append(dst).append(", ").append(first);
+        }
+
+        for (int i = 0; i < operators.size(); i++) {
+            int opKind = operators.get(i);
+            String operand = operands.get(i + 1);
+
+            if (sb.length() > 0) sb.append('\n');
+
+            switch (opKind) {
+                case '+' -> sb.append("    ADD ").append(dst).append(", ").append(operand);
+                case '-' -> sb.append("    SUB ").append(dst).append(", ").append(operand);
+                case '*' -> sb.append("    IMUL ").append(dst).append(", ").append(operand);
+                case 'd' -> sb.append("    ; div in chained expression not supported");
+                default  -> { /* skip */ }
+            }
+        }
+
+        return sb.toString();
     }
 
     /**
@@ -957,17 +989,25 @@ public class SasmTranslator {
     }
 
     /**
-     * Finds the first binary operator ({@code +}, {@code -}, {@code *},
-     * or the keyword {@code div}) at bracket depth&nbsp;0 in the given
-     * expression string.
+     * Splits an expression RHS into operands and operators.
      *
-     * @return {@code {startIdx, endIdx, opChar}} where {@code opChar} is
-     *         {@code '+'}, {@code '-'}, {@code '*'} or {@code 'd'} (for
-     *         {@code div}), or {@code null} if no operator is found.
+     * <p>Scans the string left to right at bracket depth&nbsp;0,
+     * splitting on {@code +}, {@code -}, {@code *} and the keyword
+     * {@code div}.  Operators inside square brackets or quotes are
+     * ignored.  A leading {@code -} (unary minus) is treated as part
+     * of the first operand, not as a binary operator.</p>
+     *
+     * @param rhs       the right-hand side of the expression
+     * @param operands  (out) list of operand strings, trimmed
+     * @param operators (out) list of operator kinds: {@code '+'}, {@code '-'},
+     *                  {@code '*'}, or {@code 'd'} (for {@code div})
      */
-    private static int[] findExprOperator(String rhs) {
+    private static void splitExprTokens(String rhs,
+                                         List<String> operands,
+                                         List<Integer> operators) {
         int depth = 0;
         boolean inQuote = false;
+        int start = 0;   // start index of current operand
 
         for (int i = 0; i < rhs.length(); i++) {
             char c = rhs.charAt(i);
@@ -977,14 +1017,17 @@ public class SasmTranslator {
             if (c == ']') { depth--; continue; }
             if (depth != 0) continue;
 
-            // Single-character operators — must have a non-empty left operand
+            // Single-character operators
             if ((c == '+' || c == '-' || c == '*') && i > 0) {
-                String before = rhs.substring(0, i).trim();
+                String before = rhs.substring(start, i).trim();
                 if (!before.isEmpty()) {
-                    return new int[]{i, i + 1, c};
+                    operands.add(before);
+                    operators.add((int) c);
+                    start = i + 1;
+                    continue;
                 }
             }
-            // 'div' keyword with word boundaries (must not be part of an identifier)
+            // 'div' keyword with word boundaries
             if (c == 'd' && i + 2 < rhs.length()
                     && rhs.charAt(i + 1) == 'i' && rhs.charAt(i + 2) == 'v'
                     && i > 0) {
@@ -992,14 +1035,21 @@ public class SasmTranslator {
                 boolean wAfter  = i + 3 >= rhs.length()
                         || !isIdentChar(rhs.charAt(i + 3));
                 if (wBefore && wAfter) {
-                    String before = rhs.substring(0, i).trim();
+                    String before = rhs.substring(start, i).trim();
                     if (!before.isEmpty()) {
-                        return new int[]{i, i + 3, 'd'};
+                        operands.add(before);
+                        operators.add((int) 'd');
+                        start = i + 3;
+                        continue;
                     }
                 }
             }
         }
-        return null;
+        // Trailing operand
+        String tail = rhs.substring(start).trim();
+        if (!tail.isEmpty()) {
+            operands.add(tail);
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
