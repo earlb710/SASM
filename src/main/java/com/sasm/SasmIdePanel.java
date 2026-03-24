@@ -58,6 +58,9 @@ public class SasmIdePanel extends JPanel {
     /** Tracks the last-known editor line count so line-number repaint is skipped when unchanged. */
     private int lastEditorLineCount = -1;
 
+    /** Cached translation so we skip asmOutput.setText() when the result is unchanged. */
+    private String lastAsmText = "";
+
     /**
      * Debounce timer for SASM→NASM translation.  Instead of translating on
      * every keystroke, the timer is restarted each time the editor content
@@ -494,7 +497,13 @@ public class SasmIdePanel extends JPanel {
         asmPane.add(asmScroll, BorderLayout.CENTER);
 
         // ── split the editor area 2/3 : 1/3 ─────────────────────────────────
-        JPanel codeArea = new JPanel(new GridBagLayout());
+        // Override isValidateRoot so that revalidation from child headers or
+        // scroll panes never propagates past this container — prevents
+        // GridBagLayout from relaying out the editor pane when only the asm
+        // pane content changes.
+        JPanel codeArea = new JPanel(new GridBagLayout()) {
+            @Override public boolean isValidateRoot() { return true; }
+        };
         GridBagConstraints gc = new GridBagConstraints();
         gc.fill    = GridBagConstraints.BOTH;
         gc.gridy   = 0;
@@ -534,12 +543,16 @@ public class SasmIdePanel extends JPanel {
             private void onTextChange() {
                 dirty = true;
                 translateTimer.restart();
-                // Only repaint line numbers when the line count actually changes
-                int lines = editor.getLineCount();
-                if (lines != lastEditorLineCount) {
-                    lastEditorLineCount = lines;
-                    editorLineNumbers.repaint();
-                }
+                // Defer line-number check so it runs after the current
+                // document modification event completes — avoids triggering
+                // layout queries on the editor mid-event.
+                SwingUtilities.invokeLater(() -> {
+                    int lines = editor.getLineCount();
+                    if (lines != lastEditorLineCount) {
+                        lastEditorLineCount = lines;
+                        editorLineNumbers.repaint();
+                    }
+                });
             }
         });
 
@@ -560,6 +573,10 @@ public class SasmIdePanel extends JPanel {
         String source = editor.getText();
         try {
             String asm = translator.translate(source);
+            // Skip the expensive setText + repaint cycle when the
+            // translated output hasn't changed (e.g. typing in a comment).
+            if (asm.equals(lastAsmText)) return;
+            lastAsmText = asm;
             // Suppress scroll sync while replacing output text so the
             // setText-induced scroll reset doesn't fight with the user's
             // scroll position in the editor.
@@ -571,8 +588,11 @@ public class SasmIdePanel extends JPanel {
             asmScroll.getViewport().setViewPosition(
                     new Point(0, editorScroll.getVerticalScrollBar().getValue()));
         } catch (Exception ex) {
+            String errMsg = "; Translation error: " + ex.getMessage();
+            if (errMsg.equals(lastAsmText)) return;
+            lastAsmText = errMsg;
             syncingScroll = true;
-            asmOutput.setText("; Translation error: " + ex.getMessage());
+            asmOutput.setText(errMsg);
             syncingScroll = false;
         }
         asmLineNumbers.repaint();
@@ -584,6 +604,10 @@ public class SasmIdePanel extends JPanel {
         saveCurrentFile();
         try {
             String content = Files.readString(f.toPath(), StandardCharsets.UTF_8);
+            // Stop the debounce timer before replacing editor text so the
+            // DocumentListener restart doesn't trigger a redundant second
+            // updateAsmOutput() after we call it directly below.
+            translateTimer.stop();
             editor.setText(content);
             editor.setCaretPosition(0);
             currentFile = f;
