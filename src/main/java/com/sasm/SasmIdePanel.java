@@ -63,7 +63,7 @@ public class SasmIdePanel extends JPanel {
      * every keystroke, the timer is restarted each time the editor content
      * changes.  Translation fires only after the user pauses for the delay.
      */
-    private final Timer translateTimer = new Timer(300, e -> updateAsmOutput());
+    private final Timer translateTimer = new Timer(500, e -> updateAsmOutput());
     {
         translateTimer.setRepeats(false);
     }
@@ -489,7 +489,8 @@ public class SasmIdePanel extends JPanel {
         asmLineNumbers = new LineNumberComponent(asmOutput);
         asmScroll = new JScrollPane(asmOutput);
         asmScroll.setRowHeaderView(asmLineNumbers);
-        asmScroll.getVerticalScrollBar().setUnitIncrement(16);
+        asmScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER);
+        asmScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         asmPane.add(asmScroll, BorderLayout.CENTER);
 
         // ── split the editor area 2/3 : 1/3 ─────────────────────────────────
@@ -543,17 +544,12 @@ public class SasmIdePanel extends JPanel {
         });
 
         // ── synchronised vertical scrolling ───────────────────────────────
+        // The editor scroll drives the asm pane (which has no scrollbar).
         editorScroll.getVerticalScrollBar().addAdjustmentListener(e -> {
             if (!syncingScroll) {
                 syncingScroll = true;
-                asmScroll.getVerticalScrollBar().setValue(e.getValue());
-                syncingScroll = false;
-            }
-        });
-        asmScroll.getVerticalScrollBar().addAdjustmentListener(e -> {
-            if (!syncingScroll) {
-                syncingScroll = true;
-                editorScroll.getVerticalScrollBar().setValue(e.getValue());
+                asmScroll.getViewport().setViewPosition(
+                        new Point(0, e.getValue()));
                 syncingScroll = false;
             }
         });
@@ -572,8 +568,8 @@ public class SasmIdePanel extends JPanel {
             asmOutput.setCaretPosition(0);
             syncingScroll = false;
             // After text change, synchronise asm scroll to editor position
-            asmScroll.getVerticalScrollBar()
-                    .setValue(editorScroll.getVerticalScrollBar().getValue());
+            asmScroll.getViewport().setViewPosition(
+                    new Point(0, editorScroll.getVerticalScrollBar().getValue()));
         } catch (Exception ex) {
             syncingScroll = true;
             asmOutput.setText("; Translation error: " + ex.getMessage());
