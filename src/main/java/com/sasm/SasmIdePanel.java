@@ -38,7 +38,8 @@ public class SasmIdePanel extends JPanel {
 
     // ── file list (left pane) ─────────────────────────────────────────────────
     private final JLabel   treeHeader = new JLabel("Project Files", SwingConstants.CENTER);
-    private final List     fileList   = new List(20, false);
+    private final DefaultListModel<String> fileListModel = new DefaultListModel<>();
+    private final JList<String> fileList = new JList<>(fileListModel);
 
     // ── editor (centre pane — SASM source, 2/3 width) ──────────────────────
     private final JLabel    editorHeader = new JLabel("", SwingConstants.LEFT);
@@ -156,7 +157,7 @@ public class SasmIdePanel extends JPanel {
      */
     public void refreshFileList() {
         String prevSel = currentFile != null ? currentFile.getAbsolutePath() : null;
-        fileList.removeAll();
+        fileListModel.clear();
         fileIndex.clear();
 
         if (project == null || project.workingDirectory == null) return;
@@ -186,7 +187,7 @@ public class SasmIdePanel extends JPanel {
         if (prevSel != null) {
             for (int i = 0; i < fileIndex.size(); i++) {
                 if (fileIndex.get(i).getAbsolutePath().equals(prevSel)) {
-                    fileList.select(i);
+                    fileList.setSelectedIndex(i);
                     break;
                 }
             }
@@ -198,7 +199,7 @@ public class SasmIdePanel extends JPanel {
      */
     private void addDirectorySection(File dir, String label) {
         // Directory header (not clickable for editing)
-        fileList.add("\u25B8 " + label + "/");
+        fileListModel.addElement("\u25B8 " + label + "/");
         fileIndex.add(dir);
 
         File[] asmFiles = dir.listFiles(
@@ -207,7 +208,7 @@ public class SasmIdePanel extends JPanel {
             Arrays.sort(asmFiles,
                     (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
             for (File f : asmFiles) {
-                fileList.add("   " + f.getName());
+                fileListModel.addElement("   " + f.getName());
                 fileIndex.add(f);
             }
         }
@@ -351,7 +352,7 @@ public class SasmIdePanel extends JPanel {
     }
 
     /** Returns the file-list component (for attaching context menus). */
-    java.awt.List getFileListComponent() { return fileList; }
+    JList<String> getFileListComponent() { return fileList; }
 
     /**
      * Creates a new {@code .sasm} file in the given target directory,
@@ -474,7 +475,10 @@ public class SasmIdePanel extends JPanel {
 
         fileList.setFont(new Font("Monospaced", Font.PLAIN, 12));
         fileList.setBackground(new Color(0xF5, 0xF7, 0xFF));
-        leftPane.add(fileList, BorderLayout.CENTER);
+        fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        JScrollPane fileListScroll = new JScrollPane(fileList);
+        fileListScroll.setBorder(BorderFactory.createEmptyBorder());
+        leftPane.add(fileListScroll, BorderLayout.CENTER);
         leftPane.setPreferredSize(new Dimension(210, 0));
 
         // ── centre pane (SASM editor — 2/3 of remaining width) ───────────────
@@ -561,8 +565,8 @@ public class SasmIdePanel extends JPanel {
         add(codeArea,  BorderLayout.CENTER);
 
         // ── wire events ───────────────────────────────────────────────────────
-        fileList.addItemListener(e -> {
-            if (e.getStateChange() == ItemEvent.SELECTED) {
+        fileList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
                 int idx = fileList.getSelectedIndex();
                 if (idx >= 0 && idx < fileIndex.size()) {
                     File selected = fileIndex.get(idx);

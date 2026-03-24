@@ -6,11 +6,12 @@ import java.io.File;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
+import javax.swing.*;
 
 /**
  * Entry point for the SASM IDE.
  *
- * <p>Displays an AWT {@link Frame} with a menu bar.  The <em>File → New
+ * <p>Displays a Swing {@link JFrame} with a menu bar.  The <em>File → New
  * Project</em> menu item opens the {@link NewProjectWizard} dialog, which
  * collects a project name and working directory.  The <em>File → Add
  * Variant</em> menu item opens the {@link AddVariantWizard} dialog, which
@@ -40,18 +41,18 @@ public class SasmMain {
             new File(PREFS_DIR, "last_project.txt");
 
     // ── UI references ────────────────────────────────────────────────────────
-    private static Frame       mainFrame;
-    private static Label       statusBar;
-    private static Label       welcomeSub;
+    private static JFrame      mainFrame;
+    private static JLabel      statusBar;
+    private static JLabel      welcomeSub;
     private static SasmIdePanel idePanel;
     private static CardLayout  cardLayout;
-    private static Panel       cardPanel;
-    private static MenuItem    addFileItem;       // enabled when a dir is selected
-    private static MenuItem    addVariantItem;    // enabled only when a project is open
-    private static MenuItem    renameProjectItem; // enabled only when a project is open
-    private static MenuItem    deleteFileItem;    // enabled only when a file is open
-    private static MenuItem    renameFileItem;    // enabled when a file is selected
-    private static MenuItem    propertiesItem;    // enabled when a dir (core/variant) is selected
+    private static JPanel      cardPanel;
+    private static JMenuItem   addFileItem;       // enabled when a dir is selected
+    private static JMenuItem   addVariantItem;    // enabled only when a project is open
+    private static JMenuItem   renameProjectItem; // enabled only when a project is open
+    private static JMenuItem   deleteFileItem;    // enabled only when a file is open
+    private static JMenuItem   renameFileItem;    // enabled when a file is selected
+    private static JMenuItem   propertiesItem;    // enabled when a dir (core/variant) is selected
 
     private static final String CARD_WELCOME = "welcome";
     private static final String CARD_IDE     = "ide";
@@ -81,84 +82,85 @@ public class SasmMain {
 
     // ── main-frame construction ──────────────────────────────────────────────
 
-    private static Frame buildMainFrame() {
-        Frame frame = new Frame(APP_TITLE);
+    private static JFrame buildMainFrame() {
+        JFrame frame = new JFrame(APP_TITLE);
+        frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         frame.setSize(1100, 700);
         frame.setLayout(new BorderLayout());
 
         // ── menu bar ────────────────────────────────────────────────────────
-        MenuBar menuBar = new MenuBar();
+        JMenuBar menuBar = new JMenuBar();
 
-        Menu fileMenu = new Menu("File");
+        JMenu fileMenu = new JMenu("File");
 
-        MenuItem newProjectItem = new MenuItem("New Project");
-        newProjectItem.setShortcut(new MenuShortcut(KeyEvent.VK_N));
+        JMenuItem newProjectItem = new JMenuItem("New Project");
+        newProjectItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_N, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         fileMenu.add(newProjectItem);
 
-        MenuItem openProjectItem = new MenuItem("Open Project");
-        openProjectItem.setShortcut(new MenuShortcut(KeyEvent.VK_O));
+        JMenuItem openProjectItem = new JMenuItem("Open Project");
+        openProjectItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_O, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         fileMenu.add(openProjectItem);
 
-        renameProjectItem = new MenuItem("Rename Project");
+        renameProjectItem = new JMenuItem("Rename Project");
         renameProjectItem.setEnabled(false); // enabled after a project is loaded
         fileMenu.add(renameProjectItem);
 
         fileMenu.addSeparator();
 
-        addVariantItem = new MenuItem("Add Variant");
-        addVariantItem.setShortcut(new MenuShortcut(KeyEvent.VK_V));
+        addVariantItem = new JMenuItem("Add Variant");
+        addVariantItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         addVariantItem.setEnabled(false);  // enabled after a project is loaded
         fileMenu.add(addVariantItem);
 
-        addFileItem = new MenuItem("Add New SASM File");
-        addFileItem.setShortcut(new MenuShortcut(KeyEvent.VK_F));
+        addFileItem = new JMenuItem("Add New SASM File");
+        addFileItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_F, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         addFileItem.setEnabled(false);   // enabled when a core/variant dir is selected
         fileMenu.add(addFileItem);
 
-        renameFileItem = new MenuItem("Rename File");
+        renameFileItem = new JMenuItem("Rename File");
         renameFileItem.setEnabled(false); // enabled when a file is selected
         fileMenu.add(renameFileItem);
 
-        deleteFileItem = new MenuItem("Delete File");
-        deleteFileItem.setShortcut(new MenuShortcut(KeyEvent.VK_D));
+        deleteFileItem = new JMenuItem("Delete File");
+        deleteFileItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_D, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         deleteFileItem.setEnabled(false); // enabled when a file is open
         fileMenu.add(deleteFileItem);
 
         fileMenu.addSeparator();
 
-        propertiesItem = new MenuItem("Properties");
+        propertiesItem = new JMenuItem("Properties");
         propertiesItem.setEnabled(false); // enabled when a dir (core/variant) is selected
         fileMenu.add(propertiesItem);
 
         fileMenu.addSeparator();
 
-        MenuItem exitItem = new MenuItem("Exit");
-        exitItem.setShortcut(new MenuShortcut(KeyEvent.VK_Q));
+        JMenuItem exitItem = new JMenuItem("Exit");
+        exitItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Q, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         fileMenu.add(exitItem);
 
         menuBar.add(fileMenu);
 
-        Menu helpMenu = new Menu("Help");
-        MenuItem aboutItem = new MenuItem("About");
+        JMenu helpMenu = new JMenu("Help");
+        JMenuItem aboutItem = new JMenuItem("About");
         helpMenu.add(aboutItem);
         menuBar.add(helpMenu);
 
-        frame.setMenuBar(menuBar);
+        frame.setJMenuBar(menuBar);
 
         // ── card panel (welcome ↔ IDE) ────────────────────────────────────
         cardLayout = new CardLayout();
-        cardPanel  = new Panel(cardLayout);
+        cardPanel  = new JPanel(cardLayout);
 
         // welcome card
-        Panel welcome = new Panel(new GridBagLayout());
+        JPanel welcome = new JPanel(new GridBagLayout());
         welcome.setBackground(new Color(0xF4, 0xF6, 0xF8));
-        Label heading = new Label("Welcome to SASM IDE", Label.CENTER);
+        JLabel heading = new JLabel("Welcome to SASM IDE", SwingConstants.CENTER);
         heading.setFont(new Font("SansSerif", Font.BOLD, 22));
         heading.setForeground(new Color(0x2B, 0x57, 0x97));
         GridBagConstraints c = new GridBagConstraints();
         c.gridx = 0; c.gridy = 0; c.insets = new Insets(0, 0, 10, 0);
         welcome.add(heading, c);
-        welcomeSub = new Label("Use  File → New Project  to start.", Label.CENTER);
+        welcomeSub = new JLabel("Use  File → New Project  to start.");
         welcomeSub.setFont(new Font("SansSerif", Font.PLAIN, 14));
         welcomeSub.setForeground(Color.DARK_GRAY);
         c.gridy = 1; c.insets = new Insets(0, 0, 0, 0);
@@ -177,29 +179,27 @@ public class SasmMain {
         });
 
         // ── right-click context menus on file list ──────────────────────────
-        PopupMenu filePopup = new PopupMenu();
-        MenuItem ctxAddFileFromFile = new MenuItem("Add New File");
-        MenuItem ctxRenameFile      = new MenuItem("Rename");
-        MenuItem ctxDeleteFile      = new MenuItem("Delete");
+        JPopupMenu filePopup = new JPopupMenu();
+        JMenuItem ctxAddFileFromFile = new JMenuItem("Add New File");
+        JMenuItem ctxRenameFile      = new JMenuItem("Rename");
+        JMenuItem ctxDeleteFile      = new JMenuItem("Delete");
         filePopup.add(ctxAddFileFromFile);
         filePopup.addSeparator();
         filePopup.add(ctxRenameFile);
         filePopup.add(ctxDeleteFile);
 
-        PopupMenu dirPopup = new PopupMenu();
-        MenuItem ctxBuild          = new MenuItem("Build");
-        MenuItem ctxAddFileFromDir = new MenuItem("Add New File");
-        MenuItem ctxRenameVariant  = new MenuItem("Rename");
-        MenuItem ctxDeleteVariant  = new MenuItem("Delete");
+        JPopupMenu dirPopup = new JPopupMenu();
+        JMenuItem ctxBuild          = new JMenuItem("Build");
+        JMenuItem ctxAddFileFromDir = new JMenuItem("Add New File");
+        JMenuItem ctxRenameVariant  = new JMenuItem("Rename");
+        JMenuItem ctxDeleteVariant  = new JMenuItem("Delete");
         dirPopup.add(ctxBuild);
         dirPopup.add(ctxAddFileFromDir);
         dirPopup.addSeparator();
         dirPopup.add(ctxRenameVariant);
         dirPopup.add(ctxDeleteVariant);
 
-        java.awt.List fileListComp = idePanel.getFileListComponent();
-        fileListComp.add(filePopup);
-        fileListComp.add(dirPopup);
+        JList<String> fileListComp = idePanel.getFileListComponent();
 
         fileListComp.addMouseListener(new MouseAdapter() {
             @Override public void mousePressed(MouseEvent e)  { maybeShowPopup(e); }
@@ -235,7 +235,8 @@ public class SasmMain {
         frame.add(cardPanel, BorderLayout.CENTER);
 
         // ── status bar ──────────────────────────────────────────────────────
-        statusBar = new Label(" Ready", Label.LEFT);
+        statusBar = new JLabel(" Ready");
+        statusBar.setOpaque(true);
         statusBar.setBackground(new Color(0xE0, 0xE0, 0xE0));
         frame.add(statusBar, BorderLayout.SOUTH);
 
@@ -323,26 +324,26 @@ public class SasmMain {
     private static void promptRenameProject() {
         if (currentProject == null || currentProjectFile == null) return;
 
-        Dialog dlg = new Dialog(mainFrame, "Rename Project", true);
+        JDialog dlg = new JDialog(mainFrame, "Rename Project", true);
         dlg.setLayout(new BorderLayout(8, 8));
 
         // input row
-        Panel inputRow = new Panel(new FlowLayout(FlowLayout.LEFT, 8, 8));
-        inputRow.add(new Label("New project name:"));
-        TextField nameFld = new TextField(currentProject.name, 30);
+        JPanel inputRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+        inputRow.add(new JLabel("New project name:"));
+        JTextField nameFld = new JTextField(currentProject.name, 30);
         inputRow.add(nameFld);
         dlg.add(inputRow, BorderLayout.CENTER);
 
         // error label
-        Label errLbl = new Label("", Label.CENTER);
+        JLabel errLbl = new JLabel("", SwingConstants.CENTER);
         errLbl.setForeground(Color.RED);
         errLbl.setFont(new Font("SansSerif", Font.ITALIC, 11));
         dlg.add(errLbl, BorderLayout.NORTH);
 
         // buttons
-        Button okBtn     = new Button("OK");
-        Button cancelBtn = new Button("Cancel");
-        Panel bp = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        JButton okBtn     = new JButton("OK");
+        JButton cancelBtn = new JButton("Cancel");
+        JPanel bp = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
         bp.add(okBtn);
         bp.add(cancelBtn);
         dlg.add(bp, BorderLayout.SOUTH);
@@ -464,26 +465,26 @@ public class SasmMain {
         File targetDir = idePanel.getSelectedContextDirectory();
         if (targetDir == null) return;
 
-        Dialog dlg = new Dialog(mainFrame, "Add New SASM File", true);
+        JDialog dlg = new JDialog(mainFrame, "Add New SASM File", true);
         dlg.setLayout(new BorderLayout(8, 8));
 
         // input row
-        Panel inputRow = new Panel(new FlowLayout(FlowLayout.LEFT, 8, 8));
-        inputRow.add(new Label("File name (no extension):"));
-        TextField nameFld = new TextField(30);
+        JPanel inputRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+        inputRow.add(new JLabel("File name (no extension):"));
+        JTextField nameFld = new JTextField(30);
         inputRow.add(nameFld);
         dlg.add(inputRow, BorderLayout.CENTER);
 
         // error label
-        Label errLbl = new Label("", Label.CENTER);
+        JLabel errLbl = new JLabel("", SwingConstants.CENTER);
         errLbl.setForeground(Color.RED);
         errLbl.setFont(new Font("SansSerif", Font.ITALIC, 11));
         dlg.add(errLbl, BorderLayout.NORTH);
 
         // buttons
-        Button okBtn     = new Button("OK");
-        Button cancelBtn = new Button("Cancel");
-        Panel bp = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        JButton okBtn     = new JButton("OK");
+        JButton cancelBtn = new JButton("Cancel");
+        JPanel bp = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
         bp.add(okBtn);
         bp.add(cancelBtn);
         dlg.add(bp, BorderLayout.SOUTH);
@@ -526,20 +527,20 @@ public class SasmMain {
     private static void promptDeleteFile() {
         if (!idePanel.hasOpenFile()) return;
 
-        Dialog dlg = new Dialog(mainFrame, "Delete File", true);
+        JDialog dlg = new JDialog(mainFrame, "Delete File", true);
         dlg.setLayout(new BorderLayout(8, 8));
 
-        Label msg = new Label("Permanently delete the open file?  This cannot be undone.",
-                              Label.CENTER);
+        JLabel msg = new JLabel("Permanently delete the open file?  This cannot be undone.",
+                              SwingConstants.CENTER);
         msg.setFont(new Font("SansSerif", Font.PLAIN, 13));
-        Panel msgPanel = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 12));
+        JPanel msgPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 12));
         msgPanel.add(msg);
         dlg.add(msgPanel, BorderLayout.CENTER);
 
-        Button deleteBtn = new Button("Delete");
+        JButton deleteBtn = new JButton("Delete");
         deleteBtn.setForeground(Color.RED);
-        Button cancelBtn = new Button("Cancel");
-        Panel bp = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        JButton cancelBtn = new JButton("Cancel");
+        JPanel bp = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
         bp.add(deleteBtn);
         bp.add(cancelBtn);
         dlg.add(bp, BorderLayout.SOUTH);
@@ -570,26 +571,26 @@ public class SasmMain {
     private static void promptRenameFile() {
         if (!idePanel.hasOpenFile()) return;
 
-        Dialog dlg = new Dialog(mainFrame, "Rename File", true);
+        JDialog dlg = new JDialog(mainFrame, "Rename File", true);
         dlg.setLayout(new BorderLayout(8, 8));
 
         // input row
-        Panel inputRow = new Panel(new FlowLayout(FlowLayout.LEFT, 8, 8));
-        inputRow.add(new Label("New file name (no extension):"));
-        TextField nameFld = new TextField(30);
+        JPanel inputRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+        inputRow.add(new JLabel("New file name (no extension):"));
+        JTextField nameFld = new JTextField(30);
         inputRow.add(nameFld);
         dlg.add(inputRow, BorderLayout.CENTER);
 
         // error label
-        Label errLbl = new Label("", Label.CENTER);
+        JLabel errLbl = new JLabel("", SwingConstants.CENTER);
         errLbl.setForeground(Color.RED);
         errLbl.setFont(new Font("SansSerif", Font.ITALIC, 11));
         dlg.add(errLbl, BorderLayout.NORTH);
 
         // buttons
-        Button okBtn     = new Button("OK");
-        Button cancelBtn = new Button("Cancel");
-        Panel bp = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        JButton okBtn     = new JButton("OK");
+        JButton cancelBtn = new JButton("Cancel");
+        JPanel bp = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
         bp.add(okBtn);
         bp.add(cancelBtn);
         dlg.add(bp, BorderLayout.SOUTH);
@@ -776,23 +777,23 @@ public class SasmMain {
             return;
         }
 
-        Dialog dlg = new Dialog(mainFrame, "Rename Variant", true);
+        JDialog dlg = new JDialog(mainFrame, "Rename Variant", true);
         dlg.setLayout(new BorderLayout(8, 8));
 
-        Panel inputRow = new Panel(new FlowLayout(FlowLayout.LEFT, 8, 8));
-        inputRow.add(new Label("New variant name:"));
-        TextField nameFld = new TextField(dirName, 30);
+        JPanel inputRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+        inputRow.add(new JLabel("New variant name:"));
+        JTextField nameFld = new JTextField(dirName, 30);
         inputRow.add(nameFld);
         dlg.add(inputRow, BorderLayout.CENTER);
 
-        Label errLbl = new Label("", Label.CENTER);
+        JLabel errLbl = new JLabel("", SwingConstants.CENTER);
         errLbl.setForeground(Color.RED);
         errLbl.setFont(new Font("SansSerif", Font.ITALIC, 11));
         dlg.add(errLbl, BorderLayout.NORTH);
 
-        Button okBtn     = new Button("OK");
-        Button cancelBtn = new Button("Cancel");
-        Panel bp = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        JButton okBtn     = new JButton("OK");
+        JButton cancelBtn = new JButton("Cancel");
+        JPanel bp = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
         bp.add(okBtn);
         bp.add(cancelBtn);
         dlg.add(bp, BorderLayout.SOUTH);
@@ -860,21 +861,21 @@ public class SasmMain {
         String dirName = idePanel.getSelectedDirectoryName();
         if (dirName == null || "core".equals(dirName)) return;
 
-        Dialog dlg = new Dialog(mainFrame, "Delete Variant", true);
+        JDialog dlg = new JDialog(mainFrame, "Delete Variant", true);
         dlg.setLayout(new BorderLayout(8, 8));
 
-        Label msg = new Label(
+        JLabel msg = new JLabel(
                 "Permanently delete variant '" + dirName + "' and all its files?",
-                Label.CENTER);
+                SwingConstants.CENTER);
         msg.setFont(new Font("SansSerif", Font.PLAIN, 13));
-        Panel msgPanel = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 12));
+        JPanel msgPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 12));
         msgPanel.add(msg);
         dlg.add(msgPanel, BorderLayout.CENTER);
 
-        Button deleteBtn = new Button("Delete");
+        JButton deleteBtn = new JButton("Delete");
         deleteBtn.setForeground(Color.RED);
-        Button cancelBtn = new Button("Cancel");
-        Panel bp = new Panel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        JButton cancelBtn = new JButton("Cancel");
+        JPanel bp = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
         bp.add(deleteBtn);
         bp.add(cancelBtn);
         dlg.add(bp, BorderLayout.SOUTH);
@@ -1014,11 +1015,11 @@ public class SasmMain {
 
     // ── about dialog ─────────────────────────────────────────────────────────
 
-    private static void showAbout(Frame owner) {
-        Dialog dlg = new Dialog(owner, "About SASM IDE", true);
+    private static void showAbout(JFrame owner) {
+        JDialog dlg = new JDialog(owner, "About SASM IDE", true);
         dlg.setLayout(new BorderLayout(8, 8));
 
-        TextArea ta = new TextArea(
+        JTextArea ta = new JTextArea(
                 "SASM IDE\n\n"
                 + "Structured Assembly Language IDE\n\n"
                 + "Use File → New Project to create a project (name + directory).\n"
@@ -1028,13 +1029,16 @@ public class SasmMain {
                 + "  (OS, output type, format variant, processor).\n"
                 + "Use File → Add New SASM File to create .sasm source files.\n"
                 + "Use File → Delete File to permanently remove the open file.\n",
-                10, 40, TextArea.SCROLLBARS_NONE);
+                10, 40);
         ta.setEditable(false);
-        dlg.add(ta, BorderLayout.CENTER);
+        ta.setLineWrap(true);
+        ta.setWrapStyleWord(true);
+        JScrollPane taScroll = new JScrollPane(ta);
+        dlg.add(taScroll, BorderLayout.CENTER);
 
-        Button ok = new Button("OK");
+        JButton ok = new JButton("OK");
         ok.addActionListener(e -> dlg.dispose());
-        Panel bp = new Panel(new FlowLayout(FlowLayout.CENTER));
+        JPanel bp = new JPanel(new FlowLayout(FlowLayout.CENTER));
         bp.add(ok);
         dlg.add(bp, BorderLayout.SOUTH);
 
