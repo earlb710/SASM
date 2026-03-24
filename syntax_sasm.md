@@ -1152,10 +1152,27 @@ produces one assembly instruction:
 | `ax = [myVar] + 5` | `MOV ax, [myVar]` / `ADD ax, 5` | Variable (memory) as operand |
 | `[counter] = [counter] + 1` | `ADD [counter], 1` | Variable as both destination and operand |
 | `ax = [buf + si] && 0xFF` | `MOV ax, [buf + si]` / `AND ax, 0xFF` | Indexed memory with bitwise AND |
+| `ax = myVar + 5` | `MOV ax, [myVar]` / `ADD ax, 5` | Bare variable name (auto-wrapped) |
+| `result = ax` | `MOV [result], ax` | Bare variable destination (auto-wrapped) |
 
 Operands may be registers, immediates, or memory references (variables).
-When a variable defined with `var` is used in an expression, wrap it in
-square brackets (e.g. `[myVar]`) to access its value.
+When a variable defined with `var` is used in an expression, you can wrap it in
+square brackets (e.g. `[myVar]`) to access its value, or use the bare variable
+name directly — the translator automatically wraps known variable names in
+brackets:
+
+```sasm
+var total word = 0
+var count word = 10
+
+-- The following pairs are equivalent:
+ax = [total] + [count]      -- explicit brackets
+ax = total + count           -- bare names (auto-wrapped)
+
+[total] = ax                 -- explicit bracket destination
+total = ax                   -- bare name destination (auto-wrapped)
+```
+
 The `+` and `-` characters inside square brackets (e.g. `[buffer + bx]`) are
 treated as address arithmetic, not expression operators.
 

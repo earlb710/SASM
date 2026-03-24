@@ -2,8 +2,10 @@ package com.sasm;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -32,6 +34,12 @@ public class SasmTranslator {
      */
     private final Map<String, String> aliasMap = new HashMap<>();
 
+    /**
+     * Tracks variable names declared with {@code var} so that bare names
+     * in expression assignments are automatically wrapped in brackets.
+     */
+    private final Set<String> declaredVars = new HashSet<>();
+
     /** Pattern for {@code #REF <file> <alias>} import directives. */
     private static final Pattern REF_DIRECTIVE = Pattern.compile(
             "#REF\\s+(\\S+)\\s+(\\S+)");
@@ -59,6 +67,7 @@ public class SasmTranslator {
         if (sasmSource == null || sasmSource.isEmpty()) return "";
         labelSeq = 0;
         aliasMap.clear();
+        declaredVars.clear();
 
         // ── first pass: collect #REF alias mappings ──────────────────────────
         String[] lines = sasmSource.split("\\r?\\n", -1);
@@ -774,6 +783,7 @@ public class SasmTranslator {
         Matcher m = VAR_INIT.matcher(code);
         if (m.matches()) {
             String name = m.group(1);
+            declaredVars.add(name);
             String dir  = sizeDirective(m.group(2));
             return name + ": " + dir + " " + m.group(3).trim();
         }
@@ -781,6 +791,7 @@ public class SasmTranslator {
         m = VAR_DECL.matcher(code);
         if (m.matches()) {
             String name = m.group(1);
+            declaredVars.add(name);
             String dir  = sizeDirective(m.group(2));
             return name + ": " + dir + " 0";
         }
@@ -869,10 +880,18 @@ public class SasmTranslator {
         String rhs = m.group(2).trim();
         if (dst.isEmpty() || rhs.isEmpty()) return null;
 
+        // Auto-wrap bare variable names on the destination side
+        dst = wrapIfVar(dst);
+
         // Tokenize the RHS into operands and operators
         List<String> operands = new ArrayList<>();
         List<Integer> operators = new ArrayList<>(); // '+', '-', '*', 'd' (div), 'L' (<<), 'R' (>>), 'A' (&& bitwise AND), 'O' (|| bitwise OR); unary '!' handled separately
         splitExprTokens(rhs, operands, operators);
+
+        // Auto-wrap bare variable names in operands
+        for (int i = 0; i < operands.size(); i++) {
+            operands.set(i, wrapIfVar(operands.get(i)));
+        }
 
         if (operands.isEmpty()) return null;
 
@@ -882,6 +901,7 @@ public class SasmTranslator {
             if (sole.startsWith("!")) {
                 String inner = sole.substring(1).trim();
                 if (inner.isEmpty()) return null;
+                inner = wrapIfVar(inner);
                 boolean sameAsDst = dst.equalsIgnoreCase(inner);
                 return sameAsDst
                         ? "    NOT " + dst
@@ -1120,6 +1140,18 @@ public class SasmTranslator {
         if (!tail.isEmpty()) {
             operands.add(tail);
         }
+    }
+
+    /**
+     * If {@code operand} is a bare identifier that was declared with
+     * {@code var}, wraps it in square brackets so the generated assembly
+     * accesses the value rather than the address.  Operands already
+     * wrapped in brackets (e.g. {@code [myVar]}) are returned unchanged.
+     */
+    private String wrapIfVar(String operand) {
+        if (operand.startsWith("[")) return operand;            // already bracketed
+        if (declaredVars.contains(operand)) return "[" + operand + "]";
+        return operand;
     }
 
     // ══════════════════════════════════════════════════════════════════════════
