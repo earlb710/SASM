@@ -59,7 +59,7 @@ public class SasmIdePanel extends JPanel {
     private final JButton asmToggle = new JButton("ASM");
 
     /** Whether the asm output pane is currently visible. */
-    private boolean asmVisible = true;
+    private boolean asmVisible = false;
 
     /** Guards against recursive scroll synchronisation. */
     private boolean syncingScroll = false;
@@ -553,7 +553,8 @@ public class SasmIdePanel extends JPanel {
         codeArea.add(editorPane, gc);
 
         gc.gridx   = 1;
-        gc.weightx = 1.0;  // 1/3
+        gc.weightx = 0.0;  // starts hidden
+        asmPane.setVisible(false);
         codeArea.add(asmPane, gc);
 
         // ── assemble panels ──────────────────────────────────────────────────
