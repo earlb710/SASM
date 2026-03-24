@@ -1,0 +1,80 @@
+-- testOperands.sasm
+-- Project : Test-projects
+--
+-- Demonstrates expression assignments with variable (memory) operands
+-- and the comma-separated swap syntax.
+
+section .text
+global _start
+
+(* -----------------------------------------------------------------
+   Data section: variables used as operands in expressions.
+   ----------------------------------------------------------------- *)
+var counter as word = 0
+var value1  as word = 10
+var value2  as word = 20
+var result  as word = 0
+
+(* -----------------------------------------------------------------
+   test_expressions — exercises variable operands in expressions.
+   ----------------------------------------------------------------- *)
+proc test_expressions {
+    -- simple assignment from variable
+    ax = [value1]                     -- ax = 10
+
+    -- add with variable operand
+    ax = [value1] + [value2]          -- ax = 10 + 20 = 30
+
+    -- subtract with variable operand
+    bx = [value2] - [value1]          -- bx = 20 - 10 = 10
+
+    -- variable as destination
+    [result] = ax                     -- result = 30
+
+    -- increment variable through register
+    ax = [counter] + 1                -- ax = 0 + 1 = 1
+    [counter] = ax                    -- counter = 1
+
+    -- multiply with variable operand
+    ax = [value1] * 3                 -- ax = 10 * 3 = 30
+
+    -- bitwise AND with variable
+    ax = [value1] && 0xFF             -- ax = 10 & 0xFF = 10
+
+    -- bitwise OR with variable
+    ax = [value2] || 0x100            -- ax = 20 | 0x100 = 276
+
+    -- shift with variable operand
+    ax = [value1] << 2                -- ax = 10 << 2 = 40
+
+    -- bitwise NOT
+    ax = ![value1]                    -- ax = ~10
+
+    return
+}
+
+(* -----------------------------------------------------------------
+   test_swap — exercises comma-separated swap syntax.
+   ----------------------------------------------------------------- *)
+proc test_swap {
+    move 0x1234 to ax
+    move 0x5678 to cx
+
+    swap ax, cx                       -- ax ↔ cx: ax=0x5678, cx=0x1234
+
+    swap ax and cx                    -- swap back using "and" syntax
+
+    return
+}
+
+(* -----------------------------------------------------------------
+   _start — entry point
+   ----------------------------------------------------------------- *)
+_start:
+    call test_expressions
+    call test_swap
+
+    -- Exit (Linux syscall: sys_exit)
+    move 0 to bl                      -- exit code 0
+    move 1 to ax                      -- sys_exit
+    syscall 0x80
