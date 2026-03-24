@@ -1053,6 +1053,34 @@ reverse_bytes:
 | `begin frame <locals>, <level>` | `ENTER imm16, imm8` | Create procedure stack frame |
 | `end frame` | `LEAVE` | Tear down procedure stack frame |
 
+### Expression Assignment Shorthand
+
+In addition to the English-phrase syntax above, SASM supports a compact
+**expression assignment** form using the operators `=`, `+`, `-`, `*`, and `div`:
+
+```
+<dst> = <src>                -- simple assignment
+<dst> = <op1> + <op2>        -- addition
+<dst> = <op1> - <op2>        -- subtraction
+<dst> = <op1> * <op2>        -- multiplication (signed, IMUL)
+<dst> = <op1> div <op2>      -- unsigned division
+```
+
+| SASM Expression | ASM Equivalent | Notes |
+|-----------------|----------------|-------|
+| `ax = cx` | `MOV ax, cx` | Simple register-to-register move |
+| `ax = cx + bx` | `MOV ax, cx` / `ADD ax, bx` | Two instructions when `dst ≠ op1` |
+| `ax = ax + bx` | `ADD ax, bx` | Optimised to single instruction when `dst = op1` |
+| `ax = cx - bx` | `MOV ax, cx` / `SUB ax, bx` | Two instructions when `dst ≠ op1` |
+| `ax = cx * bx` | `MOV ax, cx` / `IMUL ax, bx` | Uses two-operand signed `IMUL` |
+| `ax = cx div bx` | `MOV AX, cx` / `XOR DX, DX` / `DIV bx` | Sets up accumulator pair, unsigned divide; quotient → AX |
+| `eax = ecx div ebx` | `MOV EAX, ecx` / `XOR EDX, EDX` / `DIV ebx` | 32-bit version |
+| `rax = rcx div rbx` | `MOV RAX, rcx` / `XOR RDX, RDX` / `DIV rbx` | 64-bit version |
+
+Operands may be registers, immediates, or memory references.
+The `+` and `-` characters inside square brackets (e.g. `[buffer + bx]`) are
+treated as address arithmetic, not expression operators.
+
 ---
 
 ## Logical

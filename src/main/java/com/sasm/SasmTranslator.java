@@ -110,6 +110,18 @@ public class SasmTranslator {
 
         String asm = tryTranslateCode(code);
         if (asm != null) {
+            if (asm.indexOf('\n') >= 0) {
+                // Multi-line result: apply indentation to each line,
+                // trailing comment to last line only.
+                String[] asmLines = asm.split("\n", -1);
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < asmLines.length; i++) {
+                    if (i > 0) sb.append('\n');
+                    sb.append(leading).append(asmLines[i]);
+                }
+                sb.append(comment);
+                return sb.toString();
+            }
             return leading + asm + comment;
         }
         // Passthrough — already ASM or unrecognised
@@ -197,6 +209,9 @@ public class SasmTranslator {
 
         // ── miscellaneous flags / extensions ─────────────────────────────────
         if ((r = tryMisc(code))          != null) return r;
+
+        // ── expression assignment (dst = src [op src2]) ──────────────────────
+        if ((r = tryExpression(code))    != null) return r;
 
         return null; // unrecognised → passthrough
     }
@@ -807,6 +822,180 @@ public class SasmTranslator {
         if (m.matches())
             return "    BOUND " + m.group(1) + ", " + m.group(2);
 
+        return null;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Expression Assignment  (dst = src  /  dst = op1 {+|-|*|div} op2)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /** Pattern for {@code <dst> = <rhs>} expression syntax. */
+    private static final Pattern EXPR_ASSIGN = Pattern.compile(
+            "(.+?)\\s*=\\s*(.+)");
+
+    /**
+     * Tries to translate an expression assignment such as
+     * {@code ax = cx + bx} or {@code eax = ecx}.
+     *
+     * <p>Supported operators (binary, outside square brackets):
+     * {@code +}, {@code -}, {@code *}, {@code div}.</p>
+     */
+    private String tryExpression(String code) {
+        if (code.indexOf('=') < 0) return null;
+
+        Matcher m = EXPR_ASSIGN.matcher(code);
+        if (!m.matches()) return null;
+
+        String dst = m.group(1).trim();
+        String rhs = m.group(2).trim();
+        if (dst.isEmpty() || rhs.isEmpty()) return null;
+
+        // Locate the first binary operator at bracket depth 0
+        int[] op = findExprOperator(rhs);
+
+        if (op == null) {
+            // Simple assignment:  dst = src  →  MOV dst, src
+            return "    MOV " + dst + ", " + rhs;
+        }
+
+        String op1 = rhs.substring(0, op[0]).trim();
+        String op2 = rhs.substring(op[1]).trim();
+        int opKind = op[2]; // '+', '-', '*', or 'd' (div)
+
+        if (op1.isEmpty() || op2.isEmpty()) {
+            // Unary operator or malformed — treat as simple assignment
+            return "    MOV " + dst + ", " + rhs;
+        }
+
+        boolean sameAsDst = dst.equalsIgnoreCase(op1);
+
+        return switch (opKind) {
+            case '+' -> sameAsDst
+                    ? "    ADD " + dst + ", " + op2
+                    : "    MOV " + dst + ", " + op1 + "\n    ADD " + dst + ", " + op2;
+            case '-' -> sameAsDst
+                    ? "    SUB " + dst + ", " + op2
+                    : "    MOV " + dst + ", " + op1 + "\n    SUB " + dst + ", " + op2;
+            case '*' -> sameAsDst
+                    ? "    IMUL " + dst + ", " + op2
+                    : "    MOV " + dst + ", " + op1 + "\n    IMUL " + dst + ", " + op2;
+            case 'd' -> buildDiv(dst, op1, op2);
+            default  -> null;
+        };
+    }
+
+    /**
+     * Builds the NASM instruction sequence for an unsigned division
+     * expression {@code dst = op1 div op2}.
+     *
+     * <p>x86 {@code DIV} always uses the accumulator pair (e.g. DX:AX)
+     * as the implicit dividend.  This helper emits:</p>
+     * <ol>
+     *   <li>{@code MOV quotient, op1} (if op1 ≠ quotient reg)</li>
+     *   <li>{@code XOR high, high} (zero-extend the dividend)</li>
+     *   <li>{@code DIV op2}</li>
+     *   <li>{@code MOV dst, quotient} (if dst ≠ quotient reg)</li>
+     * </ol>
+     */
+    private static String buildDiv(String dst, String op1, String op2) {
+        String[] pair = divRegisters(dst, op1);
+        String quot = pair[0]; // AL / AX / EAX / RAX  (quotient register)
+        String high = pair[1]; // AH / DX / EDX / RDX  (high register to clear)
+
+        StringBuilder sb = new StringBuilder();
+        if (!op1.equalsIgnoreCase(quot)) {
+            sb.append("    MOV ").append(quot).append(", ").append(op1).append('\n');
+        }
+        if (high != null) {
+            sb.append("    XOR ").append(high).append(", ").append(high).append('\n');
+        }
+        sb.append("    DIV ").append(op2);
+        if (!dst.equalsIgnoreCase(quot)) {
+            sb.append('\n').append("    MOV ").append(dst).append(", ").append(quot);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Determines the quotient register and high-word register pair to use
+     * for a {@code DIV} instruction, based on the register width of the
+     * operands.
+     *
+     * @return {@code {quotientReg, highReg}} where quotientReg receives
+     *         the division result and highReg must be zeroed beforehand.
+     */
+    private static String[] divRegisters(String dst, String op1) {
+        // Check dst first, then op1, for width hints
+        String[] r = regWidth(dst);
+        if (r != null) return r;
+        r = regWidth(op1);
+        if (r != null) return r;
+        // Default to 16-bit
+        return new String[]{"AX", "DX"};
+    }
+
+    /** Maps a register name to its {quotient, highReg} pair, or null.
+     *  For 8-bit DIV the quotient is in AL and AH must be cleared. */
+    private static String[] regWidth(String name) {
+        String n = name.toLowerCase().trim();
+        // 64-bit
+        if (n.matches("r[a-d]x|rsi|rdi|rsp|rbp|r([89]|1[0-5])"))
+            return new String[]{"RAX", "RDX"};
+        // 32-bit
+        if (n.matches("e[a-d]x|esi|edi|esp|ebp|r([89]|1[0-5])d"))
+            return new String[]{"EAX", "EDX"};
+        // 8-bit (DIV uses AX as implicit dividend; quotient → AL, remainder → AH)
+        if (n.matches("[a-d][hl]|sil|dil|spl|bpl|r([89]|1[0-5])b"))
+            return new String[]{"AL", "AH"};
+        // 16-bit
+        if (n.matches("[a-d]x|si|di|sp|bp|r([89]|1[0-5])w"))
+            return new String[]{"AX", "DX"};
+        return null;
+    }
+
+    /**
+     * Finds the first binary operator ({@code +}, {@code -}, {@code *},
+     * or the keyword {@code div}) at bracket depth&nbsp;0 in the given
+     * expression string.
+     *
+     * @return {@code {startIdx, endIdx, opChar}} where {@code opChar} is
+     *         {@code '+'}, {@code '-'}, {@code '*'} or {@code 'd'} (for
+     *         {@code div}), or {@code null} if no operator is found.
+     */
+    private static int[] findExprOperator(String rhs) {
+        int depth = 0;
+        boolean inQuote = false;
+
+        for (int i = 0; i < rhs.length(); i++) {
+            char c = rhs.charAt(i);
+            if (c == '\'') { inQuote = !inQuote; continue; }
+            if (inQuote) continue;
+            if (c == '[') { depth++; continue; }
+            if (c == ']') { depth--; continue; }
+            if (depth != 0) continue;
+
+            // Single-character operators — must have a non-empty left operand
+            if ((c == '+' || c == '-' || c == '*') && i > 0) {
+                String before = rhs.substring(0, i).trim();
+                if (!before.isEmpty()) {
+                    return new int[]{i, i + 1, c};
+                }
+            }
+            // 'div' keyword with word boundaries
+            if (c == 'd' && i + 2 < rhs.length()
+                    && rhs.charAt(i + 1) == 'i' && rhs.charAt(i + 2) == 'v'
+                    && i > 0) {
+                boolean wBefore = !Character.isLetterOrDigit(rhs.charAt(i - 1));
+                boolean wAfter  = i + 3 >= rhs.length()
+                        || !Character.isLetterOrDigit(rhs.charAt(i + 3));
+                if (wBefore && wAfter) {
+                    String before = rhs.substring(0, i).trim();
+                    if (!before.isEmpty()) {
+                        return new int[]{i, i + 3, 'd'};
+                    }
+                }
+            }
+        }
         return null;
     }
 
