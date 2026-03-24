@@ -44,6 +44,16 @@ public class SasmTranslator {
     private static final Pattern ALIAS_REF = Pattern.compile(
             "@(\\w+)\\.(\\w+)");
 
+    /** Common base for var declarations: {@code var <name> [as] <type> [signed|unsigned]}. */
+    private static final String VAR_BASE =
+            "var\\s+(\\w+)\\s+(?:as\\s+)?(byte|word|dword|qword)(?:\\s+(?:signed|unsigned))?";
+
+    /** var with initialization: {@code var <name> [as] <type> [signed|unsigned] = <value>}. */
+    private static final Pattern VAR_INIT = Pattern.compile(VAR_BASE + "\\s*=\\s*(.+)");
+
+    /** var without initialization: {@code var <name> [as] <type> [signed|unsigned]}. */
+    private static final Pattern VAR_DECL = Pattern.compile(VAR_BASE);
+
     /** Translates a complete SASM source text into NASM assembly. */
     public String translate(String sasmSource) {
         if (sasmSource == null || sasmSource.isEmpty()) return "";
@@ -761,18 +771,14 @@ public class SasmTranslator {
 
     private String translateVar(String code) {
         // var <name> [as] <type> [signed|unsigned] = <value>
-        Matcher m = Pattern.compile(
-                "var\\s+(\\w+)\\s+(?:as\\s+)?(byte|word|dword|qword)(?:\\s+(?:signed|unsigned))?\\s*=\\s*(.+)")
-                .matcher(code);
+        Matcher m = VAR_INIT.matcher(code);
         if (m.matches()) {
             String name = m.group(1);
             String dir  = sizeDirective(m.group(2));
             return name + ": " + dir + " " + m.group(3).trim();
         }
         // var <name> [as] <type> [signed|unsigned]
-        m = Pattern.compile(
-                "var\\s+(\\w+)\\s+(?:as\\s+)?(byte|word|dword|qword)(?:\\s+(?:signed|unsigned))?")
-                .matcher(code);
+        m = VAR_DECL.matcher(code);
         if (m.matches()) {
             String name = m.group(1);
             String dir  = sizeDirective(m.group(2));
