@@ -637,6 +637,7 @@ public class SasmIdePanel extends Panel {
 
             // Determine the first visible line by looking up the offset at
             // the top of the clip region, avoiding an O(n) scan from line 0.
+            @SuppressWarnings("deprecation")
             int startLine = textArea.getDocument().getDefaultRootElement()
                     .getElementIndex(textArea.viewToModel(
                             new Point(0, clip.y)));
