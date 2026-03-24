@@ -34,20 +34,20 @@ import javax.swing.text.BadLocationException;
  * whenever the user switches to a different file, opens a new project, or
  * the IDE exits.</p>
  */
-public class SasmIdePanel extends Panel {
+public class SasmIdePanel extends JPanel {
 
     // ── file list (left pane) ─────────────────────────────────────────────────
-    private final Label    treeHeader = new Label("Project Files", Label.CENTER);
+    private final JLabel   treeHeader = new JLabel("Project Files", SwingConstants.CENTER);
     private final List     fileList   = new List(20, false);
 
     // ── editor (centre pane — SASM source, 2/3 width) ──────────────────────
-    private final Label     editorHeader = new Label("", Label.LEFT);
+    private final JLabel    editorHeader = new JLabel("", SwingConstants.LEFT);
     private final JTextArea editor       = new JTextArea(30, 80);
     private JScrollPane     editorScroll;
     private LineNumberComponent editorLineNumbers;
 
     // ── assembler output (right pane — NASM, 1/3 width) ─────────────────────
-    private final Label     asmHeader = new Label("  Assembler Output", Label.LEFT);
+    private final JLabel    asmHeader = new JLabel("  Assembler Output", SwingConstants.LEFT);
     private final JTextArea asmOutput = new JTextArea(30, 40);
     private JScrollPane     asmScroll;
     private LineNumberComponent asmLineNumbers;
@@ -55,12 +55,15 @@ public class SasmIdePanel extends Panel {
     /** Guards against recursive scroll synchronisation. */
     private boolean syncingScroll = false;
 
+    /** Tracks the last-known editor line count so line-number repaint is skipped when unchanged. */
+    private int lastEditorLineCount = -1;
+
     /**
      * Debounce timer for SASM→NASM translation.  Instead of translating on
      * every keystroke, the timer is restarted each time the editor content
      * changes.  Translation fires only after the user pauses for the delay.
      */
-    private final Timer translateTimer = new Timer(150, e -> updateAsmOutput());
+    private final Timer translateTimer = new Timer(300, e -> updateAsmOutput());
     {
         translateTimer.setRepeats(false);
     }
@@ -429,10 +432,11 @@ public class SasmIdePanel extends Panel {
         setBackground(new Color(0xF8, 0xF9, 0xFA));
 
         // ── left pane (file tree) ─────────────────────────────────────────────
-        Panel leftPane = new Panel(new BorderLayout(0, 0));
+        JPanel leftPane = new JPanel(new BorderLayout(0, 0));
         leftPane.setBackground(new Color(0xE8, 0xEC, 0xF4));
 
         treeHeader.setFont(new Font("SansSerif", Font.BOLD, 12));
+        treeHeader.setOpaque(true);
         treeHeader.setBackground(new Color(0x2B, 0x57, 0x97));
         treeHeader.setForeground(Color.WHITE);
         treeHeader.setPreferredSize(new Dimension(210, 28));
@@ -444,9 +448,10 @@ public class SasmIdePanel extends Panel {
         leftPane.setPreferredSize(new Dimension(210, 0));
 
         // ── centre pane (SASM editor — 2/3 of remaining width) ───────────────
-        Panel editorPane = new Panel(new BorderLayout(0, 0));
+        JPanel editorPane = new JPanel(new BorderLayout(0, 0));
 
         editorHeader.setFont(new Font("SansSerif", Font.BOLD, 12));
+        editorHeader.setOpaque(true);
         editorHeader.setBackground(new Color(0x2B, 0x57, 0x97));
         editorHeader.setForeground(Color.WHITE);
         editorHeader.setPreferredSize(new Dimension(0, 28));
@@ -465,9 +470,10 @@ public class SasmIdePanel extends Panel {
         editorPane.add(editorScroll, BorderLayout.CENTER);
 
         // ── right pane (assembler output — 1/3 of remaining width) ───────────
-        Panel asmPane = new Panel(new BorderLayout(0, 0));
+        JPanel asmPane = new JPanel(new BorderLayout(0, 0));
 
         asmHeader.setFont(new Font("SansSerif", Font.BOLD, 12));
+        asmHeader.setOpaque(true);
         asmHeader.setBackground(new Color(0x2B, 0x57, 0x97));
         asmHeader.setForeground(Color.WHITE);
         asmHeader.setPreferredSize(new Dimension(0, 28));
@@ -487,7 +493,7 @@ public class SasmIdePanel extends Panel {
         asmPane.add(asmScroll, BorderLayout.CENTER);
 
         // ── split the editor area 2/3 : 1/3 ─────────────────────────────────
-        Panel codeArea = new Panel(new GridBagLayout());
+        JPanel codeArea = new JPanel(new GridBagLayout());
         GridBagConstraints gc = new GridBagConstraints();
         gc.fill    = GridBagConstraints.BOTH;
         gc.gridy   = 0;
@@ -527,7 +533,12 @@ public class SasmIdePanel extends Panel {
             private void onTextChange() {
                 dirty = true;
                 translateTimer.restart();
-                editorLineNumbers.repaint();
+                // Only repaint line numbers when the line count actually changes
+                int lines = editor.getLineCount();
+                if (lines != lastEditorLineCount) {
+                    lastEditorLineCount = lines;
+                    editorLineNumbers.repaint();
+                }
             }
         });
 
@@ -617,9 +628,14 @@ public class SasmIdePanel extends Panel {
         public Dimension getPreferredSize() {
             int lines  = textArea.getLineCount();
             int digits = Math.max(String.valueOf(lines).length(), 3);
-            FontMetrics fm = textArea.getFontMetrics(textArea.getFont());
+            FontMetrics fm = getFontMetrics(getFont());
             int width = fm.charWidth('0') * digits + 12;
-            return new Dimension(width, textArea.getPreferredSize().height);
+            // Compute height from font metrics and line count instead of
+            // calling textArea.getPreferredSize() which is O(n) and triggers
+            // expensive text layout computation on every call.
+            Insets insets = textArea.getInsets();
+            int height = fm.getHeight() * lines + insets.top + insets.bottom;
+            return new Dimension(width, height);
         }
 
         @Override
