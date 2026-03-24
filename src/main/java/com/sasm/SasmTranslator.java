@@ -828,7 +828,7 @@ public class SasmTranslator {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  Expression Assignment  (dst = src  /  dst = op1 {+|-|*|div} op2 …)
+    //  Expression Assignment  (dst = src  /  dst = op1 {+|-|*|div|<<|>>} op2 …)
     // ══════════════════════════════════════════════════════════════════════════
 
     /** Pattern for {@code <dst> = <rhs>} expression syntax. */
@@ -840,7 +840,7 @@ public class SasmTranslator {
      * {@code ax = cx + bx} or {@code eax = ecx}.
      *
      * <p>Supported operators (binary, outside square brackets):
-     * {@code +}, {@code -}, {@code *}, {@code div}.
+     * {@code +}, {@code -}, {@code *}, {@code div}, {@code <<}, {@code >>}.
      * Multiple operators are supported and evaluated left-to-right
      * (e.g. {@code ax = bx + 3 + dx * 2}).</p>
      */
@@ -856,7 +856,7 @@ public class SasmTranslator {
 
         // Tokenize the RHS into operands and operators
         List<String> operands = new ArrayList<>();
-        List<Integer> operators = new ArrayList<>(); // '+', '-', '*', 'd' (div)
+        List<Integer> operators = new ArrayList<>(); // '+', '-', '*', 'd' (div), 'L' (<<), 'R' (>>)
         splitExprTokens(rhs, operands, operators);
 
         if (operands.isEmpty()) return null;
@@ -888,6 +888,12 @@ public class SasmTranslator {
                 case '*' -> sameAsDst
                         ? "    IMUL " + dst + ", " + op2
                         : "    MOV " + dst + ", " + op1 + "\n    IMUL " + dst + ", " + op2;
+                case 'L' -> sameAsDst
+                        ? "    SHL " + dst + ", " + op2
+                        : "    MOV " + dst + ", " + op1 + "\n    SHL " + dst + ", " + op2;
+                case 'R' -> sameAsDst
+                        ? "    SHR " + dst + ", " + op2
+                        : "    MOV " + dst + ", " + op1 + "\n    SHR " + dst + ", " + op2;
                 case 'd' -> buildDiv(dst, op1, op2);
                 default  -> null;
             };
@@ -916,6 +922,8 @@ public class SasmTranslator {
                 case '+' -> sb.append("    ADD ").append(dst).append(", ").append(operand);
                 case '-' -> sb.append("    SUB ").append(dst).append(", ").append(operand);
                 case '*' -> sb.append("    IMUL ").append(dst).append(", ").append(operand);
+                case 'L' -> sb.append("    SHL ").append(dst).append(", ").append(operand);
+                case 'R' -> sb.append("    SHR ").append(dst).append(", ").append(operand);
                 default  -> { /* skip */ }
             }
         }
@@ -996,15 +1004,18 @@ public class SasmTranslator {
      * Splits an expression RHS into operands and operators.
      *
      * <p>Scans the string left to right at bracket depth&nbsp;0,
-     * splitting on {@code +}, {@code -}, {@code *} and the keyword
-     * {@code div}.  Operators inside square brackets or quotes are
-     * ignored.  A leading {@code -} (unary minus) is treated as part
-     * of the first operand, not as a binary operator.</p>
+     * splitting on {@code +}, {@code -}, {@code *}, {@code <<},
+     * {@code >>}, and the keyword {@code div}.  Operators inside
+     * square brackets or quotes are ignored.  A leading {@code -}
+     * (unary minus) is treated as part of the first operand, not
+     * as a binary operator.</p>
      *
      * @param rhs       the right-hand side of the expression
      * @param operands  (out) list of operand strings, trimmed
      * @param operators (out) list of operator kinds: {@code '+'}, {@code '-'},
-     *                  {@code '*'}, or {@code 'd'} (for {@code div})
+     *                  {@code '*'}, {@code 'L'} (for {@code <<}),
+     *                  {@code 'R'} (for {@code >>}), or {@code 'd'}
+     *                  (for {@code div})
      */
     private static void splitExprTokens(String rhs,
                                          List<String> operands,
@@ -1021,6 +1032,18 @@ public class SasmTranslator {
             if (c == ']') { depth--; continue; }
             if (depth != 0) continue;
 
+            // Two-character shift operators: << and >>
+            if ((c == '<' || c == '>') && i + 1 < rhs.length()
+                    && rhs.charAt(i + 1) == c && i > 0) {
+                String before = rhs.substring(start, i).trim();
+                if (!before.isEmpty()) {
+                    operands.add(before);
+                    operators.add(c == '<' ? (int) 'L' : (int) 'R');
+                    start = i + 2;
+                    i++;  // skip second char of the operator
+                    continue;
+                }
+            }
             // Single-character operators
             if ((c == '+' || c == '-' || c == '*') && i > 0) {
                 String before = rhs.substring(start, i).trim();

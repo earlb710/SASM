@@ -1056,7 +1056,8 @@ reverse_bytes:
 ### Expression Assignment Shorthand
 
 In addition to the English-phrase syntax above, SASM supports a compact
-**expression assignment** form using the operators `=`, `+`, `-`, `*`, and `div`:
+**expression assignment** form using the operators `=`, `+`, `-`, `*`, `div`,
+`<<` (left shift), and `>>` (right shift):
 
 ```
 <dst> = <src>                -- simple assignment
@@ -1064,6 +1065,8 @@ In addition to the English-phrase syntax above, SASM supports a compact
 <dst> = <op1> - <op2>        -- subtraction
 <dst> = <op1> * <op2>        -- multiplication (signed, IMUL)
 <dst> = <op1> div <op2>      -- unsigned division
+<dst> = <op1> << <op2>       -- logical left shift (SHL)
+<dst> = <op1> >> <op2>       -- logical right shift (SHR)
 ```
 
 Multiple operators may be chained in a single expression.  Evaluation
@@ -1088,6 +1091,11 @@ produces one assembly instruction:
 | `ax = bx + 3 + dx` | `MOV ax, bx` / `ADD ax, 3` / `ADD ax, dx` | Chained addition with immediate constant |
 | `ax = bx + 3 + dx * 2` | `MOV ax, bx` / `ADD ax, 3` / `ADD ax, dx` / `IMUL ax, 2` | Mixed operators, left-to-right |
 | `ax = ax + 3 + bx` | `ADD ax, 3` / `ADD ax, bx` | First operand matches `dst` — `MOV` elided |
+| `ax = bx << 3` | `MOV ax, bx` / `SHL ax, 3` | Left shift by immediate |
+| `ax = ax << 2` | `SHL ax, 2` | Optimized when `dst = op1` |
+| `ax = cx >> 1` | `MOV ax, cx` / `SHR ax, 1` | Logical right shift |
+| `eax = eax >> 8` | `SHR eax, 8` | Optimized when `dst = op1` |
+| `ax = bx << cl` | `MOV ax, bx` / `SHL ax, cl` | Shift count in `cl` register |
 
 Operands may be registers, immediates, or memory references.
 The `+` and `-` characters inside square brackets (e.g. `[buffer + bx]`) are
