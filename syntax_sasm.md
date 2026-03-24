@@ -707,6 +707,24 @@ var <name> as <type>               -- zero-initialized
 var <name> as <type> = <value>     -- initialized to a literal
 ```
 
+The `as` keyword is optional — the following forms are equivalent:
+
+```sasm
+var counter as word = 0            -- with "as"
+var counter word = 0               -- without "as"
+```
+
+An optional `signed` or `unsigned` modifier may follow the type for documentation
+purposes. It does not change the emitted assembly directive (the same storage is
+used for signed and unsigned values in x86) but makes the programmer's intent
+explicit:
+
+```sasm
+var value1 as word signed = -10    -- DW -10
+var value1 word signed = -10       -- same result, without "as"
+var flags  word unsigned = 0xFF    -- DW 0xFF
+```
+
 **Supported types:**
 
 | Type keyword | Size | Assembly directive | Default value |
@@ -1053,6 +1071,25 @@ reverse_bytes:
 | `check bounds <reg> within <mem>` | `BOUND reg, mem` | Raise INT 5 if index out of range *(16/32-bit only)* |
 | `begin frame <locals>, <level>` | `ENTER imm16, imm8` | Create procedure stack frame |
 | `end frame` | `LEAVE` | Tear down procedure stack frame |
+
+#### MUL vs IMUL
+
+`MUL` performs **unsigned** multiplication: it treats both operands as non-negative
+binary values. `IMUL` performs **signed** (two's complement) multiplication and
+correctly handles negative values.
+
+| Feature | `MUL` (unsigned) | `IMUL` (signed) |
+|---------|-------------------|-----------------|
+| **Signedness** | Treats operands as unsigned | Treats operands as signed (two's complement) |
+| **Operand forms** | Single operand only — always multiplies the accumulator (`AL`/`AX`/`EAX`/`RAX`) | 1, 2, or 3 operand forms |
+| **Result location** | `AX` (byte), `DX:AX` (word), `EDX:EAX` (dword), `RDX:RAX` (qword) | Same for 1-operand; destination register for 2/3-operand forms |
+| **Typical use** | Addresses, bit masks, unsigned counters | General arithmetic, especially with negative values |
+| **SASM English syntax** | `multiply by <src>` | `signed multiply by <src>` |
+| **SASM `*` operator** | — | Expression assignment `dst = op1 * op2` emits two-operand `IMUL` |
+
+Use `multiply by` (MUL) when both values are guaranteed unsigned (e.g. array
+indexing). Use `signed multiply by` (IMUL) or the `*` expression operator when
+either value may be negative.
 
 ### Expression Assignment Shorthand
 

@@ -16,6 +16,16 @@ var value2  as word = 20
 var result  as word = 0
 
 (* -----------------------------------------------------------------
+   Extended var syntax: optional "as", signed/unsigned modifiers.
+   ----------------------------------------------------------------- *)
+var signedVal as word signed = -10
+var unsgnVal  as word unsigned = 200
+var shortVar  word = 50
+var shortSgn  word signed = -5
+var noInit    word signed
+var noInitAs  as dword
+
+(* -----------------------------------------------------------------
    test_expressions — exercises variable operands in expressions.
    ----------------------------------------------------------------- *)
 proc test_expressions {

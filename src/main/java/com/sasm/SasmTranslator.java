@@ -760,17 +760,18 @@ public class SasmTranslator {
     }
 
     private String translateVar(String code) {
-        // var <name> as <type> = <value>
+        // var <name> [as] <type> [signed|unsigned] = <value>
         Matcher m = Pattern.compile(
-                "var\\s+(\\w+)\\s+as\\s+(byte|word|dword|qword)\\s*=\\s*(.+)")
+                "var\\s+(\\w+)\\s+(?:as\\s+)?(byte|word|dword|qword)(?:\\s+(?:signed|unsigned))?\\s*=\\s*(.+)")
                 .matcher(code);
         if (m.matches()) {
             String name = m.group(1);
             String dir  = sizeDirective(m.group(2));
             return name + ": " + dir + " " + m.group(3).trim();
         }
-        // var <name> as <type>
-        m = Pattern.compile("var\\s+(\\w+)\\s+as\\s+(byte|word|dword|qword)")
+        // var <name> [as] <type> [signed|unsigned]
+        m = Pattern.compile(
+                "var\\s+(\\w+)\\s+(?:as\\s+)?(byte|word|dword|qword)(?:\\s+(?:signed|unsigned))?")
                 .matcher(code);
         if (m.matches()) {
             String name = m.group(1);
