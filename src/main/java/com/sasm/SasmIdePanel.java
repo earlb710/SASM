@@ -513,6 +513,20 @@ public class SasmIdePanel extends JPanel {
         editorScroll = new JScrollPane(editor);
         editorScroll.setRowHeaderView(editorLineNumbers);
         editorScroll.getVerticalScrollBar().setUnitIncrement(16);
+
+        // Override default wheel scrolling so each notch scrolls a fixed
+        // number of lines regardless of the platform's Scrollable unit
+        // calculation — gives a consistently fast, responsive feel.
+        editorScroll.setWheelScrollingEnabled(false);
+        editorScroll.addMouseWheelListener(e -> {
+            JScrollBar vsb = editorScroll.getVerticalScrollBar();
+            int lineHeight = editor.getFontMetrics(editor.getFont()).getHeight();
+            int delta = (int) Math.round(
+                    e.getPreciseWheelRotation() * lineHeight * 5);
+            if (delta != 0) {
+                vsb.setValue(vsb.getValue() + delta);
+            }
+        });
         editorPane.add(editorScroll, BorderLayout.CENTER);
 
         // ── right pane (assembler output — 1/3 of remaining width) ───────────
@@ -723,11 +737,12 @@ public class SasmIdePanel extends JPanel {
             int digits = Math.max(String.valueOf(lines).length(), 3);
             FontMetrics fm = getFontMetrics(getFont());
             int width = fm.charWidth('0') * digits + 12;
-            // Compute height from font metrics and line count instead of
-            // calling textArea.getPreferredSize() which is O(n) and triggers
-            // expensive text layout computation on every call.
-            Insets insets = textArea.getInsets();
-            int height = fm.getHeight() * lines + insets.top + insets.bottom;
+            // Must match the textArea's preferred height exactly so the
+            // row-header viewport scrolls pixel-for-pixel with the main
+            // viewport.  Using an independent calculation (e.g.
+            // fm.getHeight() * lines) can diverge due to the textArea's
+            // minimum-rows policy and platform font-metric differences.
+            int height = textArea.getPreferredSize().height;
             return new Dimension(width, height);
         }
 
