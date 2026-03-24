@@ -840,9 +840,13 @@ public class SasmTranslator {
      * {@code ax = cx + bx} or {@code eax = ecx}.
      *
      * <p>Supported operators (binary, outside square brackets):
-     * {@code +}, {@code -}, {@code *}, {@code div}, {@code <<}, {@code >>}.
+     * {@code +}, {@code -}, {@code *}, {@code div}, {@code <<}, {@code >>},
+     * {@code &&} (bitwise AND), {@code ||} (bitwise OR).
      * Multiple operators are supported and evaluated left-to-right
      * (e.g. {@code ax = bx + 3 + dx * 2}).</p>
+     *
+     * <p>The unary {@code !} (bitwise NOT) is supported in the form
+     * {@code dst = !src}.</p>
      */
     private String tryExpression(String code) {
         if (code.indexOf('=') < 0) return null;
@@ -856,14 +860,23 @@ public class SasmTranslator {
 
         // Tokenize the RHS into operands and operators
         List<String> operands = new ArrayList<>();
-        List<Integer> operators = new ArrayList<>(); // '+', '-', '*', 'd' (div), 'L' (<<), 'R' (>>)
+        List<Integer> operators = new ArrayList<>(); // '+', '-', '*', 'd' (div), 'L' (<<), 'R' (>>), 'A' (&&), 'O' (||)
         splitExprTokens(rhs, operands, operators);
 
         if (operands.isEmpty()) return null;
 
-        // Single operand: simple assignment
+        // Single operand: simple assignment or unary NOT
         if (operators.isEmpty()) {
-            return "    MOV " + dst + ", " + operands.get(0);
+            String sole = operands.get(0);
+            if (sole.startsWith("!")) {
+                String inner = sole.substring(1).trim();
+                if (inner.isEmpty()) return null;
+                boolean sameAsDst = dst.equalsIgnoreCase(inner);
+                return sameAsDst
+                        ? "    NOT " + dst
+                        : "    MOV " + dst + ", " + inner + "\n    NOT " + dst;
+            }
+            return "    MOV " + dst + ", " + sole;
         }
 
         // Single operator: original two-operand behaviour
@@ -894,6 +907,12 @@ public class SasmTranslator {
                 case 'R' -> sameAsDst
                         ? "    SHR " + dst + ", " + op2
                         : "    MOV " + dst + ", " + op1 + "\n    SHR " + dst + ", " + op2;
+                case 'A' -> sameAsDst
+                        ? "    AND " + dst + ", " + op2
+                        : "    MOV " + dst + ", " + op1 + "\n    AND " + dst + ", " + op2;
+                case 'O' -> sameAsDst
+                        ? "    OR " + dst + ", " + op2
+                        : "    MOV " + dst + ", " + op1 + "\n    OR " + dst + ", " + op2;
                 case 'd' -> buildDiv(dst, op1, op2);
                 default  -> null;
             };
@@ -924,6 +943,8 @@ public class SasmTranslator {
                 case '*' -> sb.append("    IMUL ").append(dst).append(", ").append(operand);
                 case 'L' -> sb.append("    SHL ").append(dst).append(", ").append(operand);
                 case 'R' -> sb.append("    SHR ").append(dst).append(", ").append(operand);
+                case 'A' -> sb.append("    AND ").append(dst).append(", ").append(operand);
+                case 'O' -> sb.append("    OR ").append(dst).append(", ").append(operand);
                 default  -> { /* skip */ }
             }
         }
@@ -1005,17 +1026,18 @@ public class SasmTranslator {
      *
      * <p>Scans the string left to right at bracket depth&nbsp;0,
      * splitting on {@code +}, {@code -}, {@code *}, {@code <<},
-     * {@code >>}, and the keyword {@code div}.  Operators inside
-     * square brackets or quotes are ignored.  A leading {@code -}
-     * (unary minus) is treated as part of the first operand, not
-     * as a binary operator.</p>
+     * {@code >>}, {@code &&}, {@code ||}, and the keyword {@code div}.
+     * Operators inside square brackets or quotes are ignored.
+     * A leading {@code -} (unary minus) is treated as part of the
+     * first operand, not as a binary operator.</p>
      *
      * @param rhs       the right-hand side of the expression
      * @param operands  (out) list of operand strings, trimmed
      * @param operators (out) list of operator kinds: {@code '+'}, {@code '-'},
      *                  {@code '*'}, {@code 'L'} (for {@code <<}),
-     *                  {@code 'R'} (for {@code >>}), or {@code 'd'}
-     *                  (for {@code div})
+     *                  {@code 'R'} (for {@code >>}), {@code 'A'}
+     *                  (for {@code &&}), {@code 'O'} (for {@code ||}),
+     *                  or {@code 'd'} (for {@code div})
      */
     private static void splitExprTokens(String rhs,
                                          List<String> operands,
@@ -1032,15 +1054,21 @@ public class SasmTranslator {
             if (c == ']') { depth--; continue; }
             if (depth != 0) continue;
 
-            // Two-character shift operators: << and >>
+            // Two-character operators: << >> && ||
             // i > 0 is a fast-path guard; the !before.isEmpty() check below
             // is the real safeguard against treating a leading token as an operator.
-            if ((c == '<' || c == '>') && i + 1 < rhs.length()
+            if ((c == '<' || c == '>' || c == '&' || c == '|') && i + 1 < rhs.length()
                     && rhs.charAt(i + 1) == c && i > 0) {
                 String before = rhs.substring(start, i).trim();
                 if (!before.isEmpty()) {
                     operands.add(before);
-                    operators.add(c == '<' ? (int) 'L' : (int) 'R');
+                    operators.add(switch (c) {
+                        case '<' -> (int) 'L';
+                        case '>' -> (int) 'R';
+                        case '&' -> (int) 'A';
+                        case '|' -> (int) 'O';
+                        default  -> (int) c;
+                    });
                     start = i + 2;
                     i++;  // skip second char of the operator
                     continue;

@@ -1057,7 +1057,8 @@ reverse_bytes:
 
 In addition to the English-phrase syntax above, SASM supports a compact
 **expression assignment** form using the operators `=`, `+`, `-`, `*`, `div`,
-`<<` (left shift), and `>>` (right shift):
+`<<` (left shift), `>>` (right shift), `&&` (bitwise AND), `||` (bitwise OR),
+and `!` (bitwise NOT):
 
 ```
 <dst> = <src>                -- simple assignment
@@ -1067,6 +1068,9 @@ In addition to the English-phrase syntax above, SASM supports a compact
 <dst> = <op1> div <op2>      -- unsigned division
 <dst> = <op1> << <op2>       -- logical left shift (SHL)
 <dst> = <op1> >> <op2>       -- logical right shift (SHR)
+<dst> = <op1> && <op2>       -- bitwise AND
+<dst> = <op1> || <op2>       -- bitwise OR
+<dst> = !<src>               -- bitwise NOT (one's complement)
 ```
 
 Multiple operators may be chained in a single expression.  Evaluation
@@ -1098,6 +1102,15 @@ produces one assembly instruction:
 | `ax = bx << cl` | `MOV ax, bx` / `SHL ax, cl` | Shift count in `cl` register |
 | `rax = rbx << 3` | `MOV rax, rbx` / `SHL rax, 3` | 64-bit left shift |
 | `rax = rax >> 1` | `SHR rax, 1` | 64-bit right shift, optimized |
+| `ax = bx && cx` | `MOV ax, bx` / `AND ax, cx` | Bitwise AND |
+| `ax = ax && 0xFF` | `AND ax, 0xFF` | Optimized when `dst = op1` |
+| `rax = rbx && rcx` | `MOV rax, rbx` / `AND rax, rcx` | 64-bit bitwise AND |
+| `ax = bx \|\| cx` | `MOV ax, bx` / `OR ax, cx` | Bitwise OR |
+| `ax = ax \|\| 0x80` | `OR ax, 0x80` | Optimized when `dst = op1` |
+| `rax = rbx \|\| rcx` | `MOV rax, rbx` / `OR rax, rcx` | 64-bit bitwise OR |
+| `ax = !bx` | `MOV ax, bx` / `NOT ax` | Bitwise NOT (one's complement) |
+| `ax = !ax` | `NOT ax` | Optimized when `dst = src` |
+| `rax = !rbx` | `MOV rax, rbx` / `NOT rax` | 64-bit bitwise NOT |
 
 Operands may be registers, immediates, or memory references.
 The `+` and `-` characters inside square brackets (e.g. `[buffer + bx]`) are
