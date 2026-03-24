@@ -1033,6 +1033,8 @@ public class SasmTranslator {
             if (depth != 0) continue;
 
             // Two-character shift operators: << and >>
+            // i > 0 is a fast-path guard; the !before.isEmpty() check below
+            // is the real safeguard against treating a leading token as an operator.
             if ((c == '<' || c == '>') && i + 1 < rhs.length()
                     && rhs.charAt(i + 1) == c && i > 0) {
                 String before = rhs.substring(start, i).trim();
@@ -1045,6 +1047,8 @@ public class SasmTranslator {
                 }
             }
             // Single-character operators
+            // i > 0 allows a leading '-' (unary minus) to be treated as part
+            // of the first operand rather than as a binary subtraction operator.
             if ((c == '+' || c == '-' || c == '*') && i > 0) {
                 String before = rhs.substring(start, i).trim();
                 if (!before.isEmpty()) {
