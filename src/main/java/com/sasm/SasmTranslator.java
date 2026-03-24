@@ -77,6 +77,7 @@ public class SasmTranslator {
         if (line.isBlank()) return line;
 
         String trimmed = line.trim();
+        String leading = leadingWhitespace(line);
 
         // ── #REF import directives ───────────────────────────────────────────
         Matcher refM = REF_DIRECTIVE.matcher(trimmed);
@@ -107,7 +108,6 @@ public class SasmTranslator {
             comment = "  ; " + commentBody;
         }
 
-        String leading = leadingWhitespace(line);
         String asm = tryTranslateCode(code);
         if (asm != null) {
             return leading + asm + comment;
