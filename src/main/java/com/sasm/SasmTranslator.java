@@ -893,7 +893,12 @@ public class SasmTranslator {
             };
         }
 
-        // Multiple operators: emit left-to-right instruction sequence
+        // Multiple operators: emit left-to-right instruction sequence.
+        // Division is only supported as the sole operator; reject chained div.
+        for (int opKind : operators) {
+            if (opKind == 'd') return null;
+        }
+
         StringBuilder sb = new StringBuilder();
         String first = operands.get(0);
 
@@ -911,7 +916,6 @@ public class SasmTranslator {
                 case '+' -> sb.append("    ADD ").append(dst).append(", ").append(operand);
                 case '-' -> sb.append("    SUB ").append(dst).append(", ").append(operand);
                 case '*' -> sb.append("    IMUL ").append(dst).append(", ").append(operand);
-                case 'd' -> sb.append("    ; div in chained expression not supported");
                 default  -> { /* skip */ }
             }
         }
