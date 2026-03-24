@@ -1070,7 +1070,7 @@ In addition to the English-phrase syntax above, SASM supports a compact
 |-----------------|----------------|-------|
 | `ax = cx` | `MOV ax, cx` | Simple register-to-register move |
 | `ax = cx + bx` | `MOV ax, cx` / `ADD ax, bx` | Two instructions when `dst ≠ op1` |
-| `ax = ax + bx` | `ADD ax, bx` | Optimised to single instruction when `dst = op1` |
+| `ax = ax + bx` | `ADD ax, bx` | Optimized to single instruction when `dst = op1` |
 | `ax = cx - bx` | `MOV ax, cx` / `SUB ax, bx` | Two instructions when `dst ≠ op1` |
 | `ax = cx * bx` | `MOV ax, cx` / `IMUL ax, bx` | Uses two-operand signed `IMUL` |
 | `ax = cx div bx` | `MOV AX, cx` / `XOR DX, DX` / `DIV bx` | Sets up accumulator pair, unsigned divide; quotient → AX |

@@ -838,7 +838,10 @@ public class SasmTranslator {
      * {@code ax = cx + bx} or {@code eax = ecx}.
      *
      * <p>Supported operators (binary, outside square brackets):
-     * {@code +}, {@code -}, {@code *}, {@code div}.</p>
+     * {@code +}, {@code -}, {@code *}, {@code div}.
+     * Only a single binary operator per expression is expected;
+     * chained operations (e.g. {@code ax = bx + cx + dx}) are
+     * not supported.</p>
      */
     private String tryExpression(String code) {
         if (code.indexOf('=') < 0) return null;
@@ -981,13 +984,13 @@ public class SasmTranslator {
                     return new int[]{i, i + 1, c};
                 }
             }
-            // 'div' keyword with word boundaries
+            // 'div' keyword with word boundaries (must not be part of an identifier)
             if (c == 'd' && i + 2 < rhs.length()
                     && rhs.charAt(i + 1) == 'i' && rhs.charAt(i + 2) == 'v'
                     && i > 0) {
-                boolean wBefore = !Character.isLetterOrDigit(rhs.charAt(i - 1));
+                boolean wBefore = !isIdentChar(rhs.charAt(i - 1));
                 boolean wAfter  = i + 3 >= rhs.length()
-                        || !Character.isLetterOrDigit(rhs.charAt(i + 3));
+                        || !isIdentChar(rhs.charAt(i + 3));
                 if (wBefore && wAfter) {
                     String before = rhs.substring(0, i).trim();
                     if (!before.isEmpty()) {
@@ -1081,6 +1084,11 @@ public class SasmTranslator {
         }
         sb.append(line, last, line.length());
         return sb.toString();
+    }
+
+    /** {@code true} if {@code c} can appear in an identifier (letter, digit, or underscore). */
+    private static boolean isIdentChar(char c) {
+        return Character.isLetterOrDigit(c) || c == '_';
     }
 
     /** Returns the NASM data directive for a SASM type keyword. */
