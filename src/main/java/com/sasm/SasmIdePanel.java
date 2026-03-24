@@ -52,8 +52,20 @@ public class SasmIdePanel extends JPanel {
     private JScrollPane     asmScroll;
     private LineNumberComponent asmLineNumbers;
 
+    /** The right-hand asm pane container (hidden when toggle is off). */
+    private JPanel asmPane;
+
+    /** Toggle button to show/hide the assembler output pane. */
+    private final JButton asmToggle = new JButton("ASM");
+
+    /** Whether the asm output pane is currently visible. */
+    private boolean asmVisible = true;
+
     /** Guards against recursive scroll synchronisation. */
     private boolean syncingScroll = false;
+
+    /** The parent container holding the editor and asm panes (needed for toggle). */
+    private JPanel codeArea;
 
     /** Tracks the last-known editor line count so line-number repaint is skipped when unchanged. */
     private int lastEditorLineCount = -1;
@@ -453,12 +465,24 @@ public class SasmIdePanel extends JPanel {
         // ── centre pane (SASM editor — 2/3 of remaining width) ───────────────
         JPanel editorPane = new JPanel(new BorderLayout(0, 0));
 
+        // Editor header bar with toggle button at the right
+        JPanel editorHeaderBar = new JPanel(new BorderLayout(0, 0));
         editorHeader.setFont(new Font("SansSerif", Font.BOLD, 12));
         editorHeader.setOpaque(true);
         editorHeader.setBackground(new Color(0x2B, 0x57, 0x97));
         editorHeader.setForeground(Color.WHITE);
         editorHeader.setPreferredSize(new Dimension(0, 28));
-        editorPane.add(editorHeader, BorderLayout.NORTH);
+        editorHeaderBar.add(editorHeader, BorderLayout.CENTER);
+
+        // Small toggle button to show/hide the assembler output pane
+        asmToggle.setFont(new Font("SansSerif", Font.BOLD, 10));
+        asmToggle.setFocusable(false);
+        asmToggle.setMargin(new Insets(2, 6, 2, 6));
+        asmToggle.setToolTipText("Show/hide assembler output");
+        asmToggle.setPreferredSize(new Dimension(48, 28));
+        editorHeaderBar.add(asmToggle, BorderLayout.EAST);
+
+        editorPane.add(editorHeaderBar, BorderLayout.NORTH);
 
         editor.setFont(new Font("Monospaced", Font.PLAIN, 13));
         editor.setBackground(new Color(0x1E, 0x1E, 0x1E));
@@ -473,7 +497,7 @@ public class SasmIdePanel extends JPanel {
         editorPane.add(editorScroll, BorderLayout.CENTER);
 
         // ── right pane (assembler output — 1/3 of remaining width) ───────────
-        JPanel asmPane = new JPanel(new BorderLayout(0, 0));
+        asmPane = new JPanel(new BorderLayout(0, 0));
 
         asmHeader.setFont(new Font("SansSerif", Font.BOLD, 12));
         asmHeader.setOpaque(true);
@@ -501,7 +525,7 @@ public class SasmIdePanel extends JPanel {
         // scroll panes never propagates past this container — prevents
         // GridBagLayout from relaying out the editor pane when only the asm
         // pane content changes.
-        JPanel codeArea = new JPanel(new GridBagLayout()) {
+        codeArea = new JPanel(new GridBagLayout()) {
             @Override public boolean isValidateRoot() { return true; }
         };
         GridBagConstraints gc = new GridBagConstraints();
@@ -542,7 +566,10 @@ public class SasmIdePanel extends JPanel {
             @Override public void changedUpdate(DocumentEvent e)  { onTextChange(); }
             private void onTextChange() {
                 dirty = true;
-                translateTimer.restart();
+                // Only start translation timer when the asm pane is visible
+                if (asmVisible) {
+                    translateTimer.restart();
+                }
                 // Defer line-number check so it runs after the current
                 // document modification event completes — avoids triggering
                 // layout queries on the editor mid-event.
@@ -559,13 +586,43 @@ public class SasmIdePanel extends JPanel {
         // ── synchronised vertical scrolling ───────────────────────────────
         // The editor scroll drives the asm pane (which has no scrollbar).
         editorScroll.getVerticalScrollBar().addAdjustmentListener(e -> {
-            if (!syncingScroll) {
+            if (!syncingScroll && asmVisible) {
                 syncingScroll = true;
                 asmScroll.getViewport().setViewPosition(
                         new Point(0, e.getValue()));
                 syncingScroll = false;
             }
         });
+
+        // ── toggle button for assembler output pane ──────────────────────
+        asmToggle.addActionListener(e -> toggleAsmPane());
+    }
+
+    /**
+     * Shows or hides the assembler output pane.  When hidden, translation
+     * is completely skipped, giving the editor maximum performance.
+     */
+    private void toggleAsmPane() {
+        asmVisible = !asmVisible;
+        asmPane.setVisible(asmVisible);
+
+        // Rebuild the GridBagLayout weights so the editor fills the space
+        GridBagLayout gbl = (GridBagLayout) codeArea.getLayout();
+        GridBagConstraints gc = gbl.getConstraints(asmPane);
+        gc.weightx = asmVisible ? 1.0 : 0.0;
+        gbl.setConstraints(asmPane, gc);
+
+        codeArea.revalidate();
+        codeArea.repaint();
+
+        if (asmVisible) {
+            // Refresh translation now that the pane is visible again
+            lastAsmText = "";
+            updateAsmOutput();
+        } else {
+            // Stop any pending translation
+            translateTimer.stop();
+        }
     }
 
     /** Translates the current editor content and updates the assembler pane. */
@@ -613,7 +670,11 @@ public class SasmIdePanel extends JPanel {
             currentFile = f;
             editorHeader.setText("  " + f.getParentFile().getName() + "/" + f.getName());
             dirty = false;
-            updateAsmOutput();
+            if (asmVisible) {
+                updateAsmOutput();
+            } else {
+                lastAsmText = "";   // force refresh when pane is toggled on
+            }
         } catch (IOException ex) {
             editor.setText("; Could not open '" + f.getName() + "':\n; " + ex.getMessage());
             currentFile = null;
