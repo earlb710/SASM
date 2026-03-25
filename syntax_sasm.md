@@ -189,6 +189,22 @@ repeat cx times {
 
 Decrements `cx` each iteration; exits when `cx` reaches zero.
 
+The operand does not have to be `cx` — any register, literal, or declared
+variable name may be used.  Non-`cx` operands are loaded into `cx` with
+`MOV CX, <operand>` before the loop begins:
+
+```sasm
+var count as word = 10
+
+repeat count times {        -- MOV CX, [count]  then LOOP
+    <body>
+}
+
+repeat 5 times {            -- MOV CX, 5        then LOOP
+    <body>
+}
+```
+
 ### Conditional Count Loops
 
 ```sasm
@@ -197,6 +213,14 @@ repeat cx times while equal {
 }
 
 repeat cx times while not equal {
+    <body>
+}
+```
+
+As with plain count loops, any register, literal, or variable may replace `cx`:
+
+```sasm
+repeat count times while equal {
     <body>
 }
 ```
@@ -1427,8 +1451,10 @@ if equal {
 | SASM English Syntax | ASM Equivalent | Meaning |
 |---------------------|----------------|---------|
 | `repeat cx times { ... }` | `LOOP label` | Decrement `cx`; repeat body while `cx ≠ 0` |
+| `repeat <operand> times { ... }` | `MOV CX, <operand>` + `LOOP label` | Load `cx` from operand, then count-loop |
 | `repeat cx times while equal { ... }` | `LOOPE label` | Repeat while `cx ≠ 0` and `ZF = 1` |
 | `repeat cx times while not equal { ... }` | `LOOPNE label` | Repeat while `cx ≠ 0` and `ZF = 0` |
+| `repeat <operand> times while ... { ... }` | `MOV CX, <operand>` + `LOOP…` | Load `cx` from operand, then conditional count-loop |
 
 ---
 

@@ -789,22 +789,35 @@ public class SasmTranslator {
     }
 
     private String tryRepeat(String code) {
-        // repeat cx times {
-        if (code.equals("repeat cx times {") || code.equals("repeat cx times{")) {
+        // repeat <operand> times {
+        Matcher m = Pattern.compile("repeat\\s+(\\S+)\\s+times\\s*\\{").matcher(code);
+        if (m.matches()) {
+            String operand = m.group(1).trim();
             String lbl = ".loop" + (labelSeq++);
-            return lbl + ":   ; repeat cx times";
+            if (operand.equalsIgnoreCase("cx")) {
+                return lbl + ":   ; repeat cx times";
+            }
+            // Load the operand into cx before the loop
+            String src = wrapIfVar(operand);
+            return "    MOV CX, " + src + "\n" + lbl + ":   ; repeat " + operand + " times";
         }
-        // repeat cx times while equal {
-        if (code.startsWith("repeat cx times while ")) {
+        // repeat <operand> times while <condition> {
+        m = Pattern.compile("repeat\\s+(\\S+)\\s+times\\s+while\\s+(.+?)\\s*\\{").matcher(code);
+        if (m.matches()) {
+            String operand = m.group(1).trim();
             String lbl = ".loop" + (labelSeq++);
-            return lbl + ":   ; " + code;
+            if (operand.equalsIgnoreCase("cx")) {
+                return lbl + ":   ; " + code;
+            }
+            String src = wrapIfVar(operand);
+            return "    MOV CX, " + src + "\n" + lbl + ":   ; " + code;
         }
         // repeat { … } until <condition>
         if (code.equals("repeat {")) {
             String lbl = ".loop" + (labelSeq++);
             return lbl + ":   ; repeat";
         }
-        Matcher m = Pattern.compile("\\}\\s+until\\s+(.+)").matcher(code);
+        m = Pattern.compile("\\}\\s+until\\s+(.+)").matcher(code);
         if (m.matches()) {
             String cond = m.group(1).trim();
             String jmp = conditionToJump(invertCondition(cond));

@@ -1,0 +1,163 @@
+-- testLoops.sasm
+-- Project : Test-projects
+--
+-- Demonstrates every loop form supported by SASM:
+--   1. repeat cx times         — classic CX-counted loop (LOOP)
+--   2. repeat <var> times      — variable-counted loop (MOV CX, [var] + LOOP)
+--   3. repeat <literal> times  — literal-counted loop (MOV CX, imm + LOOP)
+--   4. repeat cx times while equal       — conditional count loop (LOOPE)
+--   5. repeat cx times while not equal   — conditional count loop (LOOPNE)
+--   6. repeat { … } until <condition>    — bottom-tested loop
+--   7. while <condition> { … }           — top-tested loop
+
+section .text
+global _start
+
+(* ── static data ──────────────────────────────────────────────── *)
+data buffer as byte[10]
+
+(* ── variables ────────────────────────────────────────────────── *)
+var count as word = 10
+var limit as word = 5
+
+(* -----------------------------------------------------------------
+   1. repeat cx times — classic counted loop
+   Fill 'buffer' with 0xAA using cx as the iteration count.
+   ----------------------------------------------------------------- *)
+proc fill_cx_counted {
+    move 0 to bx
+    move 10 to cx
+    repeat cx times {
+        move 0xAA to byte [buffer + bx]
+        increment bx
+    }
+    return
+}
+
+(* -----------------------------------------------------------------
+   2. repeat <var> times — variable-counted loop
+   Fill 'buffer' with 0xBB, using the declared variable 'count'
+   to control the number of iterations.
+   ----------------------------------------------------------------- *)
+proc fill_var_counted {
+    move 0 to bx
+    repeat count times {
+        move 0xBB to byte [buffer + bx]
+        increment bx
+    }
+    return
+}
+
+(* -----------------------------------------------------------------
+   3. repeat <literal> times — literal-counted loop
+   Zero out the first 5 bytes of 'buffer' using a literal count.
+   ----------------------------------------------------------------- *)
+proc clear_literal_counted {
+    move 0 to bx
+    repeat 5 times {
+        move 0 to byte [buffer + bx]
+        increment bx
+    }
+    return
+}
+
+(* -----------------------------------------------------------------
+   4. repeat cx times while equal — conditional count loop (LOOPE)
+   Scan 'buffer' for the first non-0xBB byte, stopping early
+   if a mismatch is found or cx reaches zero.
+   ----------------------------------------------------------------- *)
+proc scan_loope {
+    move 0 to bx
+    move 10 to cx
+    repeat cx times while equal {
+        compare byte [buffer + bx] with 0xBB
+        increment bx
+    }
+    -- bx = number of consecutive 0xBB bytes before first mismatch
+    return
+}
+
+(* -----------------------------------------------------------------
+   5. repeat cx times while not equal — conditional count loop (LOOPNE)
+   Scan 'buffer' for the first 0xBB byte, stopping early
+   when a match is found or cx reaches zero.
+   ----------------------------------------------------------------- *)
+proc scan_loopne {
+    move 0 to bx
+    move 10 to cx
+    repeat cx times while not equal {
+        compare byte [buffer + bx] with 0xBB
+        increment bx
+    }
+    -- bx = index of first 0xBB byte (or 10 if none found)
+    return
+}
+
+(* -----------------------------------------------------------------
+   6. repeat { … } until <condition> — bottom-tested loop
+   Counts from 0 up to 9, storing each value in 'buffer'.
+   The body always executes at least once.
+   ----------------------------------------------------------------- *)
+proc fill_repeat_until {
+    move 0 to bx
+    move 0 to al
+    repeat {
+        move al to byte [buffer + bx]
+        increment bx
+        increment al
+        compare bx with 10
+    } until equal
+    -- buffer[0..9] = 0,1,2,...,9
+    return
+}
+
+(* -----------------------------------------------------------------
+   7. while <condition> { … } — top-tested loop
+   Sums the elements of 'buffer' into ax.
+   Exits when bx reaches 10 (bx starts at 0).
+   ----------------------------------------------------------------- *)
+proc sum_while {
+    move 0 to ax
+    move 0 to bx
+    compare bx with 10
+    while not equal {
+        move byte [buffer + bx] to dl
+        move zero dl to dx
+        add dx to ax
+        increment bx
+        compare bx with 10
+    }
+    -- ax = sum of buffer[0..9]
+    return
+}
+
+(* -----------------------------------------------------------------
+   8. repeat <var> times while equal — variable conditional loop
+   Same as scan_loope but uses the variable 'count' instead of cx.
+   ----------------------------------------------------------------- *)
+proc scan_var_loope {
+    move 0 to bx
+    repeat count times while equal {
+        compare byte [buffer + bx] with 0xBB
+        increment bx
+    }
+    return
+}
+
+(* -----------------------------------------------------------------
+   _start — exercise each loop type in sequence
+   ----------------------------------------------------------------- *)
+_start:
+    call fill_cx_counted           -- 1. repeat cx times
+    call fill_var_counted          -- 2. repeat <var> times
+    call clear_literal_counted     -- 3. repeat <literal> times
+    call scan_loope                -- 4. repeat cx times while equal
+    call scan_loopne               -- 5. repeat cx times while not equal
+    call fill_repeat_until         -- 6. repeat { } until
+    call sum_while                 -- 7. while { }
+    call scan_var_loope            -- 8. repeat <var> times while equal
+
+    -- Exit (Linux syscall: sys_exit)
+    move al to bl
+    move 1 to ax
+    syscall 0x80
