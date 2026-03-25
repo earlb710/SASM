@@ -55,14 +55,14 @@ public class SasmTranslator {
     private static final Pattern ALIAS_REF = Pattern.compile(
             "@(\\w+)\\.(\\w+)");
 
-    /** Common base for var declarations: {@code var <name> [as] <type> [signed|unsigned]}. */
+    /** Common base for var declarations: {@code var <name> [as] <type>[count] [signed|unsigned]}. */
     private static final String VAR_BASE =
-            "var\\s+(\\w+)\\s+(?:as\\s+)?(byte|word|dword|qword)(?:\\s+(signed|unsigned))?";
+            "var\\s+(\\w+)\\s+(?:as\\s+)?(byte|word|dword|qword)(?:\\[(\\d+)\\])?(?:\\s+(signed|unsigned))?";
 
-    /** var with initialization: {@code var <name> [as] <type> [signed|unsigned] = <value>}. */
+    /** var with initialization: {@code var <name> [as] <type>[count] [signed|unsigned] = <value>}. */
     private static final Pattern VAR_INIT = Pattern.compile(VAR_BASE + "\\s*=\\s*(.+)");
 
-    /** var without initialization: {@code var <name> [as] <type> [signed|unsigned]}. */
+    /** var without initialization: {@code var <name> [as] <type>[count] [signed|unsigned]}. */
     private static final Pattern VAR_DECL = Pattern.compile(VAR_BASE);
 
     /** Translates a complete SASM source text into NASM assembly. */
@@ -768,7 +768,7 @@ public class SasmTranslator {
             String name = m.group(1);
             String dir  = sizeDirective(m.group(2));
             String count = m.group(3);
-            return name + ": " + dir + " " + count + " DUP (0)";
+            return name + ": TIMES " + count + " " + dir + " 0";
         }
         // data <name> as <type> = <values>
         m = Pattern.compile("data\\s+(\\w+)\\s+as\\s+(byte|word|dword|qword)\\s*=\\s*(.+)")
@@ -782,22 +782,31 @@ public class SasmTranslator {
     }
 
     private String translateVar(String code) {
-        // var <name> [as] <type> [signed|unsigned] = <value>
+        // var <name> [as] <type>[<count>] [signed|unsigned] = <value>
         Matcher m = VAR_INIT.matcher(code);
         if (m.matches()) {
-            String name = m.group(1);
-            boolean signed = "signed".equals(m.group(3));
+            String name  = m.group(1);
+            String count = m.group(3);          // nullable — array element count
+            boolean signed = "signed".equals(m.group(4));
             declaredVars.put(name, signed);
-            String dir  = sizeDirective(m.group(2));
-            return name + ": " + dir + " " + m.group(4).trim();
+            String dir   = sizeDirective(m.group(2));
+            String value = m.group(5).trim();
+            if (count != null) {
+                return name + ": TIMES " + count + " " + dir + " " + value;
+            }
+            return name + ": " + dir + " " + value;
         }
-        // var <name> [as] <type> [signed|unsigned]
+        // var <name> [as] <type>[<count>] [signed|unsigned]
         m = VAR_DECL.matcher(code);
         if (m.matches()) {
-            String name = m.group(1);
-            boolean signed = "signed".equals(m.group(3));
+            String name  = m.group(1);
+            String count = m.group(3);          // nullable — array element count
+            boolean signed = "signed".equals(m.group(4));
             declaredVars.put(name, signed);
-            String dir  = sizeDirective(m.group(2));
+            String dir   = sizeDirective(m.group(2));
+            if (count != null) {
+                return name + ": TIMES " + count + " " + dir + " 0";
+            }
             return name + ": " + dir + " 0";
         }
         return null;

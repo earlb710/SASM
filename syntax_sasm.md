@@ -882,12 +882,12 @@ data table  as word[16]        -- 16 words, all zero
 data coords as dword[4]        -- 4 dwords, all zero
 ```
 
-*Equivalent ASM:*
+*Equivalent ASM (NASM):*
 
 ```asm
-buf:    DB 64 DUP (0)
-table:  DW 16 DUP (0)
-coords: DD  4 DUP (0)
+buf:    TIMES 64 DB 0
+table:  TIMES 16 DW 0
+coords: TIMES  4 DD 0
 ```
 
 **Initialized arrays** — element count is inferred from the comma-separated value list:

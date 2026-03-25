@@ -3,6 +3,7 @@
 --
 -- Fills a 10-element byte array with the value 0xAA,
 -- then sums the elements to verify the fill.
+-- Also demonstrates the var array syntax for memory allocation.
 
 section .text
 global _start
@@ -11,6 +12,14 @@ global _start
    Static data array: 10 zero-initialized bytes that we will fill.
    ----------------------------------------------------------------- *)
 data buffer as byte[10]
+
+(* -----------------------------------------------------------------
+   Var-declared arrays — same TIMES output, uses "var" keyword.
+   ----------------------------------------------------------------- *)
+var localBuf  as byte[16]              -- 16 bytes, zero-initialized
+var wordTable as word[8]               -- 8 words, zero-initialized
+var dwordArr  as dword[4]              -- 4 dwords, zero-initialized
+var fillBuf   as byte[10] = 0xFF      -- 10 bytes, each set to 0xFF
 
 (* -----------------------------------------------------------------
    fill_array — fills 'buffer' with the value in al (10 elements).
