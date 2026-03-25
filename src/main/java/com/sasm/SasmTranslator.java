@@ -55,14 +55,14 @@ public class SasmTranslator {
     private static final Pattern ALIAS_REF = Pattern.compile(
             "@(\\w+)\\.(\\w+)");
 
-    /** Common base for var declarations: {@code var <name> [as] <type>[count] [signed|unsigned]}. */
+    /** Common base for var declarations: {@code var <name> [as] <type>[d1][d2]... [signed|unsigned]}. */
     private static final String VAR_BASE =
-            "var\\s+(\\w+)\\s+(?:as\\s+)?(byte|word|dword|qword)(?:\\[(\\d+)\\])?(?:\\s+(signed|unsigned))?";
+            "var\\s+(\\w+)\\s+(?:as\\s+)?(byte|word|dword|qword)((?:\\[\\d+\\])+)?(?:\\s+(signed|unsigned))?";
 
-    /** var with initialization: {@code var <name> [as] <type>[count] [signed|unsigned] = <value>}. */
+    /** var with initialization: {@code var <name> [as] <type>[d1][d2]... [signed|unsigned] = <value>}. */
     private static final Pattern VAR_INIT = Pattern.compile(VAR_BASE + "\\s*=\\s*(.+)");
 
-    /** var without initialization: {@code var <name> [as] <type>[count] [signed|unsigned]}. */
+    /** var without initialization: {@code var <name> [as] <type>[d1][d2]... [signed|unsigned]}. */
     private static final Pattern VAR_DECL = Pattern.compile(VAR_BASE);
 
     /**
@@ -833,14 +833,14 @@ public class SasmTranslator {
     // ══════════════════════════════════════════════════════════════════════════
 
     private String translateData(String code) {
-        // data <name> as <type>[<count>]
+        // data <name> as <type>[d1][d2]...
         Matcher m = Pattern.compile(
-                "data\\s+(\\w+)\\s+as\\s+(byte|word|dword|qword)\\[(\\d+)\\]")
+                "data\\s+(\\w+)\\s+as\\s+(byte|word|dword|qword)((?:\\[\\d+\\])+)")
                 .matcher(code);
         if (m.matches()) {
             String name = m.group(1);
             String dir  = sizeDirective(m.group(2));
-            String count = m.group(3);
+            int count = parseTotalCount(m.group(3));
             return name + ": TIMES " + count + " " + dir + " 0";
         }
         // data <name> as <type> = <values>
@@ -855,29 +855,31 @@ public class SasmTranslator {
     }
 
     private String translateVar(String code) {
-        // var <name> [as] <type>[<count>] [signed|unsigned] = <value>
+        // var <name> [as] <type>[d1][d2]... [signed|unsigned] = <value>
         Matcher m = VAR_INIT.matcher(code);
         if (m.matches()) {
             String name  = m.group(1);
-            String count = m.group(3);          // nullable — array element count
+            String dims  = m.group(3);          // nullable — dimension brackets
             boolean signed = "signed".equals(m.group(4));
             declaredVars.put(name, signed);
             String dir   = sizeDirective(m.group(2));
             String value = m.group(5).trim();
-            if (count != null) {
+            if (dims != null) {
+                int count = parseTotalCount(dims);
                 return name + ": TIMES " + count + " " + dir + " " + value;
             }
             return name + ": " + dir + " " + value;
         }
-        // var <name> [as] <type>[<count>] [signed|unsigned]
+        // var <name> [as] <type>[d1][d2]... [signed|unsigned]
         m = VAR_DECL.matcher(code);
         if (m.matches()) {
             String name  = m.group(1);
-            String count = m.group(3);          // nullable — array element count
+            String dims  = m.group(3);          // nullable — dimension brackets
             boolean signed = "signed".equals(m.group(4));
             declaredVars.put(name, signed);
             String dir   = sizeDirective(m.group(2));
-            if (count != null) {
+            if (dims != null) {
+                int count = parseTotalCount(dims);
                 return name + ": TIMES " + count + " " + dir + " 0";
             }
             return name + ": " + dir + " 0";
@@ -1483,6 +1485,19 @@ public class SasmTranslator {
             case "qword" -> "DQ";
             default      -> "DB";
         };
+    }
+
+    /**
+     * Parses a dimension string such as {@code [3][4]} or {@code [10]} and
+     * returns the product of all dimensions (total element count).
+     */
+    private static int parseTotalCount(String dims) {
+        int total = 1;
+        Matcher m = Pattern.compile("\\[(\\d+)\\]").matcher(dims);
+        while (m.find()) {
+            total *= Integer.parseInt(m.group(1));
+        }
+        return total;
     }
 
     /** Converts a SASM block comment to an ASM comment. */

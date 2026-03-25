@@ -864,9 +864,14 @@ A `data` declaration reserves a named array in the data segment. It must appear 
 **Syntax:**
 
 ```sasm
-data <name> as <type>[<count>]                        -- zero-initialized array
+data <name> as <type>[<count>]                        -- zero-initialized 1-D array
+data <name> as <type>[<d1>][<d2>]...                  -- zero-initialized multi-dimensional array
 data <name> as <type> = <v1>, <v2>, ..., <vN>         -- initialized array (count inferred from list)
 ```
+
+Multiple bracket pairs declare a multi-dimensional array.  The total element
+count is the **product** of all dimensions; storage is laid out in row-major
+order (the last dimension varies fastest, as in C).
 
 **Supported types:**
 
@@ -891,6 +896,22 @@ data coords as dword[4]        -- 4 dwords, all zero
 buf:    TIMES 64 DB 0
 table:  TIMES 16 DW 0
 coords: TIMES  4 DD 0
+```
+
+**Multi-dimensional zero-initialized arrays:**
+
+```sasm
+data screen as byte[25][80]    -- 25 rows × 80 cols = 2000 bytes, all zero
+data board  as byte[3][3]      -- 3×3 = 9 bytes
+data cube   as dword[2][3][4]  -- 2×3×4 = 24 dwords
+```
+
+*Equivalent ASM (NASM):*
+
+```asm
+screen: TIMES 2000 DB 0
+board:  TIMES    9 DB 0
+cube:   TIMES   24 DD 0
 ```
 
 **Initialized arrays** — element count is inferred from the comma-separated value list:
@@ -931,7 +952,9 @@ move eax to dword [coords + ebx]     -- coords[ebx/4] = eax
 
 * `data` declarations must appear **outside** any `proc` or `block` body — they are segment-level directives emitted into the data segment.
 * An array may use either the bracketed count form (zero-initialized) or the `= <list>` form (initialized), but not both on the same line.
+* Multiple bracket pairs (e.g. `[3][4]`) declare a multi-dimensional array; the total element count is the product of all dimensions. Storage is a flat, contiguous block — the programmer computes byte offsets manually.
 * When indexing word arrays, the register holds a **byte offset** (`index × 2`); for dword arrays the register holds `index × 4`.
+* For a 2-D array with `COLS` columns, the byte offset of element `[row][col]` is `(row * COLS + col) * element_size`.
 
 ---
 
@@ -943,12 +966,16 @@ A `var` declaration with a bracketed element count reserves a named, stack-alloc
 
 ```sasm
 proc <name> {
-    var <name> as byte[<count>]    -- <count> bytes reserved on the stack
-    var <name> as word[<count>]    -- 2 × <count> bytes reserved on the stack
-    var <name> as dword[<count>]   -- 4 × <count> bytes reserved on the stack
+    var <name> as byte[<count>]          -- <count> bytes reserved on the stack
+    var <name> as word[<count>]          -- 2 × <count> bytes reserved on the stack
+    var <name> as dword[<count>]         -- 4 × <count> bytes reserved on the stack
+    var <name> as byte[<d1>][<d2>]...    -- multi-dimensional (product of dims)
     <body>
 }
 ```
+
+Multiple bracket pairs declare a multi-dimensional local array; the total
+element count is the product of all dimensions, identical to `data` arrays.
 
 The same form works inside a `block { }`.
 
