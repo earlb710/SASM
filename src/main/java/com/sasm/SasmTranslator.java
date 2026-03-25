@@ -1178,10 +1178,9 @@ public class SasmTranslator {
                 }
             }
             // 'sdiv' keyword with word boundaries (signed division)
-            if (c == 's' && i + 3 < rhs.length()
+            if (c == 's' && i > 0 && i + 3 < rhs.length()
                     && rhs.charAt(i + 1) == 'd' && rhs.charAt(i + 2) == 'i'
-                    && rhs.charAt(i + 3) == 'v'
-                    && i > 0) {
+                    && rhs.charAt(i + 3) == 'v') {
                 boolean wBefore = !isIdentChar(rhs.charAt(i - 1));
                 boolean wAfter  = i + 4 >= rhs.length()
                         || !isIdentChar(rhs.charAt(i + 4));
