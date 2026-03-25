@@ -1154,10 +1154,12 @@ public class SasmIdePanel extends JPanel {
                     break;
                 }
                 asmLine += count;
-                if (asmLine >= lineCount) {
-                    srcLineForStart = s;
+                // Safety: if we've exhausted all mapped output lines,
+                // point past the last source line so the painting loop
+                // falls back to sequential numbering for any excess.
+                if (s == sourceLineMap.length - 1) {
+                    srcLineForStart = sourceLineMap.length;
                     subForStart = 0;
-                    break;
                 }
             }
 
