@@ -631,6 +631,15 @@ public class SasmIdePanel extends JPanel {
         } else {
             // Stop any pending translation
             translateTimer.stop();
+            // Remove the extra bottom padding that was added for line
+            // alignment — it is only needed while the ASM pane is visible.
+            Insets cur = editor.getMargin();
+            if (cur != null && cur.bottom != 0) {
+                editor.setMargin(new Insets(cur.top, cur.left, 0, cur.right));
+                editor.revalidate();
+                editorLineNumbers.revalidate();
+                editorLineNumbers.repaint();
+            }
         }
     }
 
@@ -650,6 +659,9 @@ public class SasmIdePanel extends JPanel {
             asmOutput.setText(asm);
             asmOutput.setCaretPosition(0);
             syncingScroll = false;
+            // Pad the editor with extra bottom space when the ASM output
+            // has more lines, so the scrollbar range covers all ASM content.
+            padEditorToMatchAsm();
             // After text change, synchronise asm scroll to editor position
             asmScroll.getViewport().setViewPosition(
                     new Point(0, editorScroll.getVerticalScrollBar().getValue()));
@@ -662,6 +674,35 @@ public class SasmIdePanel extends JPanel {
             syncingScroll = false;
         }
         asmLineNumbers.repaint();
+    }
+
+    /**
+     * When the ASM output has more lines than the SASM source, adds bottom
+     * margin to the editor so the scrollbar range is large enough to allow
+     * the user to scroll through all ASM content.  Removes the padding when
+     * line counts are equal or when the ASM pane is hidden.
+     */
+    private void padEditorToMatchAsm() {
+        int editorLines = editor.getLineCount();
+        int asmLines    = asmOutput.getLineCount();
+        int extraLines  = asmLines - editorLines;
+
+        FontMetrics fm = editor.getFontMetrics(editor.getFont());
+        int extraPad = extraLines > 0 ? extraLines * fm.getHeight() : 0;
+
+        Insets cur = editor.getMargin();
+        int curBottom = cur != null ? cur.bottom : 0;
+        if (curBottom != extraPad) {
+            editor.setMargin(new Insets(
+                    cur != null ? cur.top    : 0,
+                    cur != null ? cur.left   : 0,
+                    extraPad,
+                    cur != null ? cur.right  : 0));
+            // Revalidate so the scroll pane recalculates its extent
+            editor.revalidate();
+            editorLineNumbers.revalidate();
+            editorLineNumbers.repaint();
+        }
     }
 
     // ── file I/O ──────────────────────────────────────────────────────────────
