@@ -145,7 +145,12 @@ public class SasmTranslator {
         }
 
         // ── comments (no alias resolution inside pure comments) ──────────────
-        if (trimmed.startsWith("--")) {                                // line comment
+        // "-- text" is a line comment, but "--ax" / "--[var]" is a prefix
+        // decrement (the operand starts immediately after the dashes).
+        if (trimmed.startsWith("--")
+                && (trimmed.length() <= 2
+                    || (!Character.isLetter(trimmed.charAt(2))
+                        && trimmed.charAt(2) != '['))) {              // line comment
             return leading + "; " + trimmed.substring(2).stripLeading();
         }
         if (trimmed.startsWith("(*")) return toAsmComment(trimmed); // block comment open
@@ -427,11 +432,42 @@ public class SasmTranslator {
     }
 
     private String tryIncDec(String code) {
-        if (code.startsWith("increment "))
-            return "    INC " + code.substring(10).trim();
-        if (code.startsWith("decrement "))
-            return "    DEC " + code.substring(10).trim();
-        return null;
+        String operand = null;
+        String insn = null;
+
+        // ── keyword forms ────────────────────────────────────────────────
+        if (code.startsWith("increment ")) {
+            operand = code.substring(10).trim();
+            insn = "INC";
+        } else if (code.startsWith("decrement ")) {
+            operand = code.substring(10).trim();
+            insn = "DEC";
+        } else if (code.startsWith("inc ")) {
+            operand = code.substring(4).trim();
+            insn = "INC";
+        } else if (code.startsWith("dec ")) {
+            operand = code.substring(4).trim();
+            insn = "DEC";
+        }
+        // ── prefix forms: ++operand / --operand ──────────────────────────
+        else if (code.startsWith("++")) {
+            operand = code.substring(2).trim();
+            insn = "INC";
+        } else if (code.startsWith("--")) {
+            operand = code.substring(2).trim();
+            insn = "DEC";
+        }
+        // ── postfix forms: operand++ / operand-- ─────────────────────────
+        else if (code.endsWith("++")) {
+            operand = code.substring(0, code.length() - 2).trim();
+            insn = "INC";
+        } else if (code.endsWith("--")) {
+            operand = code.substring(0, code.length() - 2).trim();
+            insn = "DEC";
+        }
+
+        if (insn == null || operand == null || operand.isEmpty()) return null;
+        return "    " + insn + " " + wrapIfVar(operand);
     }
 
     private String tryMulDiv(String code) {
@@ -1419,7 +1455,12 @@ public class SasmTranslator {
                 if (c == '[') depth++;
                 else if (c == ']') depth--;
                 else if (c == '-' && depth == 0
-                        && i + 1 < line.length() && line.charAt(i + 1) == '-') {
+                        && i + 1 < line.length() && line.charAt(i + 1) == '-'
+                        // Require whitespace before "--" so that postfix
+                        // decrements like "ax--" are not mistaken for
+                        // inline comments.  Position 0 is handled by the
+                        // line-comment check in translateLine().
+                        && i > 0 && Character.isWhitespace(line.charAt(i - 1))) {
                     return i;
                 }
             }

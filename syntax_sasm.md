@@ -792,6 +792,9 @@ move flag    to al              -- MOV AL, [flag]
 
 -- Operate directly on a global variable:
 increment counter               -- INC [counter]
+counter++                       -- INC [counter]  (postfix form)
+++counter                       -- INC [counter]  (prefix form)
+inc counter                     -- INC [counter]  (short keyword)
 add 1 to counter                -- ADD [counter], 1
 compare counter with max_count  -- CMP [counter], [max_count]
 ```
@@ -1058,7 +1061,11 @@ reverse_bytes:
 | `subtract <src> from <dst>` | `SUB dst, src` | `dst = dst - src` |
 | `subtract <src> with borrow from <dst>` | `SBB dst, src` | `dst = dst - src - CF` |
 | `increment <dst>` | `INC dst` | `dst = dst + 1` (CF unchanged) |
+| `inc <dst>` | `INC dst` | Short form of `increment` |
+| `++<dst>` / `<dst>++` | `INC dst` | Prefix / postfix increment |
 | `decrement <dst>` | `DEC dst` | `dst = dst - 1` (CF unchanged) |
+| `dec <dst>` | `DEC dst` | Short form of `decrement` |
+| `--<dst>` / `<dst>--` | `DEC dst` | Prefix / postfix decrement |
 | `multiply by <src>` | `MUL src` | Unsigned: `AX = AL × src` (byte) or `DX:AX = AX × src` (word) |
 | `signed multiply by <src>` | `IMUL src` | Signed multiply (same register layout as `MUL`) |
 | `divide by <src>` | `DIV src` | Unsigned: `AL = AX ÷ src`, `AH = remainder` |
