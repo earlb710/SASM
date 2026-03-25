@@ -1490,14 +1490,19 @@ public class SasmTranslator {
     /**
      * Parses a dimension string such as {@code [3][4]} or {@code [10]} and
      * returns the product of all dimensions (total element count).
+     *
+     * @throws ArithmeticException if the product overflows {@code int}.
      */
     private static int parseTotalCount(String dims) {
-        int total = 1;
+        long total = 1;
         Matcher m = Pattern.compile("\\[(\\d+)\\]").matcher(dims);
         while (m.find()) {
-            total *= Integer.parseInt(m.group(1));
+            total = Math.multiplyExact(total, Long.parseLong(m.group(1)));
+            if (total > Integer.MAX_VALUE) {
+                throw new ArithmeticException("array size overflow");
+            }
         }
-        return total;
+        return (int) total;
     }
 
     /** Converts a SASM block comment to an ASM comment. */
