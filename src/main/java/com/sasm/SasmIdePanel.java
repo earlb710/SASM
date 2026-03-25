@@ -14,6 +14,8 @@ import java.util.Set;
 import javax.swing.*;
 import javax.swing.event.*;
 import javax.swing.text.BadLocationException;
+import javax.swing.text.DefaultHighlighter;
+import javax.swing.text.Highlighter;
 
 /**
  * Main IDE workspace panel — displayed in the centre of the application frame
@@ -90,6 +92,22 @@ public class SasmIdePanel extends JPanel {
      * redundant re-translation cycle.
      */
     private boolean updatingPadding = false;
+
+    // ── synced line-cursor highlight ──────────────────────────────────────────
+
+    /** Highlight painter for the current line in the SASM editor. */
+    private final Highlighter.HighlightPainter editorLinePainter =
+            new DefaultHighlighter.DefaultHighlightPainter(new Color(0x30, 0x30, 0x50));
+
+    /** Highlight painter for the corresponding line(s) in the ASM output. */
+    private final Highlighter.HighlightPainter asmLinePainter =
+            new DefaultHighlighter.DefaultHighlightPainter(new Color(0x14, 0x28, 0x40));
+
+    /** Current highlight tag in the editor (removed before adding a new one). */
+    private Object editorHighlightTag;
+
+    /** Current highlight tag in the ASM output (removed before adding a new one). */
+    private Object asmHighlightTag;
 
     /**
      * Debounce timer for SASM→NASM translation.  Instead of translating on
@@ -626,6 +644,121 @@ public class SasmIdePanel extends JPanel {
 
         // ── toggle button for assembler output pane ──────────────────────
         asmToggle.addActionListener(e -> toggleAsmPane());
+
+        // ── synced line-cursor highlight ─────────────────────────────────
+        editor.addCaretListener(e -> updateLineHighlight());
+    }
+
+    // ── synced line-cursor highlight ──────────────────────────────────────────
+
+    /**
+     * Updates the line-cursor highlight in both the SASM editor and the ASM
+     * output pane.  Called on every caret movement in the editor.
+     *
+     * <p>The highlight works in three steps:
+     * <ol>
+     *   <li>Determine the editor line at the caret position.</li>
+     *   <li>Highlight that full line in the editor.</li>
+     *   <li>Map the source line to the corresponding ASM output line range
+     *       (using the translator's line map and padding offsets) and
+     *       highlight those lines in the ASM pane.</li>
+     * </ol>
+     */
+    private void updateLineHighlight() {
+        // ── editor highlight ─────────────────────────────────────────────
+        try {
+            int caretPos = editor.getCaretPosition();
+            int editorLine = editor.getLineOfOffset(caretPos);
+
+            // Highlight the full editor line
+            int lineStart = editor.getLineStartOffset(editorLine);
+            int lineEnd   = editorLine + 1 < editor.getLineCount()
+                    ? editor.getLineStartOffset(editorLine + 1)
+                    : editor.getDocument().getLength();
+
+            Highlighter edHl = editor.getHighlighter();
+            if (editorHighlightTag != null) {
+                edHl.removeHighlight(editorHighlightTag);
+            }
+            editorHighlightTag = edHl.addHighlight(lineStart, lineEnd, editorLinePainter);
+
+            // ── ASM highlight ────────────────────────────────────────────
+            if (!asmVisible) return;
+
+            // Map the editor line (which may include padding) to the real
+            // source line index.
+            int sourceLine = editorLineToSourceLine(editorLine);
+            if (sourceLine < 0) {
+                // Caret is on a padding line — highlight the padding
+                // line's parent source line instead
+                sourceLine = paddingLineToSourceLine(editorLine);
+            }
+
+            // Compute the ASM output line range for this source line
+            int[] lineMap = translator.getLastLineMap();
+            if (lineMap == null || sourceLine >= lineMap.length) {
+                removeAsmHighlight();
+                return;
+            }
+
+            // The ASM output line index is the sum of all line counts
+            // before this source line.
+            int asmLineStart = 0;
+            for (int i = 0; i < sourceLine; i++) {
+                asmLineStart += (i < lineMap.length) ? lineMap[i] : 1;
+            }
+            int asmLineCount = lineMap[sourceLine];
+
+            // Highlight the range in the ASM output
+            int asmStartOff = asmOutput.getLineStartOffset(asmLineStart);
+            int asmEndLine  = asmLineStart + asmLineCount;
+            int asmEndOff   = asmEndLine < asmOutput.getLineCount()
+                    ? asmOutput.getLineStartOffset(asmEndLine)
+                    : asmOutput.getDocument().getLength();
+
+            Highlighter asmHl = asmOutput.getHighlighter();
+            if (asmHighlightTag != null) {
+                asmHl.removeHighlight(asmHighlightTag);
+            }
+            asmHighlightTag = asmHl.addHighlight(asmStartOff, asmEndOff, asmLinePainter);
+
+        } catch (BadLocationException ignored) {
+            // Non-fatal — just skip the highlight update
+        }
+    }
+
+    /**
+     * Maps a 0-based editor line index (in the padded text) to the
+     * corresponding 0-based source line index.  Returns -1 if the editor
+     * line is a padding line.
+     */
+    private int editorLineToSourceLine(int editorLine) {
+        if (paddingLines.contains(editorLine)) return -1;
+        int srcLine = 0;
+        for (int i = 0; i < editorLine; i++) {
+            if (!paddingLines.contains(i)) srcLine++;
+        }
+        return srcLine;
+    }
+
+    /**
+     * For a padding line, returns the source line that generated it
+     * (i.e. the nearest preceding non-padding line's source index).
+     */
+    private int paddingLineToSourceLine(int editorLine) {
+        int srcLine = -1;
+        for (int i = 0; i <= editorLine; i++) {
+            if (!paddingLines.contains(i)) srcLine++;
+        }
+        return Math.max(srcLine, 0);
+    }
+
+    /** Removes the current ASM highlight if present. */
+    private void removeAsmHighlight() {
+        if (asmHighlightTag != null) {
+            asmOutput.getHighlighter().removeHighlight(asmHighlightTag);
+            asmHighlightTag = null;
+        }
     }
 
     /**
@@ -689,6 +822,8 @@ public class SasmIdePanel extends JPanel {
             syncingScroll = false;
         }
         asmLineNumbers.repaint();
+        // Refresh the synced line highlight after translation changes
+        updateLineHighlight();
     }
 
     /**
