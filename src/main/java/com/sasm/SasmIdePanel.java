@@ -691,13 +691,12 @@ public class SasmIdePanel extends JPanel {
         int extraPad = extraLines > 0 ? extraLines * fm.getHeight() : 0;
 
         Insets cur = editor.getMargin();
-        int curBottom = cur != null ? cur.bottom : 0;
-        if (curBottom != extraPad) {
-            editor.setMargin(new Insets(
-                    cur != null ? cur.top    : 0,
-                    cur != null ? cur.left   : 0,
-                    extraPad,
-                    cur != null ? cur.right  : 0));
+        int top    = cur != null ? cur.top    : 0;
+        int left   = cur != null ? cur.left   : 0;
+        int bottom = cur != null ? cur.bottom : 0;
+        int right  = cur != null ? cur.right  : 0;
+        if (bottom != extraPad) {
+            editor.setMargin(new Insets(top, left, extraPad, right));
             // Revalidate so the scroll pane recalculates its extent
             editor.revalidate();
             editorLineNumbers.revalidate();
