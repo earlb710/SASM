@@ -690,27 +690,21 @@ public class SasmIdePanel extends JPanel {
                 undoManager.addEdit(e.getEdit());
             }
         });
-
-        int mask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
-
-        editor.getInputMap().put(
-                KeyStroke.getKeyStroke(KeyEvent.VK_Z, mask), "undo");
-        editor.getActionMap().put("undo", new AbstractAction() {
-            @Override public void actionPerformed(ActionEvent e) {
-                if (undoManager.canUndo()) undoManager.undo();
-            }
-        });
-
-        editor.getInputMap().put(
-                KeyStroke.getKeyStroke(KeyEvent.VK_Y, mask), "redo");
-        editor.getInputMap().put(
-                KeyStroke.getKeyStroke(KeyEvent.VK_Z, mask | KeyEvent.SHIFT_DOWN_MASK), "redo");
-        editor.getActionMap().put("redo", new AbstractAction() {
-            @Override public void actionPerformed(ActionEvent e) {
-                if (undoManager.canRedo()) undoManager.redo();
-            }
-        });
     }
+
+    // ── undo / redo public API ────────────────────────────────────────────────
+
+    /** Returns {@code true} when there is an edit that can be undone. */
+    public boolean canUndo() { return undoManager.canUndo(); }
+
+    /** Returns {@code true} when there is an edit that can be re-applied. */
+    public boolean canRedo() { return undoManager.canRedo(); }
+
+    /** Undoes the most recent edit, if any. */
+    public void undo() { if (undoManager.canUndo()) undoManager.undo(); }
+
+    /** Re-applies the most recently undone edit, if any. */
+    public void redo() { if (undoManager.canRedo()) undoManager.redo(); }
 
     // ── synced line-cursor highlight ──────────────────────────────────────────
 

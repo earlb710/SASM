@@ -7,6 +7,8 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import javax.swing.*;
+import javax.swing.event.MenuEvent;
+import javax.swing.event.MenuListener;
 
 /**
  * Entry point for the SASM IDE.
@@ -56,6 +58,8 @@ public class SasmMain {
     private static JMenuItem   deleteFileItem;    // enabled only when a file is open
     private static JMenuItem   renameFileItem;    // enabled when a file is selected
     private static JMenuItem   propertiesItem;    // enabled when a dir (core/variant) is selected
+    private static JMenuItem   undoItem;          // enabled when there is something to undo
+    private static JMenuItem   redoItem;          // enabled when there is something to redo
 
     private static final String CARD_WELCOME = "welcome";
     private static final String CARD_IDE     = "ide";
@@ -146,6 +150,30 @@ public class SasmMain {
         fileMenu.add(exitItem);
 
         menuBar.add(fileMenu);
+
+        JMenu editMenu = new JMenu("Edit");
+
+        undoItem = new JMenuItem("Undo");
+        undoItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        undoItem.setEnabled(false);
+        editMenu.add(undoItem);
+
+        redoItem = new JMenuItem("Redo");
+        redoItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        redoItem.setEnabled(false);
+        editMenu.add(redoItem);
+
+        // Refresh enabled state each time the menu is opened
+        editMenu.addMenuListener(new MenuListener() {
+            @Override public void menuSelected(MenuEvent e) {
+                undoItem.setEnabled(idePanel != null && idePanel.canUndo());
+                redoItem.setEnabled(idePanel != null && idePanel.canRedo());
+            }
+            @Override public void menuDeselected(MenuEvent e) {}
+            @Override public void menuCanceled(MenuEvent e)   {}
+        });
+
+        menuBar.add(editMenu);
 
         JMenu helpMenu = new JMenu("Help");
         JMenuItem aboutItem = new JMenuItem("About");
@@ -277,6 +305,9 @@ public class SasmMain {
         deleteFileItem.addActionListener(e -> promptDeleteFile());
 
         propertiesItem.addActionListener(e -> promptProperties());
+
+        undoItem.addActionListener(e -> idePanel.undo());
+        redoItem.addActionListener(e -> idePanel.redo());
 
         exitItem.addActionListener(e -> {
             idePanel.saveCurrentFile();
