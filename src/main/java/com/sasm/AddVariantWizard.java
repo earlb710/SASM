@@ -2,6 +2,8 @@ package com.sasm;
 
 import java.awt.*;
 import java.awt.event.*;
+import javax.swing.*;
+import javax.swing.event.*;
 
 /**
  * "Add Variant" dialog — collects a variant name and all target-platform
@@ -22,26 +24,26 @@ import java.awt.event.*;
  * <p>OK and Cancel buttons appear at the bottom.  OK is enabled only when all
  * five fields contain a non-blank value and the name is valid.</p>
  */
-public class AddVariantWizard extends Dialog {
+public class AddVariantWizard extends JDialog {
 
     /** Regex that every valid variant name must fully match. */
     private static final String VARIANT_NAME_PATTERN = "[A-Za-z0-9_\\-]+";
 
     // ── form fields ──────────────────────────────────────────────────────────
-    private final TextField variantNameField = new TextField(50);
-    private final Choice    osChoice         = new Choice();
-    private final Choice    outputTypeChoice = new Choice();
-    private final Choice    variantChoice    = new Choice();
-    private final Choice    processorChoice  = new Choice();
+    private final JTextField          variantNameField = new JTextField(50);
+    private final JComboBox<String>   osChoice         = new JComboBox<>();
+    private final JComboBox<String>   outputTypeChoice = new JComboBox<>();
+    private final JComboBox<String>   variantChoice    = new JComboBox<>();
+    private final JComboBox<String>   processorChoice  = new JComboBox<>();
 
     // ── description panels ───────────────────────────────────────────────────
-    private final TextArea osDescArea        = makeDescArea(3);
-    private final TextArea variantDescArea   = makeDescArea(7);
-    private final TextArea processorDescArea = makeDescArea(5);
+    private final JTextArea osDescArea        = makeDescArea(3);
+    private final JTextArea variantDescArea   = makeDescArea(7);
+    private final JTextArea processorDescArea = makeDescArea(5);
 
     // ── buttons ──────────────────────────────────────────────────────────────
-    private final Button okBtn     = new Button("OK");
-    private final Button cancelBtn = new Button("Cancel");
+    private final JButton okBtn     = new JButton("OK");
+    private final JButton cancelBtn = new JButton("Cancel");
 
     // ── result state ─────────────────────────────────────────────────────────
     private boolean confirmed = false;
@@ -106,19 +108,20 @@ public class AddVariantWizard extends Dialog {
         setLayout(new BorderLayout(0, 0));
 
         // ── title banner ────────────────────────────────────────────────────
-        Label title = new Label(
+        JLabel title = new JLabel(
                 preFill != null ? "Variant Properties" : "Add Variant",
-                Label.CENTER);
+                SwingConstants.CENTER);
         title.setFont(new Font("SansSerif", Font.BOLD, 16));
         title.setBackground(new Color(0x2B, 0x57, 0x97));
         title.setForeground(Color.WHITE);
-        Panel titlePanel = new Panel(new BorderLayout());
+        title.setOpaque(true);
+        JPanel titlePanel = new JPanel(new BorderLayout());
         titlePanel.add(title, BorderLayout.CENTER);
         titlePanel.setPreferredSize(new Dimension(900, 36));
         add(titlePanel, BorderLayout.NORTH);
 
         // ── scrollable canvas ────────────────────────────────────────────────
-        Panel canvas = new Panel(new GridBagLayout());
+        JPanel canvas = new JPanel(new GridBagLayout());
         canvas.setBackground(Color.WHITE);
 
         int gbRow = 0;
@@ -133,7 +136,7 @@ public class AddVariantWizard extends Dialog {
         osChoice.addItem("Windows");
         gbRow = addLabeledControl(canvas, gbRow, "Operating System:", osChoice,
                 "Select the target OS to load matching format definitions.");
-        gbRow = addDescriptionArea(canvas, gbRow, osDescArea);
+        gbRow = addDescriptionArea(canvas, gbRow, new JScrollPane(osDescArea));
 
         // ── Output Type ──────────────────────────────────────────────────────
         outputTypeChoice.addItem("");
@@ -144,30 +147,29 @@ public class AddVariantWizard extends Dialog {
         variantChoice.addItem("");
         gbRow = addLabeledControl(canvas, gbRow, "Variant:", variantChoice,
                 "Select the format variant after choosing an operating system and output type.");
-        gbRow = addDescriptionArea(canvas, gbRow, variantDescArea);
+        gbRow = addDescriptionArea(canvas, gbRow, new JScrollPane(variantDescArea));
 
         // ── Processor ─────────────────────────────────────────────────────────
         processorChoice.addItem("");
         gbRow = addLabeledControl(canvas, gbRow, "Processor:", processorChoice,
                 "Select the target CPU; choices are filtered to processors compatible with the"
                 + " selected variant's architecture (e.g. x86 family for x86/x86-64 variants).");
-        gbRow = addDescriptionArea(canvas, gbRow, processorDescArea);
+        gbRow = addDescriptionArea(canvas, gbRow, new JScrollPane(processorDescArea));
 
         // spacer
         GridBagConstraints sp = new GridBagConstraints();
         sp.gridx = 0; sp.gridy = gbRow; sp.gridwidth = 2;
         sp.fill = GridBagConstraints.BOTH;
         sp.weighty = 1.0;
-        canvas.add(new Panel(), sp);
+        canvas.add(new JPanel(), sp);
 
-        ScrollPane scrollPane = new ScrollPane(ScrollPane.SCROLLBARS_AS_NEEDED);
-        scrollPane.add(canvas);
+        JScrollPane scrollPane = new JScrollPane(canvas);
         scrollPane.setPreferredSize(new Dimension(900, 680));
         add(scrollPane, BorderLayout.CENTER);
 
         // ── button row ──────────────────────────────────────────────────────
         okBtn.setEnabled(false);
-        Panel btnRow = new Panel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
+        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
         btnRow.add(okBtn);
         btnRow.add(cancelBtn);
         add(btnRow, BorderLayout.SOUTH);
@@ -177,7 +179,11 @@ public class AddVariantWizard extends Dialog {
         outputTypeChoice.addItemListener(e -> onOutputTypeChanged());
         variantChoice.addItemListener(e -> onVariantChanged());
         processorChoice.addItemListener(e -> onProcessorChanged());
-        variantNameField.addTextListener(e -> refreshOkButton());
+        variantNameField.getDocument().addDocumentListener(new DocumentListener() {
+            public void insertUpdate(DocumentEvent e) { refreshOkButton(); }
+            public void removeUpdate(DocumentEvent e) { refreshOkButton(); }
+            public void changedUpdate(DocumentEvent e) { refreshOkButton(); }
+        });
         okBtn.addActionListener(e -> onOkPressed());
         cancelBtn.addActionListener(e -> dispose());
         addWindowListener(new WindowAdapter() {
@@ -189,14 +195,14 @@ public class AddVariantWizard extends Dialog {
 
     // ── layout helpers ────────────────────────────────────────────────────────
 
-    private static int addLabeledControl(Panel canvas, int startRow,
+    private static int addLabeledControl(JPanel canvas, int startRow,
                                          String labelText, Component control,
                                          String hint) {
         GridBagConstraints lc = new GridBagConstraints();
         lc.gridx = 0; lc.gridy = startRow;
         lc.anchor = GridBagConstraints.NORTHWEST;
         lc.insets = new Insets(startRow == 0 ? 16 : 12, 16, 2, 8);
-        Label lbl = new Label(labelText, Label.RIGHT);
+        JLabel lbl = new JLabel(labelText, SwingConstants.RIGHT);
         lbl.setFont(new Font("SansSerif", Font.BOLD, 12));
         canvas.add(lbl, lc);
 
@@ -215,7 +221,7 @@ public class AddVariantWizard extends Dialog {
             hc.gridx = 1; hc.gridy = nextRow;
             hc.anchor = GridBagConstraints.NORTHWEST;
             hc.insets = new Insets(0, 2, 4, 16);
-            Label hintLbl = new Label(hint, Label.LEFT);
+            JLabel hintLbl = new JLabel(hint, SwingConstants.LEFT);
             hintLbl.setFont(new Font("SansSerif", Font.ITALIC, 10));
             hintLbl.setForeground(Color.DARK_GRAY);
             canvas.add(hintLbl, hc);
@@ -225,7 +231,7 @@ public class AddVariantWizard extends Dialog {
         return nextRow;
     }
 
-    private static int addDescriptionArea(Panel canvas, int startRow, TextArea area) {
+    private static int addDescriptionArea(JPanel canvas, int startRow, Component area) {
         GridBagConstraints dc = new GridBagConstraints();
         dc.gridx = 0; dc.gridy = startRow; dc.gridwidth = 2;
         dc.fill = GridBagConstraints.BOTH;
@@ -236,12 +242,14 @@ public class AddVariantWizard extends Dialog {
         return startRow + 1;
     }
 
-    private static TextArea makeDescArea(int rows) {
-        TextArea ta = new TextArea("", rows, 60, TextArea.SCROLLBARS_VERTICAL_ONLY);
+    private static JTextArea makeDescArea(int rows) {
+        JTextArea ta = new JTextArea("", rows, 60);
         ta.setEditable(false);
         ta.setFont(new Font("Monospaced", Font.PLAIN, 11));
         ta.setBackground(new Color(0xF0, 0xF4, 0xFF));
         ta.setForeground(new Color(0x1A, 0x1A, 0x2E));
+        ta.setLineWrap(true);
+        ta.setWrapStyleWord(true);
         return ta;
     }
 
@@ -250,12 +258,12 @@ public class AddVariantWizard extends Dialog {
     private void onOsChanged() {
         currentDef = null;
         processorDescArea.setText("");
-        processorChoice.removeAll();
+        processorChoice.removeAllItems();
         processorChoice.addItem("");
         variantDescArea.setText("");
-        variantChoice.removeAll();
+        variantChoice.removeAllItems();
         variantChoice.addItem("");
-        outputTypeChoice.removeAll();
+        outputTypeChoice.removeAllItems();
         outputTypeChoice.addItem("");
 
         String os = selectedText(osChoice);
@@ -284,10 +292,10 @@ public class AddVariantWizard extends Dialog {
     private void onOutputTypeChanged() {
         currentDef = null;
         processorDescArea.setText("");
-        processorChoice.removeAll();
+        processorChoice.removeAllItems();
         processorChoice.addItem("");
         variantDescArea.setText("");
-        variantChoice.removeAll();
+        variantChoice.removeAllItems();
         variantChoice.addItem("");
 
         String os = selectedText(osChoice);
@@ -319,7 +327,7 @@ public class AddVariantWizard extends Dialog {
 
     private void onVariantChanged() {
         processorDescArea.setText("");
-        processorChoice.removeAll();
+        processorChoice.removeAllItems();
         processorChoice.addItem("");
 
         String selected = selectedText(variantChoice);
@@ -354,8 +362,8 @@ public class AddVariantWizard extends Dialog {
 
         // Default to x86_64 if available
         for (int pi = 0; pi < processorChoice.getItemCount(); pi++) {
-            if ("x86_64".equals(processorChoice.getItem(pi))) {
-                processorChoice.select(pi);
+            if ("x86_64".equals(processorChoice.getItemAt(pi))) {
+                processorChoice.setSelectedIndex(pi);
                 onProcessorChanged();
                 break;
             }
@@ -502,20 +510,20 @@ public class AddVariantWizard extends Dialog {
 
     // ── utilities ─────────────────────────────────────────────────────────────
 
-    private static String selectedText(Choice c) {
-        String s = c.getSelectedItem();
+    private static String selectedText(JComboBox<String> c) {
+        String s = (String) c.getSelectedItem();
         return s == null ? "" : s.trim();
     }
 
     /**
-     * Selects the item in a {@link Choice} whose text equals {@code value},
+     * Selects the item in a {@link JComboBox} whose text equals {@code value},
      * returning {@code true} if found.
      */
-    private static boolean selectItem(Choice c, String value) {
+    private static boolean selectItem(JComboBox<String> c, String value) {
         if (value == null) return false;
         for (int i = 0; i < c.getItemCount(); i++) {
-            if (value.equals(c.getItem(i))) {
-                c.select(i);
+            if (value.equals(c.getItemAt(i))) {
+                c.setSelectedIndex(i);
                 return true;
             }
         }
@@ -564,14 +572,14 @@ public class AddVariantWizard extends Dialog {
     }
 
     private void showError(String msg) {
-        Dialog err = new Dialog(this, "Error", true);
+        JDialog err = new JDialog(this, "Error", true);
         err.setLayout(new BorderLayout(8, 8));
-        TextArea ta = new TextArea(msg, 6, 50, TextArea.SCROLLBARS_NONE);
+        JTextArea ta = new JTextArea(msg, 6, 50);
         ta.setEditable(false);
         err.add(ta, BorderLayout.CENTER);
-        Button ok = new Button("OK");
+        JButton ok = new JButton("OK");
         ok.addActionListener(e -> err.dispose());
-        Panel bp = new Panel(new FlowLayout(FlowLayout.CENTER));
+        JPanel bp = new JPanel(new FlowLayout(FlowLayout.CENTER));
         bp.add(ok);
         err.add(bp, BorderLayout.SOUTH);
         err.addWindowListener(new WindowAdapter() {

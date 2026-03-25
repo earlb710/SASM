@@ -41,9 +41,13 @@ import javax.swing.text.Highlighter;
  */
 public class SasmIdePanel extends JPanel {
 
+    /** Number of text lines scrolled per mouse-wheel notch. */
+    private static final int WHEEL_SCROLL_LINES = 5;
+
     // ── file list (left pane) ─────────────────────────────────────────────────
     private final JLabel   treeHeader = new JLabel("Project Files", SwingConstants.CENTER);
-    private final List     fileList   = new List(20, false);
+    private final DefaultListModel<String> fileListModel = new DefaultListModel<>();
+    private final JList<String> fileList = new JList<>(fileListModel);
 
     // ── editor (centre pane — SASM source, 2/3 width) ──────────────────────
     private final JLabel    editorHeader = new JLabel("", SwingConstants.LEFT);
@@ -127,6 +131,12 @@ public class SasmIdePanel extends JPanel {
         int lines = editor.getLineCount();
         if (lines != lastEditorLineCount) {
             lastEditorLineCount = lines;
+            // revalidate() tells the row-header viewport that the
+            // component height has changed, keeping its scroll extent
+            // in sync with the main viewport.  Without this, the
+            // viewport retains the stale height and line numbers drift
+            // out of alignment when scrolling.
+            editorLineNumbers.revalidate();
             editorLineNumbers.repaint();
         }
     });
@@ -192,7 +202,7 @@ public class SasmIdePanel extends JPanel {
      */
     public void refreshFileList() {
         String prevSel = currentFile != null ? currentFile.getAbsolutePath() : null;
-        fileList.removeAll();
+        fileListModel.clear();
         fileIndex.clear();
 
         if (project == null || project.workingDirectory == null) return;
@@ -222,7 +232,7 @@ public class SasmIdePanel extends JPanel {
         if (prevSel != null) {
             for (int i = 0; i < fileIndex.size(); i++) {
                 if (fileIndex.get(i).getAbsolutePath().equals(prevSel)) {
-                    fileList.select(i);
+                    fileList.setSelectedIndex(i);
                     break;
                 }
             }
@@ -234,7 +244,7 @@ public class SasmIdePanel extends JPanel {
      */
     private void addDirectorySection(File dir, String label) {
         // Directory header (not clickable for editing)
-        fileList.add("\u25B8 " + label + "/");
+        fileListModel.addElement("\u25B8 " + label + "/");
         fileIndex.add(dir);
 
         File[] asmFiles = dir.listFiles(
@@ -243,7 +253,7 @@ public class SasmIdePanel extends JPanel {
             Arrays.sort(asmFiles,
                     (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
             for (File f : asmFiles) {
-                fileList.add("   " + f.getName());
+                fileListModel.addElement("   " + f.getName());
                 fileIndex.add(f);
             }
         }
@@ -388,7 +398,7 @@ public class SasmIdePanel extends JPanel {
     }
 
     /** Returns the file-list component (for attaching context menus). */
-    java.awt.List getFileListComponent() { return fileList; }
+    JList<String> getFileListComponent() { return fileList; }
 
     /**
      * Creates a new {@code .sasm} file in the given target directory,
@@ -511,7 +521,10 @@ public class SasmIdePanel extends JPanel {
 
         fileList.setFont(new Font("Monospaced", Font.PLAIN, 12));
         fileList.setBackground(new Color(0xF5, 0xF7, 0xFF));
-        leftPane.add(fileList, BorderLayout.CENTER);
+        fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        JScrollPane fileListScroll = new JScrollPane(fileList);
+        fileListScroll.setBorder(BorderFactory.createEmptyBorder());
+        leftPane.add(fileListScroll, BorderLayout.CENTER);
         leftPane.setPreferredSize(new Dimension(210, 0));
 
         // ── centre pane (SASM editor — 2/3 of remaining width) ───────────────
@@ -546,6 +559,20 @@ public class SasmIdePanel extends JPanel {
         editorScroll = new JScrollPane(editor);
         editorScroll.setRowHeaderView(editorLineNumbers);
         editorScroll.getVerticalScrollBar().setUnitIncrement(16);
+
+        // Override default wheel scrolling so each notch scrolls a fixed
+        // number of lines regardless of the platform's Scrollable unit
+        // calculation — gives a consistently fast, responsive feel.
+        editorScroll.setWheelScrollingEnabled(false);
+        editorScroll.addMouseWheelListener(e -> {
+            JScrollBar vsb = editorScroll.getVerticalScrollBar();
+            int lineHeight = editor.getFontMetrics(editor.getFont()).getHeight();
+            int delta = (int) Math.round(
+                    e.getPreciseWheelRotation() * lineHeight * WHEEL_SCROLL_LINES);
+            if (delta != 0) {
+                vsb.setValue(vsb.getValue() + delta);
+            }
+        });
         editorPane.add(editorScroll, BorderLayout.CENTER);
 
         // ── right pane (assembler output — 1/3 of remaining width) ───────────
@@ -599,8 +626,8 @@ public class SasmIdePanel extends JPanel {
         add(codeArea,  BorderLayout.CENTER);
 
         // ── wire events ───────────────────────────────────────────────────────
-        fileList.addItemListener(e -> {
-            if (e.getStateChange() == ItemEvent.SELECTED) {
+        fileList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
                 int idx = fileList.getSelectedIndex();
                 if (idx >= 0 && idx < fileIndex.size()) {
                     File selected = fileIndex.get(idx);
