@@ -113,19 +113,45 @@ proc fill_repeat_until {
 
 (* -----------------------------------------------------------------
    7. while <condition> { … } — top-tested loop
-   Sums the elements of 'buffer' into ax.
-   Exits when bx reaches 10 (bx starts at 0).
    ----------------------------------------------------------------- *)
+--
+-- The 'while' loop checks its condition BEFORE each iteration.
+-- If the condition is false on entry, the body is never executed.
+--
+-- How "while not equal" works, step by step:
+--
+--   compare bx with 10       <- sets the CPU flags (Zero Flag, etc.)
+--   while not equal {         <- label; continue body while ZF = 0
+--       ...                   <- loop body
+--       compare bx with 10   <- re-test at the bottom of the body
+--   }                         <- jump back to the while label
+--
+-- The condition "not equal" maps to the Zero Flag (ZF):
+--   ZF = 0  ->  the two values differed  ->  "not equal" is TRUE   ->  keep looping
+--   ZF = 1  ->  the two values matched   ->  "not equal" is FALSE  ->  exit loop
+--
+-- Other conditions work the same way:
+--   while equal        ->  loop while ZF = 1
+--   while below        ->  loop while CF = 1
+--   while greater      ->  loop while ZF = 0 and SF = OF
+--   (see the full condition table in syntax_sasm.md)
+--
+-- This example sums buffer[0..9] into ax.
+-- bx starts at 0; each iteration loads one byte, adds it to ax,
+-- then increments bx and compares it against 10.
+-- When bx reaches 10 the compare sets ZF = 1, so "not equal"
+-- becomes false and the loop exits.
+--
 proc sum_while {
-    move 0 to ax
-    move 0 to bx
-    compare bx with 10
-    while not equal {
-        move byte [buffer + bx] to dl
-        move zero dl to dx
-        add dx to ax
-        increment bx
-        compare bx with 10
+    move 0 to ax                   -- accumulator = 0
+    move 0 to bx                   -- index = 0
+    compare bx with 10             -- initial flag test (0 != 10 -> ZF = 0)
+    while not equal {              -- loop while bx != 10
+        move byte [buffer + bx] to dl   -- load one byte
+        move zero dl to dx              -- zero-extend to word
+        add dx to ax                    -- accumulate
+        increment bx                    -- next index
+        compare bx with 10             -- re-set flags for the while check
     }
     -- ax = sum of buffer[0..9]
     return

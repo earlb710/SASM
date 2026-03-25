@@ -234,6 +234,30 @@ while <condition> {
 ```
 
 Re-evaluates `<condition>` at the top of each iteration.
+If the condition is false on the first test, the body is never executed.
+
+**Example — `while not equal`:**
+
+```sasm
+move 0 to bx                   -- index = 0
+compare bx with 10             -- set flags before entering the loop
+while not equal {               -- loop while bx ≠ 10 (ZF = 0)
+    increment bx               -- do work …
+    compare bx with 10         -- re-set flags for the next iteration
+}
+```
+
+*How it works:*
+
+1. A `compare` (or any flag-setting instruction) must precede the `while`.
+2. `while not equal {` emits a label (`.while_N:`) and checks the Zero Flag.
+   As long as ZF = 0 (values were *not* equal), execution continues into the body.
+3. The closing `}` jumps back to the `.while_N` label, where the condition
+   is re-checked using the flags set by the last instruction in the body.
+4. When ZF = 1 (the values are now equal), the loop exits.
+
+Any condition word may be used: `while equal`, `while above`, `while less or equal`, etc.
+See the full list under [Condition Words](#condition-words).
 
 ### Repeat-Until Loop
 
