@@ -810,6 +810,8 @@ public class SasmIdePanel extends JPanel {
             // Insert per-line padding into the editor so that each source
             // line occupies the same number of rows as its ASM translation.
             applyPerLinePadding(translator.getLastLineMap());
+            // Update ASM gutter with source-line-relative numbering
+            asmLineNumbers.setSourceLineMap(translator.getLastLineMap());
             // After text change, synchronise asm scroll to editor position
             asmScroll.getViewport().setViewPosition(
                     new Point(0, editorScroll.getVerticalScrollBar().getValue()));
@@ -819,8 +821,10 @@ public class SasmIdePanel extends JPanel {
             lastAsmText = errMsg;
             syncingScroll = true;
             asmOutput.setText(errMsg);
+            asmLineNumbers.setSourceLineMap(null);
             syncingScroll = false;
         }
+        asmLineNumbers.revalidate();
         asmLineNumbers.repaint();
         // Refresh the synced line highlight after translation changes
         updateLineHighlight();
@@ -1031,6 +1035,16 @@ public class SasmIdePanel extends JPanel {
          */
         private Set<Integer> paddingLines = Collections.emptySet();
 
+        /**
+         * Optional source-line map used for the ASM gutter.  When set,
+         * each ASM output line is labelled relative to the source line
+         * that produced it: "85-1", "85-2", "85-3" for a 3-instruction
+         * translation of source line 85, or just "85" if it produced
+         * exactly one ASM line.  {@code null} means use default sequential
+         * numbering (for the SASM editor gutter).
+         */
+        private int[] sourceLineMap;
+
         LineNumberComponent(JTextArea textArea) {
             this.textArea = textArea;
             setFont(textArea.getFont());
@@ -1043,14 +1057,43 @@ public class SasmIdePanel extends JPanel {
             this.paddingLines = padding != null ? padding : Collections.emptySet();
         }
 
+        /**
+         * Sets the source-line map for source-line-relative numbering.
+         * Each element {@code [i]} is the number of output lines produced
+         * by source line {@code i}.  Pass {@code null} to revert to
+         * default sequential numbering.
+         */
+        void setSourceLineMap(int[] lineMap) {
+            this.sourceLineMap = lineMap;
+        }
+
         /** Width adapts to the number of digits required. */
         @Override
         public Dimension getPreferredSize() {
             int lines  = textArea.getLineCount();
-            int realLines = lines - paddingLines.size();
-            int digits = Math.max(String.valueOf(Math.max(realLines, 1)).length(), 3);
             FontMetrics fm = getFontMetrics(getFont());
-            int width = fm.charWidth('0') * digits + 12;
+
+            int width;
+            if (sourceLineMap != null) {
+                // Source-line-relative mode: widest label is "N-M" where
+                // N = number of source lines, M = max ASM count per line.
+                int srcLines = sourceLineMap.length;
+                int maxSub = 1;
+                for (int c : sourceLineMap) {
+                    if (c > maxSub) maxSub = c;
+                }
+                // Worst-case label width: "srcLines-maxSub"
+                String widest = maxSub > 1
+                        ? srcLines + "-" + maxSub
+                        : String.valueOf(Math.max(srcLines, 1));
+                int digits = Math.max(widest.length(), 3);
+                width = fm.charWidth('0') * digits + 12;
+            } else {
+                int realLines = lines - paddingLines.size();
+                int digits = Math.max(String.valueOf(Math.max(realLines, 1)).length(), 3);
+                width = fm.charWidth('0') * digits + 12;
+            }
+
             // Compute height from font metrics and line count instead of
             // calling textArea.getPreferredSize() which is O(n) and triggers
             // expensive text layout computation on every call.
@@ -1080,9 +1123,94 @@ public class SasmIdePanel extends JPanel {
                             new Point(0, clip.y)));
             if (startLine < 0) startLine = 0;
 
+            if (sourceLineMap != null) {
+                paintSourceRelative(g, fm, clip, startLine, lineCount);
+            } else {
+                paintSequential(g, fm, clip, startLine, lineCount);
+            }
+        }
+
+        /**
+         * Paints source-line-relative labels in the gutter.
+         * Each ASM output line is labelled "N-M" where N is the 1-based
+         * source line number and M is the sub-index within that source
+         * line's output.  If a source line produces exactly one ASM line,
+         * the label is just "N".
+         */
+        private void paintSourceRelative(Graphics g, FontMetrics fm,
+                                         Rectangle clip, int startLine, int lineCount) {
+            // Build a lookup: for each ASM output line, what is the
+            // source line (1-based) and sub-index (1-based)?
+            // We compute this by walking the sourceLineMap.
+            int asmLine = 0;
+            int srcLineForStart = 0; // 0-based source line at startLine
+            int subForStart = 0;     // 0-based sub-index at startLine
+
+            for (int s = 0; s < sourceLineMap.length; s++) {
+                int count = sourceLineMap[s];
+                if (asmLine + count > startLine) {
+                    srcLineForStart = s;
+                    subForStart = startLine - asmLine;
+                    break;
+                }
+                asmLine += count;
+                if (asmLine >= lineCount) {
+                    srcLineForStart = s;
+                    subForStart = 0;
+                    break;
+                }
+            }
+
+            int curSrc = srcLineForStart;
+            int curSub = subForStart;
+
+            for (int i = startLine; i < lineCount; i++) {
+                // Advance to next source line if sub-index exceeds count
+                while (curSrc < sourceLineMap.length &&
+                       curSub >= sourceLineMap[curSrc]) {
+                    curSrc++;
+                    curSub = 0;
+                }
+
+                try {
+                    int offset = textArea.getLineStartOffset(i);
+                    @SuppressWarnings("deprecation")
+                    java.awt.Rectangle r = textArea.modelToView(offset);
+                    if (r == null) { curSub++; continue; }
+
+                    // Past the visible clip — stop painting
+                    if (r.y > clip.y + clip.height) break;
+
+                    // Build the label
+                    String label;
+                    if (curSrc < sourceLineMap.length) {
+                        int srcNum = curSrc + 1; // 1-based
+                        if (sourceLineMap[curSrc] > 1) {
+                            label = srcNum + "-" + (curSub + 1);
+                        } else {
+                            label = String.valueOf(srcNum);
+                        }
+                    } else {
+                        // Past the end of the source — use sequential
+                        label = String.valueOf(i + 1);
+                    }
+
+                    int x = getWidth() - fm.stringWidth(label) - 5;
+                    int y = r.y + fm.getAscent();
+                    g.drawString(label, x, y);
+                } catch (BadLocationException e) {
+                    break;
+                }
+                curSub++;
+            }
+        }
+
+        /**
+         * Paints default sequential line numbers, skipping padding lines.
+         */
+        private void paintSequential(Graphics g, FontMetrics fm,
+                                     Rectangle clip, int startLine, int lineCount) {
             // Compute the real (non-padding) line number at startLine.
-            // Count how many padding lines are before startLine, then
-            // subtract from startLine for the real count.
             int padBefore = 0;
             for (int idx : paddingLines) {
                 if (idx < startLine) padBefore++;
