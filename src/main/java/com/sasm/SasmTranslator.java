@@ -2,10 +2,8 @@ package com.sasm;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -35,10 +33,15 @@ public class SasmTranslator {
     private final Map<String, String> aliasMap = new HashMap<>();
 
     /**
-     * Tracks variable names declared with {@code var} so that bare names
-     * in expression assignments are automatically wrapped in brackets.
+     * Tracks variable names declared with {@code var} and whether each is
+     * signed.  Bare names in expression assignments are automatically
+     * wrapped in brackets, and signedness is used to select the correct
+     * assembly instructions (e.g.&nbsp;{@code IDIV} vs {@code DIV},
+     * {@code SAR} vs {@code SHR}).
+     * <p>Key: variable name.  Value: {@code true} if the variable was
+     * declared with the {@code signed} modifier, {@code false} otherwise.</p>
      */
-    private final Set<String> declaredVars = new HashSet<>();
+    private final Map<String, Boolean> declaredVars = new HashMap<>();
 
     /** Pattern for {@code #REF <file> <alias>} import directives. */
     private static final Pattern REF_DIRECTIVE = Pattern.compile(
@@ -54,7 +57,7 @@ public class SasmTranslator {
 
     /** Common base for var declarations: {@code var <name> [as] <type> [signed|unsigned]}. */
     private static final String VAR_BASE =
-            "var\\s+(\\w+)\\s+(?:as\\s+)?(byte|word|dword|qword)(?:\\s+(?:signed|unsigned))?";
+            "var\\s+(\\w+)\\s+(?:as\\s+)?(byte|word|dword|qword)(?:\\s+(signed|unsigned))?";
 
     /** var with initialization: {@code var <name> [as] <type> [signed|unsigned] = <value>}. */
     private static final Pattern VAR_INIT = Pattern.compile(VAR_BASE + "\\s*=\\s*(.+)");
@@ -783,15 +786,17 @@ public class SasmTranslator {
         Matcher m = VAR_INIT.matcher(code);
         if (m.matches()) {
             String name = m.group(1);
-            declaredVars.add(name);
+            boolean signed = "signed".equals(m.group(3));
+            declaredVars.put(name, signed);
             String dir  = sizeDirective(m.group(2));
-            return name + ": " + dir + " " + m.group(3).trim();
+            return name + ": " + dir + " " + m.group(4).trim();
         }
         // var <name> [as] <type> [signed|unsigned]
         m = VAR_DECL.matcher(code);
         if (m.matches()) {
             String name = m.group(1);
-            declaredVars.add(name);
+            boolean signed = "signed".equals(m.group(3));
+            declaredVars.put(name, signed);
             String dir  = sizeDirective(m.group(2));
             return name + ": " + dir + " 0";
         }
@@ -862,10 +867,17 @@ public class SasmTranslator {
      * {@code ax = cx + bx} or {@code eax = ecx}.
      *
      * <p>Supported operators (binary, outside square brackets):
-     * {@code +}, {@code -}, {@code *}, {@code div}, {@code <<}, {@code >>},
+     * {@code +}, {@code -}, {@code *}, {@code div} (unsigned division),
+     * {@code sdiv} (signed division), {@code <<}, {@code >>},
      * {@code &&} (bitwise AND), {@code ||} (bitwise OR).
      * Multiple operators are supported and evaluated left-to-right
      * (e.g. {@code ax = bx + 3 + dx * 2}).</p>
+     *
+     * <p>When a variable declared as {@code signed} is used with
+     * {@code div}, signed division ({@code IDIV}) with sign-extension
+     * is emitted automatically.  The {@code >>} operator emits
+     * arithmetic shift ({@code SAR}) when the shifted operand is signed,
+     * and logical shift ({@code SHR}) otherwise.</p>
      *
      * <p>The unary {@code !} (bitwise NOT) is supported in the form
      * {@code dst = !src}.</p>
@@ -885,7 +897,7 @@ public class SasmTranslator {
 
         // Tokenize the RHS into operands and operators
         List<String> operands = new ArrayList<>();
-        List<Integer> operators = new ArrayList<>(); // '+', '-', '*', 'd' (div), 'L' (<<), 'R' (>>), 'A' (&& bitwise AND), 'O' (|| bitwise OR); unary '!' handled separately
+        List<Integer> operators = new ArrayList<>(); // '+', '-', '*', 'd' (div), 'S' (sdiv), 'L' (<<), 'R' (>>), 'A' (&& bitwise AND), 'O' (|| bitwise OR); unary '!' handled separately
         splitExprTokens(rhs, operands, operators);
 
         // Auto-wrap bare variable names in operands
@@ -935,25 +947,34 @@ public class SasmTranslator {
                 case 'L' -> sameAsDst
                         ? "    SHL " + dst + ", " + op2
                         : "    MOV " + dst + ", " + op1 + "\n    SHL " + dst + ", " + op2;
-                case 'R' -> sameAsDst
-                        ? "    SHR " + dst + ", " + op2
-                        : "    MOV " + dst + ", " + op1 + "\n    SHR " + dst + ", " + op2;
+                case 'R' -> {
+                    // Use SAR (arithmetic shift) when the shifted operand is signed
+                    String shr = isSignedVar(op1) ? "SAR" : "SHR";
+                    yield sameAsDst
+                        ? "    " + shr + " " + dst + ", " + op2
+                        : "    MOV " + dst + ", " + op1 + "\n    " + shr + " " + dst + ", " + op2;
+                }
                 case 'A' -> sameAsDst
                         ? "    AND " + dst + ", " + op2
                         : "    MOV " + dst + ", " + op1 + "\n    AND " + dst + ", " + op2;
                 case 'O' -> sameAsDst
                         ? "    OR " + dst + ", " + op2
                         : "    MOV " + dst + ", " + op1 + "\n    OR " + dst + ", " + op2;
-                case 'd' -> buildDiv(dst, op1, op2);
+                case 'd' -> buildDiv(dst, op1, op2,
+                        isSignedVar(op1) || isSignedVar(op2));
+                case 'S' -> buildDiv(dst, op1, op2, true);
                 default  -> null;
             };
         }
 
         // Multiple operators: emit left-to-right instruction sequence.
-        // Division is only supported as the sole operator; reject chained div.
+        // Division is only supported as the sole operator; reject chained div/sdiv.
         for (int opKind : operators) {
-            if (opKind == 'd') return null;
+            if (opKind == 'd' || opKind == 'S') return null;
         }
+
+        // Determine if the first operand is signed (affects shift-right)
+        boolean firstSigned = isSignedVar(operands.get(0));
 
         StringBuilder sb = new StringBuilder();
         String first = operands.get(0);
@@ -973,7 +994,8 @@ public class SasmTranslator {
                 case '-' -> sb.append("    SUB ").append(dst).append(", ").append(operand);
                 case '*' -> sb.append("    IMUL ").append(dst).append(", ").append(operand);
                 case 'L' -> sb.append("    SHL ").append(dst).append(", ").append(operand);
-                case 'R' -> sb.append("    SHR ").append(dst).append(", ").append(operand);
+                case 'R' -> sb.append(firstSigned ? "    SAR " : "    SHR ")
+                              .append(dst).append(", ").append(operand);
                 case 'A' -> sb.append("    AND ").append(dst).append(", ").append(operand);
                 case 'O' -> sb.append("    OR ").append(dst).append(", ").append(operand);
                 default  -> { /* skip */ }
@@ -984,19 +1006,26 @@ public class SasmTranslator {
     }
 
     /**
-     * Builds the NASM instruction sequence for an unsigned division
-     * expression {@code dst = op1 div op2}.
+     * Builds the NASM instruction sequence for a division expression
+     * {@code dst = op1 div op2} (unsigned) or {@code dst = op1 sdiv op2}
+     * (signed).
      *
-     * <p>x86 {@code DIV} always uses the accumulator pair (e.g. DX:AX)
-     * as the implicit dividend.  This helper emits:</p>
+     * <p>When {@code signed} is {@code false}, emits unsigned {@code DIV}
+     * with zero-extension ({@code XOR high, high}).  When {@code signed}
+     * is {@code true}, emits signed {@code IDIV} with sign-extension
+     * ({@code CBW}/{@code CWD}/{@code CDQ}/{@code CQO}).</p>
+     *
+     * <p>x86 {@code DIV}/{@code IDIV} always uses the accumulator pair
+     * (e.g. DX:AX) as the implicit dividend.  This helper emits:</p>
      * <ol>
      *   <li>{@code MOV quotient, op1} (if op1 ≠ quotient reg)</li>
-     *   <li>{@code XOR high, high} (zero-extend the dividend)</li>
-     *   <li>{@code DIV op2}</li>
+     *   <li>Zero- or sign-extend the dividend</li>
+     *   <li>{@code DIV op2} or {@code IDIV op2}</li>
      *   <li>{@code MOV dst, quotient} (if dst ≠ quotient reg)</li>
      * </ol>
      */
-    private static String buildDiv(String dst, String op1, String op2) {
+    private static String buildDiv(String dst, String op1, String op2,
+                                   boolean signed) {
         String[] pair = divRegisters(dst, op1);
         String quot = pair[0]; // AL / AX / EAX / RAX  (quotient register)
         String high = pair[1]; // AH / DX / EDX / RDX  (high register to clear)
@@ -1005,14 +1034,43 @@ public class SasmTranslator {
         if (!op1.equalsIgnoreCase(quot)) {
             sb.append("    MOV ").append(quot).append(", ").append(op1).append('\n');
         }
-        if (high != null) {
-            sb.append("    XOR ").append(high).append(", ").append(high).append('\n');
+        if (signed) {
+            // Sign-extend the dividend into the high register
+            String ext = signExtendInsn(high);
+            if (ext != null) {
+                sb.append("    ").append(ext).append('\n');
+            }
+        } else {
+            // Zero-extend (clear the high register)
+            if (high != null) {
+                sb.append("    XOR ").append(high).append(", ").append(high).append('\n');
+            }
         }
-        sb.append("    DIV ").append(op2);
+        sb.append(signed ? "    IDIV " : "    DIV ").append(op2);
         if (!dst.equalsIgnoreCase(quot)) {
             sb.append('\n').append("    MOV ").append(dst).append(", ").append(quot);
         }
         return sb.toString();
+    }
+
+    /**
+     * Returns the sign-extension mnemonic for the given high register.
+     * <ul>
+     *   <li>{@code AH} → {@code CBW} (sign-extend AL → AX)</li>
+     *   <li>{@code DX} → {@code CWD} (sign-extend AX → DX:AX)</li>
+     *   <li>{@code EDX} → {@code CDQ} (sign-extend EAX → EDX:EAX)</li>
+     *   <li>{@code RDX} → {@code CQO} (sign-extend RAX → RDX:RAX)</li>
+     * </ul>
+     */
+    private static String signExtendInsn(String highReg) {
+        if (highReg == null) return null;
+        return switch (highReg.toUpperCase()) {
+            case "AH"  -> "CBW";
+            case "DX"  -> "CWD";
+            case "EDX" -> "CDQ";
+            case "RDX" -> "CQO";
+            default    -> null;
+        };
     }
 
     /**
@@ -1057,7 +1115,8 @@ public class SasmTranslator {
      *
      * <p>Scans the string left to right at bracket depth&nbsp;0,
      * splitting on {@code +}, {@code -}, {@code *}, {@code <<},
-     * {@code >>}, {@code &&}, {@code ||}, and the keyword {@code div}.
+     * {@code >>}, {@code &&}, {@code ||}, and the keywords {@code div}
+     * and {@code sdiv}.
      * Operators inside square brackets or quotes are ignored.
      * A leading {@code -} (unary minus) is treated as part of the
      * first operand, not as a binary operator.</p>
@@ -1068,7 +1127,8 @@ public class SasmTranslator {
      *                  {@code '*'}, {@code 'L'} (for {@code <<}),
      *                  {@code 'R'} (for {@code >>}), {@code 'A'}
      *                  (for {@code &&}), {@code 'O'} (for {@code ||}),
-     *                  or {@code 'd'} (for {@code div})
+     *                  {@code 'd'} (for {@code div}), or
+     *                  {@code 'S'} (for {@code sdiv})
      */
     private static void splitExprTokens(String rhs,
                                          List<String> operands,
@@ -1117,6 +1177,24 @@ public class SasmTranslator {
                     continue;
                 }
             }
+            // 'sdiv' keyword with word boundaries (signed division)
+            if (c == 's' && i + 3 < rhs.length()
+                    && rhs.charAt(i + 1) == 'd' && rhs.charAt(i + 2) == 'i'
+                    && rhs.charAt(i + 3) == 'v'
+                    && i > 0) {
+                boolean wBefore = !isIdentChar(rhs.charAt(i - 1));
+                boolean wAfter  = i + 4 >= rhs.length()
+                        || !isIdentChar(rhs.charAt(i + 4));
+                if (wBefore && wAfter) {
+                    String before = rhs.substring(start, i).trim();
+                    if (!before.isEmpty()) {
+                        operands.add(before);
+                        operators.add((int) 'S');  // 'S' for signed div
+                        start = i + 4;
+                        continue;
+                    }
+                }
+            }
             // 'div' keyword with word boundaries
             if (c == 'd' && i + 2 < rhs.length()
                     && rhs.charAt(i + 1) == 'i' && rhs.charAt(i + 2) == 'v'
@@ -1152,8 +1230,23 @@ public class SasmTranslator {
     private String wrapIfVar(String operand) {
         if (operand.startsWith("[")) return operand;            // already bracketed
         if (regWidth(operand) != null) return operand;          // register name
-        if (declaredVars.contains(operand)) return "[" + operand + "]";
+        if (declaredVars.containsKey(operand)) return "[" + operand + "]";
         return operand;
+    }
+
+    /**
+     * Returns {@code true} if the given operand references a variable
+     * declared with the {@code signed} modifier.  Handles both bare
+     * names ({@code myVar}) and bracketed names ({@code [myVar]}).
+     */
+    private boolean isSignedVar(String operand) {
+        String inner = operand;
+        if (inner.startsWith("[") && inner.endsWith("]")) {
+            inner = inner.substring(1, inner.length() - 1).trim();
+        }
+        if (!inner.matches("\\w+")) return false;
+        Boolean signed = declaredVars.get(inner);
+        return signed != null && signed;
     }
 
     // ══════════════════════════════════════════════════════════════════════════

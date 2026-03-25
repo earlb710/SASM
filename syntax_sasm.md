@@ -714,15 +714,22 @@ var counter as word = 0            -- with "as"
 var counter word = 0               -- without "as"
 ```
 
-An optional `signed` or `unsigned` modifier may follow the type for documentation
-purposes. It does not change the emitted assembly directive (the same storage is
-used for signed and unsigned values in x86) but makes the programmer's intent
-explicit:
+An optional `signed` or `unsigned` modifier may follow the type.  The modifier
+does not change the emitted storage directive (the same binary representation is
+used for signed and unsigned values in x86), but it **does** influence the
+assembly instructions generated for certain expression operators:
+
+| Operator | Unsigned (default) | When operand is `signed` |
+|----------|--------------------|--------------------------|
+| `div`    | `DIV` (zero-extend with `XOR`) | `IDIV` (sign-extend with `CWD`/`CDQ`/`CQO`) |
+| `>>`     | `SHR` (logical, zero-fill) | `SAR` (arithmetic, sign-preserving) |
+| `sdiv`   | — | Always emits `IDIV` (explicit signed division) |
+| `*`, `+`, `-`, `<<`, `&&`, `||`, `!` | Unchanged | Unchanged (same binary result) |
 
 ```sasm
-var value1 as word signed = -10    -- DW -10
+var value1 as word signed = -10    -- DW -10; operations use signed variants
 var value1 word signed = -10       -- same result, without "as"
-var flags  word unsigned = 0xFF    -- DW 0xFF
+var flags  word unsigned = 0xFF    -- DW 0xFF; operations use unsigned variants
 ```
 
 **Supported types:**
@@ -1095,17 +1102,18 @@ either value may be negative.
 
 In addition to the English-phrase syntax above, SASM supports a compact
 **expression assignment** form using the operators `=`, `+`, `-`, `*`, `div`,
-`<<` (left shift), `>>` (right shift), `&&` (bitwise AND), `||` (bitwise OR),
-and `!` (bitwise NOT):
+`sdiv` (signed division), `<<` (left shift), `>>` (right shift),
+`&&` (bitwise AND), `||` (bitwise OR), and `!` (bitwise NOT):
 
 ```
 <dst> = <src>                -- simple assignment
 <dst> = <op1> + <op2>        -- addition
 <dst> = <op1> - <op2>        -- subtraction
 <dst> = <op1> * <op2>        -- multiplication (signed, IMUL)
-<dst> = <op1> div <op2>      -- unsigned division
+<dst> = <op1> div <op2>      -- division (auto: DIV or IDIV based on var signedness)
+<dst> = <op1> sdiv <op2>     -- explicit signed division (always IDIV)
 <dst> = <op1> << <op2>       -- logical left shift (SHL)
-<dst> = <op1> >> <op2>       -- logical right shift (SHR)
+<dst> = <op1> >> <op2>       -- right shift (auto: SHR or SAR based on var signedness)
 <dst> = <op1> && <op2>       -- bitwise AND
 <dst> = <op1> || <op2>       -- bitwise OR
 <dst> = !<src>               -- bitwise NOT (one's complement)
@@ -1127,15 +1135,19 @@ produces one assembly instruction:
 | `ax = ax + bx` | `ADD ax, bx` | Optimized to single instruction when `dst = op1` |
 | `ax = cx - bx` | `MOV ax, cx` / `SUB ax, bx` | Two instructions when `dst ≠ op1` |
 | `ax = cx * bx` | `MOV ax, cx` / `IMUL ax, bx` | Uses two-operand signed `IMUL` |
-| `ax = cx div bx` | `MOV AX, cx` / `XOR DX, DX` / `DIV bx` | Sets up accumulator pair, unsigned divide; quotient → AX |
-| `eax = ecx div ebx` | `MOV EAX, ecx` / `XOR EDX, EDX` / `DIV ebx` | 32-bit version |
-| `rax = rcx div rbx` | `MOV RAX, rcx` / `XOR RDX, RDX` / `DIV rbx` | 64-bit version |
+| `ax = cx div bx` | `MOV AX, cx` / `XOR DX, DX` / `DIV bx` | Unsigned divide; quotient → AX |
+| `ax = sVal div bx` | `MOV AX, [sVal]` / `CWD` / `IDIV bx` | `sVal` is `signed` → auto IDIV |
+| `ax = cx sdiv bx` | `MOV AX, cx` / `CWD` / `IDIV bx` | Explicit signed divide (always IDIV) |
+| `eax = ecx div ebx` | `MOV EAX, ecx` / `XOR EDX, EDX` / `DIV ebx` | 32-bit unsigned version |
+| `eax = sVal div ebx` | `MOV EAX, [sVal]` / `CDQ` / `IDIV ebx` | 32-bit signed version (sVal is signed) |
+| `rax = rcx div rbx` | `MOV RAX, rcx` / `XOR RDX, RDX` / `DIV rbx` | 64-bit unsigned version |
 | `ax = bx + 3 + dx` | `MOV ax, bx` / `ADD ax, 3` / `ADD ax, dx` | Chained addition with immediate constant |
 | `ax = bx + 3 + dx * 2` | `MOV ax, bx` / `ADD ax, 3` / `ADD ax, dx` / `IMUL ax, 2` | Mixed operators, left-to-right |
 | `ax = ax + 3 + bx` | `ADD ax, 3` / `ADD ax, bx` | First operand matches `dst` — `MOV` elided |
 | `ax = bx << 3` | `MOV ax, bx` / `SHL ax, 3` | Left shift by immediate |
 | `ax = ax << 2` | `SHL ax, 2` | Optimized when `dst = op1` |
-| `ax = cx >> 1` | `MOV ax, cx` / `SHR ax, 1` | Logical right shift |
+| `ax = cx >> 1` | `MOV ax, cx` / `SHR ax, 1` | Logical right shift (unsigned) |
+| `ax = sVal >> 2` | `MOV ax, [sVal]` / `SAR ax, 2` | Arithmetic right shift (`sVal` is signed) |
 | `eax = eax >> 8` | `SHR eax, 8` | Optimized when `dst = op1` |
 | `ax = bx << cl` | `MOV ax, bx` / `SHL ax, cl` | Shift count in `cl` register |
 | `rax = rbx << 3` | `MOV rax, rbx` / `SHL rax, 3` | 64-bit left shift |
@@ -1178,10 +1190,14 @@ treated as address arithmetic, not expression operators.
 
 **What happens to the bits shifted off?**  The last bit shifted out is placed
 into the **Carry Flag (CF)**.  For `<<` (SHL) the most-significant bit that
-"falls off" the left end goes to CF; for `>>` (SHR) the least-significant bit
-that "falls off" the right end goes to CF.  All other shifted-out bits are
+"falls off" the left end goes to CF; for `>>` (SHR/SAR) the least-significant
+bit that "falls off" the right end goes to CF.  All other shifted-out bits are
 discarded.  You can test CF afterward with `jump if carry` / `jump if no carry`
 or use it in a `rotate left carry` / `rotate right carry` instruction.
+
+When the operand being shifted with `>>` is a variable declared as `signed`,
+the translator emits **SAR** (arithmetic shift, preserving the sign bit)
+instead of **SHR** (logical shift, filling with zeros).
 
 ---
 

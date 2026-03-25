@@ -70,6 +70,19 @@ proc test_expressions {
     ax = value1 * 3                   -- ax = 10 * 3 = 30 (bare multiply)
     ax = !value1                      -- ax = ~10 (bare NOT)
 
+    -- signed-aware operations: div auto-selects IDIV when operand is signed
+    ax = signedVal div 5              -- signed dividend → CWD + IDIV
+    ax = value1 div 5                 -- unsigned dividend → XOR DX,DX + DIV
+    ax = 100 div signedVal            -- signed divisor → CWD + IDIV
+
+    -- explicit signed division with sdiv keyword
+    ax = unsgnVal sdiv 10             -- explicit sdiv → always CWD + IDIV
+
+    -- signed-aware right shift: SAR for signed vars, SHR for unsigned
+    ax = signedVal >> 2               -- signed → SAR ax, 2
+    ax = value1 >> 2                  -- unsigned → SHR ax, 2
+    ax = signedVal >> 2 + 1           -- chained: signed → SAR, then ADD
+
     return
 }
 
