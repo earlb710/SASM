@@ -493,12 +493,43 @@ public class SasmTranslator {
     }
 
     private static final Pattern COMPARE = Pattern.compile(
-            "compare\\s+(.+?)\\s+with\\s+(.+)", Pattern.CASE_INSENSITIVE);
+            "(?:compare|comp)\\s+(.+?)\\s+with\\s+(.+)", Pattern.CASE_INSENSITIVE);
+
+    /** Matches {@code op1 == op2} or {@code op1 != op2} (C-style comparison). */
+    private static final Pattern C_CMP = Pattern.compile(
+            "(.+?)\\s*(==|!=)\\s*(.+)");
 
     private String tryCompare(String code) {
         Matcher m = COMPARE.matcher(code);
         if (m.matches()) return "    CMP " + m.group(1) + ", " + m.group(2);
+        // Standalone == / != (not inside control structures with braces)
+        if (!code.contains("{") && !code.contains("}")) {
+            m = C_CMP.matcher(code);
+            if (m.matches()) return "    CMP " + m.group(1).trim() + ", " + m.group(3).trim();
+        }
         return null;
+    }
+
+    /**
+     * Tries to parse a parenthesised inline comparison from a condition
+     * string.  If the condition is {@code (op1 == op2)} or
+     * {@code (op1 != op2)}, returns a two-element array:
+     * <ol>
+     *   <li>the CMP instruction (e.g.&nbsp;{@code "    CMP cx, 10"})</li>
+     *   <li>the condition word ({@code "equal"} for {@code ==},
+     *       {@code "not equal"} for {@code !=})</li>
+     * </ol>
+     * Returns {@code null} if the condition does not match.
+     */
+    private String[] parseInlineCompare(String cond) {
+        if (!cond.startsWith("(") || !cond.endsWith(")")) return null;
+        String inner = cond.substring(1, cond.length() - 1).trim();
+        Matcher m = C_CMP.matcher(inner);
+        if (!m.matches()) return null;
+        String op1 = wrapIfVar(m.group(1).trim());
+        String op2 = wrapIfVar(m.group(3).trim());
+        String condWord = m.group(2).equals("==") ? "equal" : "not equal";
+        return new String[]{"    CMP " + op1 + ", " + op2, condWord};
     }
 
     private String tryExtend(String code) {
@@ -769,6 +800,12 @@ public class SasmTranslator {
         if (m.matches()) {
             String cond = m.group(1).trim();
             String lbl = ".L" + (labelSeq++);
+            // C-style inline comparison: if (op1 == op2) { or if (op1 != op2) {
+            String[] ic = parseInlineCompare(cond);
+            if (ic != null) {
+                String inv = conditionToJump(invertCondition(ic[1]));
+                return ic[0] + "\n    " + inv + " " + lbl + "   ; if " + cond;
+            }
             String inv = conditionToJump(invertCondition(cond));
             return "    " + inv + " " + lbl + "   ; if " + cond;
         }
@@ -778,6 +815,12 @@ public class SasmTranslator {
             if (m2.matches()) {
                 String cond = m2.group(1).trim();
                 String lbl = ".L" + (labelSeq++);
+                // C-style inline comparison: } else if (op1 != op2) {
+                String[] ic = parseInlineCompare(cond);
+                if (ic != null) {
+                    String inv = conditionToJump(invertCondition(ic[1]));
+                    return ic[0] + "\n    " + inv + " " + lbl + "   ; else if " + cond;
+                }
                 String inv = conditionToJump(invertCondition(cond));
                 return "    " + inv + " " + lbl + "   ; else if " + cond;
             }
@@ -820,6 +863,12 @@ public class SasmTranslator {
         m = Pattern.compile("\\}\\s+until\\s+(.+)").matcher(code);
         if (m.matches()) {
             String cond = m.group(1).trim();
+            // C-style inline comparison: } until (op1 == op2)
+            String[] ic = parseInlineCompare(cond);
+            if (ic != null) {
+                String jmp = conditionToJump(invertCondition(ic[1]));
+                return ic[0] + "\n    " + jmp + " .loop   ; until " + cond;
+            }
             String jmp = conditionToJump(invertCondition(cond));
             return "    " + jmp + " .loop   ; until " + cond;
         }
@@ -831,6 +880,11 @@ public class SasmTranslator {
         if (m.matches()) {
             String cond = m.group(1).trim();
             String lbl = ".while" + (labelSeq++);
+            // C-style inline comparison: while (op1 != op2) {
+            String[] ic = parseInlineCompare(cond);
+            if (ic != null) {
+                return ic[0] + "\n" + lbl + ":   ; while " + ic[1];
+            }
             return lbl + ":   ; while " + cond;
         }
         return null;

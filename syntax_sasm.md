@@ -179,6 +179,18 @@ if <condition> {
 
 `<condition>` is a condition word or phrase corresponding to the flag state (see [Control Transfer](#control-transfer)).
 
+**C-style inline comparison:** wrap the condition in parentheses with `==` or `!=` to emit a `CMP` automatically:
+
+```sasm
+if (ax == 0) {         -- emits CMP ax, 0 then JNE (skip if not equal)
+    move 1 to bx
+}
+
+if (cx != 5) {         -- emits CMP cx, 5 then JE (skip if equal)
+    move 2 to bx
+}
+```
+
 ### Count Loops
 
 ```sasm
@@ -259,6 +271,17 @@ while not equal {               -- loop while bx ≠ 10 (ZF = 0)
 Any condition word may be used: `while equal`, `while above`, `while less or equal`, etc.
 See the full list under [Condition Words](#condition-words).
 
+**C-style inline comparison:** wrap the condition in parentheses with `==` or `!=` to emit a `CMP` automatically:
+
+```sasm
+while (bx != 10) {             -- emits CMP bx, 10 then label
+    increment bx
+    bx != 10                   -- re-set flags for the while check
+}
+```
+
+The parenthesized form `while (op1 != op2)` emits the initial `CMP` and sets the condition to `not equal`.  You must still re-set flags at the end of the loop body (with `compare`, `comp`, `==`, or `!=`).
+
 ### Repeat-Until Loop
 
 ```sasm
@@ -268,6 +291,14 @@ repeat {
 ```
 
 Evaluates `<condition>` at the bottom; always executes the body at least once.
+
+**C-style inline comparison:**
+
+```sasm
+repeat {
+    increment bx
+} until (bx == 10)             -- emits CMP bx, 10 then JNE .loop
+```
 
 ### Atomic Block
 
@@ -1147,6 +1178,9 @@ reverse_bytes:
 | `signed divide by <src>` | `IDIV src` | Signed divide (same layout as `DIV`) |
 | `negate <dst>` | `NEG dst` | Two's complement: `dst = 0 - dst` |
 | `compare <op1> with <op2>` | `CMP op1, op2` | Set flags for `op1 - op2`; result discarded |
+| `comp <op1> with <op2>` | `CMP op1, op2` | Short form of `compare` |
+| `<op1> == <op2>` | `CMP op1, op2` | C-style comparison (sets flags) |
+| `<op1> != <op2>` | `CMP op1, op2` | C-style comparison (sets flags) |
 | `extend byte to word` | `CBW` | Sign-extend `al` → `ax` |
 | `extend word to double` | `CWD` | Sign-extend `ax` → `DX:AX` |
 | `extend double to quad` | `CDQE` | Sign-extend `eax` → `rax` (x86-64 only) |

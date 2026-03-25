@@ -9,6 +9,11 @@
 --   5. repeat cx times while not equal   — conditional count loop (LOOPNE)
 --   6. repeat { … } until <condition>    — bottom-tested loop
 --   7. while <condition> { … }           — top-tested loop
+--   8. repeat <var> times while equal    — variable conditional loop
+--   9. while (op1 != op2) { … }         — C-style while with inline compare
+--  10. if (op1 == op2) { … }            — C-style if with inline compare
+--  11. repeat { … } until (op1 == op2)  — C-style until with inline compare
+--  12. comp / == / !=                    — short comparison forms
 
 section .text
 global _start
@@ -171,6 +176,77 @@ proc scan_var_loope {
 }
 
 (* -----------------------------------------------------------------
+   9. while (op1 != op2) { … } — C-style while with inline compare
+   Same as sum_while but uses the C-style parenthesized syntax.
+   The compare instruction is emitted automatically.
+   ----------------------------------------------------------------- *)
+proc sum_while_cstyle {
+    move 0 to ax
+    move 0 to bx
+    while (bx != 10) {
+        move byte [buffer + bx] to dl
+        move zero dl to dx
+        add dx to ax
+        increment bx
+        bx != 10                       -- re-set flags for the while check
+    }
+    -- ax = sum of buffer[0..9]
+    return
+}
+
+(* -----------------------------------------------------------------
+   10. if (op1 == op2) { … } — C-style if with inline compare
+   Uses the C-style parenthesized condition.
+   ----------------------------------------------------------------- *)
+proc check_if_cstyle {
+    if (ax == 0) {
+        move 1 to bx
+    }
+    if (cx != 5) {
+        move 2 to bx
+    }
+    return
+}
+
+(* -----------------------------------------------------------------
+   11. repeat { … } until (op1 == op2) — C-style until
+   Same as fill_repeat_until but uses the C-style parenthesized
+   condition for the until clause.
+   ----------------------------------------------------------------- *)
+proc fill_repeat_until_cstyle {
+    move 0 to bx
+    move 0 to al
+    repeat {
+        move al to byte [buffer + bx]
+        increment bx
+        increment al
+    } until (bx == 10)
+    return
+}
+
+(* -----------------------------------------------------------------
+   12. comp / == / != — short comparison forms
+   'comp' is a short alias for 'compare'.
+   '==' and '!=' are C-style standalone comparisons.
+   All three just emit CMP to set flags.
+   ----------------------------------------------------------------- *)
+proc test_short_compare {
+    comp bx with 10                -- same as: compare bx with 10
+    if equal {
+        move 1 to ax
+    }
+    cx == 5                        -- standalone ==, sets flags
+    if equal {
+        move 2 to ax
+    }
+    dx != 0                        -- standalone !=, sets flags
+    if not equal {
+        move 3 to ax
+    }
+    return
+}
+
+(* -----------------------------------------------------------------
    _start — exercise each loop type in sequence
    ----------------------------------------------------------------- *)
 _start:
@@ -182,6 +258,10 @@ _start:
     call fill_repeat_until         -- 6. repeat { } until
     call sum_while                 -- 7. while { }
     call scan_var_loope            -- 8. repeat <var> times while equal
+    call sum_while_cstyle          -- 9. while (op != op) { }
+    call check_if_cstyle           -- 10. if (op == op) { }
+    call fill_repeat_until_cstyle  -- 11. } until (op == op)
+    call test_short_compare        -- 12. comp / == / !=
 
     -- Exit (Linux syscall: sys_exit)
     move al to bl
