@@ -1174,6 +1174,31 @@ produces one assembly instruction:
 | `ax = myVar + 5` | `MOV ax, [myVar]` / `ADD ax, 5` | Bare variable name (auto-wrapped) |
 | `result = ax` | `MOV [result], ax` | Bare variable destination (auto-wrapped) |
 
+#### Inline `++`/`--` in Expressions
+
+Operands in an expression can carry a `++` or `--` (pre- or post-) modifier
+to combine an increment/decrement with the expression on a single line.
+Pre-increment (`++op`) emits `INC` **before** the expression;
+post-increment (`op++`) emits `INC` **after** the expression:
+
+```sasm
+cx = ax * bx++          -- IMUL first, then INC bx (post-increment)
+cx = ax * ++bx          -- INC bx first, then IMUL (pre-increment)
+cx = ax + bx--          -- ADD first, then DEC bx
+cx = ax + --bx          -- DEC bx first, then ADD
+cx = bx++               -- MOV cx, bx; INC bx (copy, then increment)
+cx = ++bx               -- INC bx; MOV cx, bx (increment, then copy)
+```
+
+| SASM Expression | ASM Equivalent | Notes |
+|-----------------|----------------|-------|
+| `cx = ax * bx++` | `MOV cx, ax` / `IMUL cx, bx` / `INC bx` | Post-increment: INC after expression |
+| `cx = ax * ++bx` | `INC bx` / `MOV cx, ax` / `IMUL cx, bx` | Pre-increment: INC before expression |
+| `cx = ax + bx--` | `MOV cx, ax` / `ADD cx, bx` / `DEC bx` | Post-decrement: DEC after expression |
+| `cx = ax + --bx` | `DEC bx` / `MOV cx, ax` / `ADD cx, bx` | Pre-decrement: DEC before expression |
+| `ax = counter++ + 5` | `MOV ax, [counter]` / `ADD ax, 5` / `INC [counter]` | Variable with post-increment |
+| `ax = ++counter + 5` | `INC [counter]` / `MOV ax, [counter]` / `ADD ax, 5` | Variable with pre-increment |
+
 Operands may be registers, immediates, or memory references (variables).
 When a variable defined with `var` is used in an expression, you can wrap it in
 square brackets (e.g. `[myVar]`) to access its value, or use the bare variable

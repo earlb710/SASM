@@ -432,6 +432,10 @@ public class SasmTranslator {
     }
 
     private String tryIncDec(String code) {
+        // Expression assignments (contain '=') are handled by tryExpression,
+        // which supports inline ++/-- on operands.
+        if (code.indexOf('=') >= 0) return null;
+
         String operand = null;
         String insn = null;
 
@@ -978,6 +982,32 @@ public class SasmTranslator {
         List<Integer> operators = new ArrayList<>(); // '+', '-', '*', 'd' (div), 'S' (sdiv), 'L' (<<), 'R' (>>), 'A' (&& bitwise AND), 'O' (|| bitwise OR); unary '!' handled separately
         splitExprTokens(rhs, operands, operators);
 
+        // ── Detect inline ++/-- on operands (pre/post-increment/decrement) ──
+        // Pre-increments (++op) emit INC *before* the expression;
+        // post-increments (op++) emit INC *after* the expression.
+        List<String> preInsns  = new ArrayList<>();
+        List<String> postInsns = new ArrayList<>();
+        for (int i = 0; i < operands.size(); i++) {
+            String op = operands.get(i);
+            if (op.startsWith("++")) {
+                String bare = op.substring(2).trim();
+                operands.set(i, bare);
+                preInsns.add("    INC " + wrapIfVar(bare));
+            } else if (op.startsWith("--")) {
+                String bare = op.substring(2).trim();
+                operands.set(i, bare);
+                preInsns.add("    DEC " + wrapIfVar(bare));
+            } else if (op.endsWith("++")) {
+                String bare = op.substring(0, op.length() - 2).trim();
+                operands.set(i, bare);
+                postInsns.add("    INC " + wrapIfVar(bare));
+            } else if (op.endsWith("--")) {
+                String bare = op.substring(0, op.length() - 2).trim();
+                operands.set(i, bare);
+                postInsns.add("    DEC " + wrapIfVar(bare));
+            }
+        }
+
         // Auto-wrap bare variable names in operands
         for (int i = 0; i < operands.size(); i++) {
             operands.set(i, wrapIfVar(operands.get(i)));
@@ -985,6 +1015,31 @@ public class SasmTranslator {
 
         if (operands.isEmpty()) return null;
 
+        // Build the core expression ASM
+        String core = buildExpressionCore(dst, rhs, operands, operators);
+        if (core == null) return null;
+
+        // Sandwich the core between pre- and post-increment/decrement
+        if (preInsns.isEmpty() && postInsns.isEmpty()) return core;
+
+        StringBuilder result = new StringBuilder();
+        for (String pre : preInsns) {
+            result.append(pre).append('\n');
+        }
+        result.append(core);
+        for (String post : postInsns) {
+            result.append('\n').append(post);
+        }
+        return result.toString();
+    }
+
+    /**
+     * Builds the core NASM instructions for an expression assignment
+     * (without any surrounding pre/post-increment/decrement lines).
+     */
+    private String buildExpressionCore(String dst, String rhs,
+                                       List<String> operands,
+                                       List<Integer> operators) {
         // Single operand: simple assignment or unary NOT
         if (operators.isEmpty()) {
             String sole = operands.get(0);
@@ -1026,7 +1081,6 @@ public class SasmTranslator {
                         ? "    SHL " + dst + ", " + op2
                         : "    MOV " + dst + ", " + op1 + "\n    SHL " + dst + ", " + op2;
                 case 'R' -> {
-                    // Use SAR (arithmetic shift) when the shifted operand is signed
                     String shr = isSignedVar(op1) ? "SAR" : "SHR";
                     yield sameAsDst
                         ? "    " + shr + " " + dst + ", " + op2
@@ -1046,12 +1100,10 @@ public class SasmTranslator {
         }
 
         // Multiple operators: emit left-to-right instruction sequence.
-        // Division is only supported as the sole operator; reject chained div/sdiv.
         for (int opKind : operators) {
             if (opKind == 'd' || opKind == 'S') return null;
         }
 
-        // Determine if the first operand is signed (affects shift-right)
         boolean firstSigned = isSignedVar(operands.get(0));
 
         StringBuilder sb = new StringBuilder();
@@ -1242,6 +1294,13 @@ public class SasmTranslator {
                     i++;  // skip second char of the operator
                     continue;
                 }
+            }
+            // Skip ++ and -- pairs: they are inline increment/decrement
+            // operators (part of an operand), not binary +/- operators.
+            if ((c == '+' || c == '-') && i + 1 < rhs.length()
+                    && rhs.charAt(i + 1) == c) {
+                i++;  // skip both characters of the pair
+                continue;
             }
             // Single-character operators
             // i > 0 allows a leading '-' (unary minus) to be treated as part
@@ -1460,7 +1519,13 @@ public class SasmTranslator {
                         // decrements like "ax--" are not mistaken for
                         // inline comments.  Position 0 is handled by the
                         // line-comment check in translateLine().
-                        && i > 0 && Character.isWhitespace(line.charAt(i - 1))) {
+                        && i > 0 && Character.isWhitespace(line.charAt(i - 1))
+                        // Require that "--" is NOT immediately followed by a
+                        // letter or '[', which would indicate a prefix
+                        // decrement (e.g. "ax + --bx").
+                        && (i + 2 >= line.length()
+                            || (!Character.isLetter(line.charAt(i + 2))
+                                && line.charAt(i + 2) != '['))) {
                     return i;
                 }
             }
