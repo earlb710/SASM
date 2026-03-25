@@ -743,9 +743,14 @@ public class SasmIdePanel extends JPanel {
 
         String paddedText = padded.toString();
 
-        // Only update the editor if padding has actually changed
-        if (newPadding.equals(paddingLines) && paddedText.equals(editor.getText())) {
-            return;
+        // Only update the editor if padding has actually changed.
+        // Fast-path: compare padding sets first (cheap), then text lengths,
+        // then full text equality only when needed.
+        if (newPadding.equals(paddingLines)) {
+            String curText = editor.getText();
+            if (paddedText.length() == curText.length() && paddedText.equals(curText)) {
+                return;
+            }
         }
 
         // Preserve caret position (mapped from pure-source offset to padded offset)
@@ -940,11 +945,14 @@ public class SasmIdePanel extends JPanel {
                             new Point(0, clip.y)));
             if (startLine < 0) startLine = 0;
 
-            // Compute the real (non-padding) line number at startLine
-            int realNum = 0;
-            for (int j = 0; j < startLine; j++) {
-                if (!paddingLines.contains(j)) realNum++;
+            // Compute the real (non-padding) line number at startLine.
+            // Count how many padding lines are before startLine, then
+            // subtract from startLine for the real count.
+            int padBefore = 0;
+            for (int idx : paddingLines) {
+                if (idx < startLine) padBefore++;
             }
+            int realNum = startLine - padBefore;
 
             for (int i = startLine; i < lineCount; i++) {
                 boolean isPadding = paddingLines.contains(i);
