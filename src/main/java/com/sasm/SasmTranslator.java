@@ -65,9 +65,29 @@ public class SasmTranslator {
     /** var without initialization: {@code var <name> [as] <type>[count] [signed|unsigned]}. */
     private static final Pattern VAR_DECL = Pattern.compile(VAR_BASE);
 
+    /**
+     * After each {@link #translate} call, holds the number of ASM output
+     * lines produced by each source line.  For example, if source line 3
+     * translates to a 4-line ASM sequence, {@code lastLineMap[3] == 4}.
+     * Single-line translations yield {@code 1}.
+     */
+    private int[] lastLineMap = new int[0];
+
+    /**
+     * Returns the line map computed by the most recent {@link #translate}
+     * call.  Each element {@code [i]} is the number of ASM output lines
+     * produced by source line {@code i}.
+     */
+    public int[] getLastLineMap() {
+        return lastLineMap;
+    }
+
     /** Translates a complete SASM source text into NASM assembly. */
     public String translate(String sasmSource) {
-        if (sasmSource == null || sasmSource.isEmpty()) return "";
+        if (sasmSource == null || sasmSource.isEmpty()) {
+            lastLineMap = new int[0];
+            return "";
+        }
         labelSeq = 0;
         aliasMap.clear();
         declaredVars.clear();
@@ -82,12 +102,25 @@ public class SasmTranslator {
         }
 
         // ── second pass: translate each line ─────────────────────────────────
+        lastLineMap = new int[lines.length];
         StringBuilder out = new StringBuilder(sasmSource.length());
         for (int i = 0; i < lines.length; i++) {
             if (i > 0) out.append('\n');
-            out.append(translateLine(lines[i]));
+            String translated = translateLine(lines[i]);
+            out.append(translated);
+            // Count how many output lines this source line produced
+            lastLineMap[i] = countNewlines(translated) + 1;
         }
         return out.toString();
+    }
+
+    /** Counts the number of newline characters in a string. */
+    private static int countNewlines(String s) {
+        int count = 0;
+        for (int i = 0; i < s.length(); i++) {
+            if (s.charAt(i) == '\n') count++;
+        }
+        return count;
     }
 
     // ── single-line translation ──────────────────────────────────────────────

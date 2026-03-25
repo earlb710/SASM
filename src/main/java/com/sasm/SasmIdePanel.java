@@ -8,6 +8,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 import javax.swing.*;
 import javax.swing.event.*;
 import javax.swing.text.BadLocationException;
@@ -72,6 +75,21 @@ public class SasmIdePanel extends JPanel {
 
     /** Cached translation so we skip asmOutput.setText() when the result is unchanged. */
     private String lastAsmText = "";
+
+    /**
+     * Set of 0-based line indices in the editor that are padding blanks
+     * inserted for ASM alignment.  These lines are not part of the real
+     * source — the {@link LineNumberComponent} skips drawing a number for
+     * them, and they are stripped before saving or translating.
+     */
+    private Set<Integer> paddingLines = Collections.emptySet();
+
+    /**
+     * Guard flag that suppresses the {@link DocumentListener} during
+     * programmatic padding insertion/removal so it does not trigger a
+     * redundant re-translation cycle.
+     */
+    private boolean updatingPadding = false;
 
     /**
      * Debounce timer for SASM→NASM translation.  Instead of translating on
@@ -233,8 +251,9 @@ public class SasmIdePanel extends JPanel {
     public void saveCurrentFile() {
         if (!dirty || currentFile == null) return;
         try {
+            // Strip padding lines so only real source is persisted
             Files.writeString(currentFile.toPath(),
-                              editor.getText(), StandardCharsets.UTF_8);
+                              getSourceText(), StandardCharsets.UTF_8);
             dirty = false;
         } catch (IOException ignored) {
             // Non-fatal — content remains in the editor.
@@ -581,6 +600,8 @@ public class SasmIdePanel extends JPanel {
             @Override public void removeUpdate(DocumentEvent e)  { onTextChange(); }
             @Override public void changedUpdate(DocumentEvent e)  { onTextChange(); }
             private void onTextChange() {
+                // Skip when we are inserting/removing padding lines
+                if (updatingPadding) return;
                 dirty = true;
                 // Only start translation timer when the asm pane is visible
                 if (asmVisible) {
@@ -631,21 +652,15 @@ public class SasmIdePanel extends JPanel {
         } else {
             // Stop any pending translation
             translateTimer.stop();
-            // Remove the extra bottom padding that was added for line
-            // alignment — it is only needed while the ASM pane is visible.
-            Insets cur = editor.getMargin();
-            if (cur != null && cur.bottom != 0) {
-                editor.setMargin(new Insets(cur.top, cur.left, 0, cur.right));
-                editor.revalidate();
-                editorLineNumbers.revalidate();
-                editorLineNumbers.repaint();
-            }
+            // Remove any padding lines from the editor
+            removePaddingLines();
         }
     }
 
     /** Translates the current editor content and updates the assembler pane. */
     private void updateAsmOutput() {
-        String source = editor.getText();
+        // Strip padding before translating so the translator sees pure source
+        String source = getSourceText();
         try {
             String asm = translator.translate(source);
             // Skip the expensive setText + repaint cycle when the
@@ -659,9 +674,9 @@ public class SasmIdePanel extends JPanel {
             asmOutput.setText(asm);
             asmOutput.setCaretPosition(0);
             syncingScroll = false;
-            // Pad the editor with extra bottom space when the ASM output
-            // has more lines, so the scrollbar range covers all ASM content.
-            padEditorToMatchAsm();
+            // Insert per-line padding into the editor so that each source
+            // line occupies the same number of rows as its ASM translation.
+            applyPerLinePadding(translator.getLastLineMap());
             // After text change, synchronise asm scroll to editor position
             asmScroll.getViewport().setViewPosition(
                     new Point(0, editorScroll.getVerticalScrollBar().getValue()));
@@ -677,31 +692,146 @@ public class SasmIdePanel extends JPanel {
     }
 
     /**
-     * When the ASM output has more lines than the SASM source, adds bottom
-     * margin to the editor so the scrollbar range is large enough to allow
-     * the user to scroll through all ASM content.  Removes the padding when
-     * line counts are equal or when the ASM pane is hidden.
+     * Returns the editor text with all padding lines stripped out,
+     * yielding the pure SASM source.
      */
-    private void padEditorToMatchAsm() {
-        int editorLines = editor.getLineCount();
-        int asmLines    = asmOutput.getLineCount();
-        int extraLines  = asmLines - editorLines;
-
-        FontMetrics fm = editor.getFontMetrics(editor.getFont());
-        int extraPad = extraLines > 0 ? extraLines * fm.getHeight() : 0;
-
-        Insets cur = editor.getMargin();
-        int top    = cur != null ? cur.top    : 0;
-        int left   = cur != null ? cur.left   : 0;
-        int bottom = cur != null ? cur.bottom : 0;
-        int right  = cur != null ? cur.right  : 0;
-        if (bottom != extraPad) {
-            editor.setMargin(new Insets(top, left, extraPad, right));
-            // Revalidate so the scroll pane recalculates its extent
-            editor.revalidate();
-            editorLineNumbers.revalidate();
-            editorLineNumbers.repaint();
+    String getSourceText() {
+        String text = editor.getText();
+        if (paddingLines.isEmpty()) return text;
+        String[] lines = text.split("\n", -1);
+        StringBuilder sb = new StringBuilder(text.length());
+        boolean first = true;
+        for (int i = 0; i < lines.length; i++) {
+            if (paddingLines.contains(i)) continue;
+            if (!first) sb.append('\n');
+            sb.append(lines[i]);
+            first = false;
         }
+        return sb.toString();
+    }
+
+    /**
+     * Inserts blank padding lines into the editor text so that each
+     * source line visually occupies the same number of rows as its
+     * corresponding ASM translation.  Updates the line-number gutter
+     * to skip painting numbers for padding rows.
+     *
+     * @param lineMap per-source-line ASM output line counts from the translator
+     */
+    private void applyPerLinePadding(int[] lineMap) {
+        // First strip any existing padding
+        String source = getSourceText();
+        String[] srcLines = source.split("\n", -1);
+
+        // Build the padded text and record which lines are padding
+        Set<Integer> newPadding = new HashSet<>();
+        StringBuilder padded = new StringBuilder(source.length() * 2);
+        int outIdx = 0;
+        for (int i = 0; i < srcLines.length; i++) {
+            if (outIdx > 0) padded.append('\n');
+            padded.append(srcLines[i]);
+            outIdx++;
+
+            // How many extra blank lines are needed for this source line?
+            int asmCount = (lineMap != null && i < lineMap.length) ? lineMap[i] : 1;
+            for (int p = 1; p < asmCount; p++) {
+                padded.append('\n');
+                newPadding.add(outIdx);
+                outIdx++;
+            }
+        }
+
+        String paddedText = padded.toString();
+
+        // Only update the editor if padding has actually changed
+        if (newPadding.equals(paddingLines) && paddedText.equals(editor.getText())) {
+            return;
+        }
+
+        // Preserve caret position (mapped from pure-source offset to padded offset)
+        int caretPos = editor.getCaretPosition();
+        // Convert caret to source-relative position (strip padding offsets)
+        int srcCaret = caretToSourceOffset(caretPos);
+
+        paddingLines = newPadding;
+        editorLineNumbers.setPaddingLines(paddingLines);
+
+        // Insert the padded text, suppressing the document listener
+        updatingPadding = true;
+        editor.setText(paddedText);
+        // Restore caret: map source offset back to padded offset
+        int newCaret = sourceOffsetToPadded(srcCaret, srcLines, lineMap);
+        if (newCaret >= 0 && newCaret <= paddedText.length()) {
+            editor.setCaretPosition(newCaret);
+        }
+        updatingPadding = false;
+
+        editorLineNumbers.revalidate();
+        editorLineNumbers.repaint();
+    }
+
+    /**
+     * Converts a caret position in the (possibly padded) editor text to the
+     * corresponding offset in the pure source text (with padding stripped).
+     */
+    private int caretToSourceOffset(int caretPos) {
+        String text = editor.getText();
+        int srcOffset = 0;
+        int lineIdx = 0;
+        for (int i = 0; i < Math.min(caretPos, text.length()); i++) {
+            if (!paddingLines.contains(lineIdx)) {
+                srcOffset++;
+            }
+            if (text.charAt(i) == '\n') {
+                lineIdx++;
+            }
+        }
+        return srcOffset;
+    }
+
+    /**
+     * Converts a source offset (in unpadded text) to a caret position in
+     * the padded editor text.
+     */
+    private int sourceOffsetToPadded(int srcOffset, String[] srcLines, int[] lineMap) {
+        // Walk through the padded text structure
+        int paddedPos = 0;
+        int srcPos = 0;
+        for (int i = 0; i < srcLines.length; i++) {
+            // This source line occupies srcLines[i].length() chars
+            int lineLen = srcLines[i].length();
+            if (srcPos + lineLen >= srcOffset) {
+                // Caret is within this source line
+                return paddedPos + (srcOffset - srcPos);
+            }
+            srcPos += lineLen + 1; // +1 for the newline
+            paddedPos += lineLen + 1;
+            // Skip over padding lines
+            int asmCount = (lineMap != null && i < lineMap.length) ? lineMap[i] : 1;
+            for (int p = 1; p < asmCount; p++) {
+                paddedPos += 1; // each padding line is just a newline
+            }
+        }
+        return paddedPos;
+    }
+
+    /**
+     * Removes all padding lines from the editor, restoring pure source text.
+     */
+    private void removePaddingLines() {
+        if (paddingLines.isEmpty()) return;
+        String source = getSourceText();
+        paddingLines = Collections.emptySet();
+        editorLineNumbers.setPaddingLines(paddingLines);
+        updatingPadding = true;
+        int caret = editor.getCaretPosition();
+        editor.setText(source);
+        if (caret <= source.length()) {
+            editor.setCaretPosition(caret);
+        }
+        updatingPadding = false;
+        editorLineNumbers.revalidate();
+        editorLineNumbers.repaint();
     }
 
     // ── file I/O ──────────────────────────────────────────────────────────────
@@ -714,6 +844,9 @@ public class SasmIdePanel extends JPanel {
             // DocumentListener restart doesn't trigger a redundant second
             // updateAsmOutput() after we call it directly below.
             translateTimer.stop();
+            // Clear padding state before loading new content
+            paddingLines = Collections.emptySet();
+            editorLineNumbers.setPaddingLines(paddingLines);
             editor.setText(content);
             editor.setCaretPosition(0);
             currentFile = f;
@@ -741,10 +874,22 @@ public class SasmIdePanel extends JPanel {
      * A component that paints right-aligned line numbers, designed to be used
      * as the {@link JScrollPane#setRowHeaderView row header} of a
      * {@link JScrollPane} wrapping a {@link JTextArea}.
+     *
+     * <p>An optional set of <em>padding line</em> indices can be supplied via
+     * {@link #setPaddingLines(Set)}.  Padding lines are blank lines inserted
+     * for visual alignment with a companion pane; the gutter draws no number
+     * for them, and they are excluded from the sequential line count so that
+     * real source lines keep a contiguous numbering.</p>
      */
     private static class LineNumberComponent extends JPanel {
 
         private final JTextArea textArea;
+
+        /**
+         * 0-based line indices that are padding blanks — no line number is
+         * drawn for them, and they do not increment the display counter.
+         */
+        private Set<Integer> paddingLines = Collections.emptySet();
 
         LineNumberComponent(JTextArea textArea) {
             this.textArea = textArea;
@@ -753,11 +898,17 @@ public class SasmIdePanel extends JPanel {
             setForeground(new Color(0x85, 0x85, 0x85));
         }
 
+        /** Updates the set of padding-line indices.  Thread-safe for EDT. */
+        void setPaddingLines(Set<Integer> padding) {
+            this.paddingLines = padding != null ? padding : Collections.emptySet();
+        }
+
         /** Width adapts to the number of digits required. */
         @Override
         public Dimension getPreferredSize() {
             int lines  = textArea.getLineCount();
-            int digits = Math.max(String.valueOf(lines).length(), 3);
+            int realLines = lines - paddingLines.size();
+            int digits = Math.max(String.valueOf(Math.max(realLines, 1)).length(), 3);
             FontMetrics fm = getFontMetrics(getFont());
             int width = fm.charWidth('0') * digits + 12;
             // Compute height from font metrics and line count instead of
@@ -789,7 +940,16 @@ public class SasmIdePanel extends JPanel {
                             new Point(0, clip.y)));
             if (startLine < 0) startLine = 0;
 
+            // Compute the real (non-padding) line number at startLine
+            int realNum = 0;
+            for (int j = 0; j < startLine; j++) {
+                if (!paddingLines.contains(j)) realNum++;
+            }
+
             for (int i = startLine; i < lineCount; i++) {
+                boolean isPadding = paddingLines.contains(i);
+                if (!isPadding) realNum++;
+
                 try {
                     int offset = textArea.getLineStartOffset(i);
                     @SuppressWarnings("deprecation")
@@ -799,10 +959,13 @@ public class SasmIdePanel extends JPanel {
                     // Past the visible clip — stop painting
                     if (r.y > clip.y + clip.height) break;
 
-                    String num = String.valueOf(i + 1);
-                    int x = getWidth() - fm.stringWidth(num) - 5;
-                    int y = r.y + fm.getAscent();
-                    g.drawString(num, x, y);
+                    // Only draw line numbers for real source lines
+                    if (!isPadding) {
+                        String num = String.valueOf(realNum);
+                        int x = getWidth() - fm.stringWidth(num) - 5;
+                        int y = r.y + fm.getAscent();
+                        g.drawString(num, x, y);
+                    }
                 } catch (BadLocationException e) {
                     break;
                 }
