@@ -145,12 +145,7 @@ public class SasmTranslator {
         }
 
         // ── comments (no alias resolution inside pure comments) ──────────────
-        // "-- text" is a line comment, but "--ax" / "--[var]" is a prefix
-        // decrement (the operand starts immediately after the dashes).
-        if (trimmed.startsWith("--")
-                && (trimmed.length() <= 2
-                    || (!Character.isLetter(trimmed.charAt(2))
-                        && trimmed.charAt(2) != '['))) {              // line comment
+        if (trimmed.startsWith("//")) {                               // line comment
             return leading + "; " + trimmed.substring(2).stripLeading();
         }
         if (trimmed.startsWith("(*")) return toAsmComment(trimmed); // block comment open
@@ -160,7 +155,7 @@ public class SasmTranslator {
         line = resolveAliasRefs(line);
         trimmed = line.trim();
 
-        // Split off any trailing inline comment (-- in SASM → ; in NASM)
+        // Split off any trailing inline comment (// in SASM → ; in NASM)
         String code = trimmed;
         String comment = "";
         int commentIdx = indexOfComment(trimmed);
@@ -1588,7 +1583,7 @@ public class SasmTranslator {
     }
 
     /**
-     * Returns the index of the first {@code --} sequence that starts a comment
+     * Returns the index of the first {@code //} sequence that starts a comment
      * (not inside square brackets or quotes), or -1 if none.
      */
     private static int indexOfComment(String line) {
@@ -1600,19 +1595,8 @@ public class SasmTranslator {
             if (!inQuote) {
                 if (c == '[') depth++;
                 else if (c == ']') depth--;
-                else if (c == '-' && depth == 0
-                        && i + 1 < line.length() && line.charAt(i + 1) == '-'
-                        // Require whitespace before "--" so that postfix
-                        // decrements like "ax--" are not mistaken for
-                        // inline comments.  Position 0 is handled by the
-                        // line-comment check in translateLine().
-                        && i > 0 && Character.isWhitespace(line.charAt(i - 1))
-                        // Require that "--" is NOT immediately followed by a
-                        // letter or '[', which would indicate a prefix
-                        // decrement (e.g. "ax + --bx").
-                        && (i + 2 >= line.length()
-                            || (!Character.isLetter(line.charAt(i + 2))
-                                && line.charAt(i + 2) != '['))) {
+                else if (c == '/' && depth == 0
+                        && i + 1 < line.length() && line.charAt(i + 1) == '/') {
                     return i;
                 }
             }

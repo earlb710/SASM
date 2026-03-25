@@ -431,16 +431,16 @@ public class SasmIdePanel extends JPanel {
         File newFile = new File(targetDir, fileName);
         if (!newFile.exists()) {
             String starter =
-                    "-- " + fileName + "\n"
-                    + "-- Project : " + nvl(project.name)      + "\n"
-                    + "-- OS      : " + nvl(project.os)        + "\n"
-                    + "-- CPU     : " + nvl(project.processor) + "\n"
+                    "// " + fileName + "\n"
+                    + "// Project : " + nvl(project.name)      + "\n"
+                    + "// OS      : " + nvl(project.os)        + "\n"
+                    + "// CPU     : " + nvl(project.processor) + "\n"
                     + "\n"
                     + "section .text\n"
                     + "global _start\n"
                     + "\n"
                     + "_start:\n"
-                    + "    -- TODO\n";
+                    + "    // TODO\n";
             Files.writeString(newFile.toPath(), starter, StandardCharsets.UTF_8);
         }
 
@@ -473,8 +473,8 @@ public class SasmIdePanel extends JPanel {
                         && !f.equals(originDir));
         if (siblings == null) return;
 
-        String stub = "-- " + fileName + "  (placeholder)\n"
-                + "-- Auto-generated stub — implement the variant-specific version here.\n";
+        String stub = "// " + fileName + "  (placeholder)\n"
+                + "// Auto-generated stub — implement the variant-specific version here.\n";
         for (File sibling : siblings) {
             File target = new File(sibling, fileName);
             if (!target.exists()) {
@@ -1078,7 +1078,7 @@ public class SasmIdePanel extends JPanel {
                 lastAsmText = "";   // force refresh when pane is toggled on
             }
         } catch (IOException ex) {
-            editor.setText("-- Could not open '" + f.getName() + "':\n-- " + ex.getMessage());
+            editor.setText("// Could not open '" + f.getName() + "':\n// " + ex.getMessage());
             currentFile = null;
             dirty = false;
             asmOutput.setText("");

@@ -1,6 +1,6 @@
--- Example 05 — Atomic Increment
--- Safely increment a shared 16-bit counter in memory at [bx].
--- The LOCK prefix ensures atomicity on multi-processor systems.
+// Example 05 — Atomic Increment
+// Safely increment a shared 16-bit counter in memory at [bx].
+// The LOCK prefix ensures atomicity on multi-processor systems.
 
 proc atomic_inc {
     atomic {
