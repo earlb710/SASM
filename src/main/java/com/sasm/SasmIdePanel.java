@@ -16,6 +16,7 @@ import javax.swing.event.*;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultHighlighter;
 import javax.swing.text.Highlighter;
+import javax.swing.undo.UndoManager;
 
 /**
  * Main IDE workspace panel — displayed in the centre of the application frame
@@ -147,6 +148,9 @@ public class SasmIdePanel extends JPanel {
     // ── SASM → NASM translator ───────────────────────────────────────────────
     private final SasmTranslator translator = new SasmTranslator();
 
+    // ── undo / redo ───────────────────────────────────────────────────────────
+    private final UndoManager undoManager = new UndoManager();
+
     // ── state ─────────────────────────────────────────────────────────────────
     private ProjectFile project;
     private File        currentFile;
@@ -188,6 +192,7 @@ public class SasmIdePanel extends JPanel {
         currentFile = null;
         dirty       = false;
         editor.setText("");
+        undoManager.discardAllEdits();
         asmOutput.setText("");
         editorHeader.setText("  (no file open)");
         treeHeader.setText(pf != null && pf.name != null ? pf.name : "Project Files");
@@ -302,6 +307,7 @@ public class SasmIdePanel extends JPanel {
         currentFile = null;
         dirty       = false;
         editor.setText("");
+        undoManager.discardAllEdits();
         asmOutput.setText("");
         editorHeader.setText("  (no file open)");
         refreshFileList();
@@ -325,6 +331,7 @@ public class SasmIdePanel extends JPanel {
             currentFile = null;
             dirty       = false;
             editor.setText("");
+            undoManager.discardAllEdits();
             asmOutput.setText("");
             editorHeader.setText("  (no file open)");
             if (onFileStateChanged != null) onFileStateChanged.run();
@@ -674,6 +681,35 @@ public class SasmIdePanel extends JPanel {
 
         // ── synced line-cursor highlight ─────────────────────────────────
         editor.addCaretListener(e -> updateLineHighlight());
+
+        // ── undo / redo ───────────────────────────────────────────────────
+        // Record undoable edits from the editor document, but skip any
+        // edits that originate from programmatic padding updates.
+        editor.getDocument().addUndoableEditListener(e -> {
+            if (!updatingPadding) {
+                undoManager.addEdit(e.getEdit());
+            }
+        });
+
+        int mask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+
+        editor.getInputMap().put(
+                KeyStroke.getKeyStroke(KeyEvent.VK_Z, mask), "undo");
+        editor.getActionMap().put("undo", new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) {
+                if (undoManager.canUndo()) undoManager.undo();
+            }
+        });
+
+        editor.getInputMap().put(
+                KeyStroke.getKeyStroke(KeyEvent.VK_Y, mask), "redo");
+        editor.getInputMap().put(
+                KeyStroke.getKeyStroke(KeyEvent.VK_Z, mask | KeyEvent.SHIFT_DOWN_MASK), "redo");
+        editor.getActionMap().put("redo", new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) {
+                if (undoManager.canRedo()) undoManager.redo();
+            }
+        });
     }
 
     // ── synced line-cursor highlight ──────────────────────────────────────────
@@ -1020,6 +1056,7 @@ public class SasmIdePanel extends JPanel {
             editorLineNumbers.setPaddingLines(paddingLines);
             editor.setText(content);
             editor.setCaretPosition(0);
+            undoManager.discardAllEdits();
             currentFile = f;
             editorHeader.setText("  " + f.getParentFile().getName() + "/" + f.getName());
             dirty = false;
