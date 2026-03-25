@@ -707,6 +707,31 @@ var <name> as <type>               -- zero-initialized
 var <name> as <type> = <value>     -- initialized to a literal
 ```
 
+The `as` keyword is optional — the following forms are equivalent:
+
+```sasm
+var counter as word = 0            -- with "as"
+var counter word = 0               -- without "as"
+```
+
+An optional `signed` or `unsigned` modifier may follow the type.  The modifier
+does not change the emitted storage directive (the same binary representation is
+used for signed and unsigned values in x86), but it **does** influence the
+assembly instructions generated for certain expression operators:
+
+| Operator | Unsigned (default) | When operand is `signed` |
+|----------|--------------------|--------------------------|
+| `div`    | `DIV` (zero-extend with `XOR`) | `IDIV` (sign-extend with `CWD`/`CDQ`/`CQO`) |
+| `>>`     | `SHR` (logical, zero-fill) | `SAR` (arithmetic, sign-preserving) |
+| `sdiv`   | — | Always emits `IDIV` (explicit signed division) |
+| `*`, `+`, `-`, `<<`, `&&`, `||`, `!` | Unchanged | Unchanged (same binary result) |
+
+```sasm
+var value1 as word signed = -10    -- DW -10; operations use signed variants
+var value1 word signed = -10       -- same result, without "as"
+var flags  word unsigned = 0xFF    -- DW 0xFF; operations use unsigned variants
+```
+
 **Supported types:**
 
 | Type keyword | Size | Assembly directive | Default value |
@@ -767,6 +792,9 @@ move flag    to al              -- MOV AL, [flag]
 
 -- Operate directly on a global variable:
 increment counter               -- INC [counter]
+counter++                       -- INC [counter]  (postfix form)
+++counter                       -- INC [counter]  (prefix form)
+inc counter                     -- INC [counter]  (short keyword)
 add 1 to counter                -- ADD [counter], 1
 compare counter with max_count  -- CMP [counter], [max_count]
 ```
@@ -857,12 +885,12 @@ data table  as word[16]        -- 16 words, all zero
 data coords as dword[4]        -- 4 dwords, all zero
 ```
 
-*Equivalent ASM:*
+*Equivalent ASM (NASM):*
 
 ```asm
-buf:    DB 64 DUP (0)
-table:  DW 16 DUP (0)
-coords: DD  4 DUP (0)
+buf:    TIMES 64 DB 0
+table:  TIMES 16 DW 0
+coords: TIMES  4 DD 0
 ```
 
 **Initialized arrays** — element count is inferred from the comma-separated value list:
@@ -1000,6 +1028,7 @@ reverse_bytes:
 | `push all` | `PUSHA` | Push all general-purpose registers |
 | `pop all` | `POPA` | Pop all general-purpose registers |
 | `swap <op1> and <op2>` | `XCHG op1, op2` | Exchange values of `op1` and `op2` |
+| `swap <op1>, <op2>` | `XCHG op1, op2` | Exchange values of `op1` and `op2` (comma syntax) |
 | `translate` | `XLAT` | Set `al` = `[bx + al]` (table lookup) |
 | `read byte from <port> to al` | `IN AL, port` | Read byte from I/O port into `al` |
 | `read word from <port> to ax` | `IN AX, port` | Read word from I/O port into `ax` |
@@ -1032,7 +1061,11 @@ reverse_bytes:
 | `subtract <src> from <dst>` | `SUB dst, src` | `dst = dst - src` |
 | `subtract <src> with borrow from <dst>` | `SBB dst, src` | `dst = dst - src - CF` |
 | `increment <dst>` | `INC dst` | `dst = dst + 1` (CF unchanged) |
+| `inc <dst>` | `INC dst` | Short form of `increment` |
+| `++<dst>` / `<dst>++` | `INC dst` | Prefix / postfix increment |
 | `decrement <dst>` | `DEC dst` | `dst = dst - 1` (CF unchanged) |
+| `dec <dst>` | `DEC dst` | Short form of `decrement` |
+| `--<dst>` / `<dst>--` | `DEC dst` | Prefix / postfix decrement |
 | `multiply by <src>` | `MUL src` | Unsigned: `AX = AL × src` (byte) or `DX:AX = AX × src` (word) |
 | `signed multiply by <src>` | `IMUL src` | Signed multiply (same register layout as `MUL`) |
 | `divide by <src>` | `DIV src` | Unsigned: `AL = AX ÷ src`, `AH = remainder` |
@@ -1052,6 +1085,151 @@ reverse_bytes:
 | `check bounds <reg> within <mem>` | `BOUND reg, mem` | Raise INT 5 if index out of range *(16/32-bit only)* |
 | `begin frame <locals>, <level>` | `ENTER imm16, imm8` | Create procedure stack frame |
 | `end frame` | `LEAVE` | Tear down procedure stack frame |
+
+#### MUL vs IMUL
+
+`MUL` performs **unsigned** multiplication: it treats both operands as non-negative
+binary values. `IMUL` performs **signed** (two's complement) multiplication and
+correctly handles negative values.
+
+| Feature | `MUL` (unsigned) | `IMUL` (signed) |
+|---------|-------------------|-----------------|
+| **Signedness** | Treats operands as unsigned | Treats operands as signed (two's complement) |
+| **Operand forms** | Single operand only — always multiplies the accumulator (`AL`/`AX`/`EAX`/`RAX`) | 1, 2, or 3 operand forms |
+| **Result location** | `AX` (byte), `DX:AX` (word), `EDX:EAX` (dword), `RDX:RAX` (qword) | Same for 1-operand; destination register for 2/3-operand forms |
+| **Typical use** | Addresses, bit masks, unsigned counters | General arithmetic, especially with negative values |
+| **SASM English syntax** | `multiply by <src>` | `signed multiply by <src>` |
+| **SASM `*` operator** | — | Expression assignment `dst = op1 * op2` emits two-operand `IMUL` |
+
+Use `multiply by` (MUL) when both values are guaranteed unsigned (e.g. array
+indexing). Use `signed multiply by` (IMUL) or the `*` expression operator when
+either value may be negative.
+
+### Expression Assignment Shorthand
+
+In addition to the English-phrase syntax above, SASM supports a compact
+**expression assignment** form using the operators `=`, `+`, `-`, `*`, `div`,
+`sdiv` (signed division), `<<` (left shift), `>>` (right shift),
+`&&` (bitwise AND), `||` (bitwise OR), and `!` (bitwise NOT):
+
+```
+<dst> = <src>                -- simple assignment
+<dst> = <op1> + <op2>        -- addition
+<dst> = <op1> - <op2>        -- subtraction
+<dst> = <op1> * <op2>        -- multiplication (signed, IMUL)
+<dst> = <op1> div <op2>      -- division (auto: DIV or IDIV based on var signedness)
+<dst> = <op1> sdiv <op2>     -- explicit signed division (always IDIV)
+<dst> = <op1> << <op2>       -- logical left shift (SHL)
+<dst> = <op1> >> <op2>       -- right shift (auto: SHR or SAR based on var signedness)
+<dst> = <op1> && <op2>       -- bitwise AND
+<dst> = <op1> || <op2>       -- bitwise OR
+<dst> = !<src>               -- bitwise NOT (one's complement)
+```
+
+Multiple operators may be chained in a single expression.  Evaluation
+proceeds **left to right** (no operator precedence), and each operator
+produces one assembly instruction:
+
+```
+<dst> = <a> + <b> + <c>          -- three terms
+<dst> = <a> + <imm> - <b> * <imm2>  -- mixed operators and constants
+```
+
+| SASM Expression | ASM Equivalent | Notes |
+|-----------------|----------------|-------|
+| `ax = cx` | `MOV ax, cx` | Simple register-to-register move |
+| `ax = cx + bx` | `MOV ax, cx` / `ADD ax, bx` | Two instructions when `dst ≠ op1` |
+| `ax = ax + bx` | `ADD ax, bx` | Optimized to single instruction when `dst = op1` |
+| `ax = cx - bx` | `MOV ax, cx` / `SUB ax, bx` | Two instructions when `dst ≠ op1` |
+| `ax = cx * bx` | `MOV ax, cx` / `IMUL ax, bx` | Uses two-operand signed `IMUL` |
+| `ax = cx div bx` | `MOV AX, cx` / `XOR DX, DX` / `DIV bx` | Unsigned divide; quotient → AX |
+| `ax = sVal div bx` | `MOV AX, [sVal]` / `CWD` / `IDIV bx` | `sVal` is `signed` → auto IDIV |
+| `ax = cx sdiv bx` | `MOV AX, cx` / `CWD` / `IDIV bx` | Explicit signed divide (always IDIV) |
+| `eax = ecx div ebx` | `MOV EAX, ecx` / `XOR EDX, EDX` / `DIV ebx` | 32-bit unsigned version |
+| `eax = sVal div ebx` | `MOV EAX, [sVal]` / `CDQ` / `IDIV ebx` | 32-bit signed version (sVal is signed) |
+| `rax = rcx div rbx` | `MOV RAX, rcx` / `XOR RDX, RDX` / `DIV rbx` | 64-bit unsigned version |
+| `ax = bx + 3 + dx` | `MOV ax, bx` / `ADD ax, 3` / `ADD ax, dx` | Chained addition with immediate constant |
+| `ax = bx + 3 + dx * 2` | `MOV ax, bx` / `ADD ax, 3` / `ADD ax, dx` / `IMUL ax, 2` | Mixed operators, left-to-right |
+| `ax = ax + 3 + bx` | `ADD ax, 3` / `ADD ax, bx` | First operand matches `dst` — `MOV` elided |
+| `ax = bx << 3` | `MOV ax, bx` / `SHL ax, 3` | Left shift by immediate |
+| `ax = ax << 2` | `SHL ax, 2` | Optimized when `dst = op1` |
+| `ax = cx >> 1` | `MOV ax, cx` / `SHR ax, 1` | Logical right shift (unsigned) |
+| `ax = sVal >> 2` | `MOV ax, [sVal]` / `SAR ax, 2` | Arithmetic right shift (`sVal` is signed) |
+| `eax = eax >> 8` | `SHR eax, 8` | Optimized when `dst = op1` |
+| `ax = bx << cl` | `MOV ax, bx` / `SHL ax, cl` | Shift count in `cl` register |
+| `rax = rbx << 3` | `MOV rax, rbx` / `SHL rax, 3` | 64-bit left shift |
+| `rax = rax >> 1` | `SHR rax, 1` | 64-bit right shift, optimized |
+| `ax = bx && cx` | `MOV ax, bx` / `AND ax, cx` | Bitwise AND |
+| `ax = ax && 0xFF` | `AND ax, 0xFF` | Optimized when `dst = op1` |
+| `rax = rbx && rcx` | `MOV rax, rbx` / `AND rax, rcx` | 64-bit bitwise AND |
+| `ax = bx \|\| cx` | `MOV ax, bx` / `OR ax, cx` | Bitwise OR |
+| `ax = ax \|\| 0x80` | `OR ax, 0x80` | Optimized when `dst = op1` |
+| `rax = rbx \|\| rcx` | `MOV rax, rbx` / `OR rax, rcx` | 64-bit bitwise OR |
+| `ax = !bx` | `MOV ax, bx` / `NOT ax` | Bitwise NOT (one's complement) |
+| `ax = !ax` | `NOT ax` | Optimized when `dst = src` |
+| `rax = !rbx` | `MOV rax, rbx` / `NOT rax` | 64-bit bitwise NOT |
+| `ax = [myVar] + 5` | `MOV ax, [myVar]` / `ADD ax, 5` | Variable (memory) as operand |
+| `[counter] = [counter] + 1` | `ADD [counter], 1` | Variable as both destination and operand |
+| `ax = [buf + si] && 0xFF` | `MOV ax, [buf + si]` / `AND ax, 0xFF` | Indexed memory with bitwise AND |
+| `ax = myVar + 5` | `MOV ax, [myVar]` / `ADD ax, 5` | Bare variable name (auto-wrapped) |
+| `result = ax` | `MOV [result], ax` | Bare variable destination (auto-wrapped) |
+
+#### Inline `++`/`--` in Expressions
+
+Operands in an expression can carry a `++` or `--` (pre- or post-) modifier
+to combine an increment/decrement with the expression on a single line.
+Pre-increment (`++op`) emits `INC` **before** the expression;
+post-increment (`op++`) emits `INC` **after** the expression:
+
+```sasm
+cx = ax * bx++          -- IMUL first, then INC bx (post-increment)
+cx = ax * ++bx          -- INC bx first, then IMUL (pre-increment)
+cx = ax + bx--          -- ADD first, then DEC bx
+cx = ax + --bx          -- DEC bx first, then ADD
+cx = bx++               -- MOV cx, bx; INC bx (copy, then increment)
+cx = ++bx               -- INC bx; MOV cx, bx (increment, then copy)
+```
+
+| SASM Expression | ASM Equivalent | Notes |
+|-----------------|----------------|-------|
+| `cx = ax * bx++` | `MOV cx, ax` / `IMUL cx, bx` / `INC bx` | Post-increment: INC after expression |
+| `cx = ax * ++bx` | `INC bx` / `MOV cx, ax` / `IMUL cx, bx` | Pre-increment: INC before expression |
+| `cx = ax + bx--` | `MOV cx, ax` / `ADD cx, bx` / `DEC bx` | Post-decrement: DEC after expression |
+| `cx = ax + --bx` | `DEC bx` / `MOV cx, ax` / `ADD cx, bx` | Pre-decrement: DEC before expression |
+| `ax = counter++ + 5` | `MOV ax, [counter]` / `ADD ax, 5` / `INC [counter]` | Variable with post-increment |
+| `ax = ++counter + 5` | `INC [counter]` / `MOV ax, [counter]` / `ADD ax, 5` | Variable with pre-increment |
+
+Operands may be registers, immediates, or memory references (variables).
+When a variable defined with `var` is used in an expression, you can wrap it in
+square brackets (e.g. `[myVar]`) to access its value, or use the bare variable
+name directly — the translator automatically wraps known variable names in
+brackets:
+
+```sasm
+var total word = 0
+var count word = 10
+
+-- The following pairs are equivalent:
+ax = [total] + [count]      -- explicit brackets
+ax = total + count           -- bare names (auto-wrapped)
+
+[total] = ax                 -- explicit bracket destination
+total = ax                   -- bare name destination (auto-wrapped)
+```
+
+The `+` and `-` characters inside square brackets (e.g. `[buffer + bx]`) are
+treated as address arithmetic, not expression operators.
+
+**What happens to the bits shifted off?**  The last bit shifted out is placed
+into the **Carry Flag (CF)**.  For `<<` (SHL) the most-significant bit that
+"falls off" the left end goes to CF; for `>>` (SHR/SAR) the least-significant
+bit that "falls off" the right end goes to CF.  All other shifted-out bits are
+discarded.  You can test CF afterward with `jump if carry` / `jump if no carry`
+or use it in a `rotate left carry` / `rotate right carry` instruction.
+
+When the operand being shifted with `>>` is a variable declared as `signed`,
+the translator emits **SAR** (arithmetic shift, preserving the sign bit)
+instead of **SHR** (logical shift, filling with zeros).
 
 ---
 

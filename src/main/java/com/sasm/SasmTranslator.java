@@ -1,6 +1,8 @@
 package com.sasm;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -30,6 +32,17 @@ public class SasmTranslator {
      */
     private final Map<String, String> aliasMap = new HashMap<>();
 
+    /**
+     * Tracks variable names declared with {@code var} and whether each is
+     * signed.  Bare names in expression assignments are automatically
+     * wrapped in brackets, and signedness is used to select the correct
+     * assembly instructions (e.g.&nbsp;{@code IDIV} vs {@code DIV},
+     * {@code SAR} vs {@code SHR}).
+     * <p>Key: variable name.  Value: {@code true} if the variable was
+     * declared with the {@code signed} modifier, {@code false} otherwise.</p>
+     */
+    private final Map<String, Boolean> declaredVars = new HashMap<>();
+
     /** Pattern for {@code #REF <file> <alias>} import directives. */
     private static final Pattern REF_DIRECTIVE = Pattern.compile(
             "#REF\\s+(\\S+)\\s+(\\S+)");
@@ -42,11 +55,42 @@ public class SasmTranslator {
     private static final Pattern ALIAS_REF = Pattern.compile(
             "@(\\w+)\\.(\\w+)");
 
+    /** Common base for var declarations: {@code var <name> [as] <type>[count] [signed|unsigned]}. */
+    private static final String VAR_BASE =
+            "var\\s+(\\w+)\\s+(?:as\\s+)?(byte|word|dword|qword)(?:\\[(\\d+)\\])?(?:\\s+(signed|unsigned))?";
+
+    /** var with initialization: {@code var <name> [as] <type>[count] [signed|unsigned] = <value>}. */
+    private static final Pattern VAR_INIT = Pattern.compile(VAR_BASE + "\\s*=\\s*(.+)");
+
+    /** var without initialization: {@code var <name> [as] <type>[count] [signed|unsigned]}. */
+    private static final Pattern VAR_DECL = Pattern.compile(VAR_BASE);
+
+    /**
+     * After each {@link #translate} call, holds the number of ASM output
+     * lines produced by each source line.  For example, if source line 3
+     * translates to a 4-line ASM sequence, {@code lastLineMap[3] == 4}.
+     * Single-line translations yield {@code 1}.
+     */
+    private int[] lastLineMap = new int[0];
+
+    /**
+     * Returns the line map computed by the most recent {@link #translate}
+     * call.  Each element {@code [i]} is the number of ASM output lines
+     * produced by source line {@code i}.
+     */
+    public int[] getLastLineMap() {
+        return lastLineMap;
+    }
+
     /** Translates a complete SASM source text into NASM assembly. */
     public String translate(String sasmSource) {
-        if (sasmSource == null || sasmSource.isEmpty()) return "";
+        if (sasmSource == null || sasmSource.isEmpty()) {
+            lastLineMap = new int[0];
+            return "";
+        }
         labelSeq = 0;
         aliasMap.clear();
+        declaredVars.clear();
 
         // ── first pass: collect #REF alias mappings ──────────────────────────
         String[] lines = sasmSource.split("\\r?\\n", -1);
@@ -58,12 +102,25 @@ public class SasmTranslator {
         }
 
         // ── second pass: translate each line ─────────────────────────────────
+        lastLineMap = new int[lines.length];
         StringBuilder out = new StringBuilder(sasmSource.length());
         for (int i = 0; i < lines.length; i++) {
             if (i > 0) out.append('\n');
-            out.append(translateLine(lines[i]));
+            String translated = translateLine(lines[i]);
+            out.append(translated);
+            // Count how many output lines this source line produced
+            lastLineMap[i] = countNewlines(translated) + 1;
         }
         return out.toString();
+    }
+
+    /** Counts the number of newline characters in a string. */
+    private static int countNewlines(String s) {
+        int count = 0;
+        for (int i = 0; i < s.length(); i++) {
+            if (s.charAt(i) == '\n') count++;
+        }
+        return count;
     }
 
     // ── single-line translation ──────────────────────────────────────────────
@@ -88,7 +145,12 @@ public class SasmTranslator {
         }
 
         // ── comments (no alias resolution inside pure comments) ──────────────
-        if (trimmed.startsWith("--")) {                                // line comment
+        // "-- text" is a line comment, but "--ax" / "--[var]" is a prefix
+        // decrement (the operand starts immediately after the dashes).
+        if (trimmed.startsWith("--")
+                && (trimmed.length() <= 2
+                    || (!Character.isLetter(trimmed.charAt(2))
+                        && trimmed.charAt(2) != '['))) {              // line comment
             return leading + "; " + trimmed.substring(2).stripLeading();
         }
         if (trimmed.startsWith("(*")) return toAsmComment(trimmed); // block comment open
@@ -110,6 +172,18 @@ public class SasmTranslator {
 
         String asm = tryTranslateCode(code);
         if (asm != null) {
+            if (asm.indexOf('\n') >= 0) {
+                // Multi-line result: apply indentation to each line,
+                // trailing comment to last line only.
+                String[] asmLines = asm.split("\n", -1);
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < asmLines.length; i++) {
+                    if (i > 0) sb.append('\n');
+                    sb.append(leading).append(asmLines[i]);
+                }
+                sb.append(comment);
+                return sb.toString();
+            }
             return leading + asm + comment;
         }
         // Passthrough — already ASM or unrecognised
@@ -198,6 +272,9 @@ public class SasmTranslator {
         // ── miscellaneous flags / extensions ─────────────────────────────────
         if ((r = tryMisc(code))          != null) return r;
 
+        // ── expression assignment (dst = src [op src2]) ──────────────────────
+        if ((r = tryExpression(code))    != null) return r;
+
         return null; // unrecognised → passthrough
     }
 
@@ -258,9 +335,13 @@ public class SasmTranslator {
 
     private static final Pattern SWAP = Pattern.compile(
             "swap\\s+(.+?)\\s+and\\s+(.+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SWAP_COMMA = Pattern.compile(
+            "swap\\s+(.+?)\\s*,\\s*(.+)", Pattern.CASE_INSENSITIVE);
 
     private String trySwap(String code) {
         Matcher m = SWAP.matcher(code);
+        if (m.matches()) return "    XCHG " + m.group(1) + ", " + m.group(2);
+        m = SWAP_COMMA.matcher(code);
         if (m.matches()) return "    XCHG " + m.group(1) + ", " + m.group(2);
         return null;
     }
@@ -351,11 +432,46 @@ public class SasmTranslator {
     }
 
     private String tryIncDec(String code) {
-        if (code.startsWith("increment "))
-            return "    INC " + code.substring(10).trim();
-        if (code.startsWith("decrement "))
-            return "    DEC " + code.substring(10).trim();
-        return null;
+        // Expression assignments (contain '=') are handled by tryExpression,
+        // which supports inline ++/-- on operands.
+        if (code.indexOf('=') >= 0) return null;
+
+        String operand = null;
+        String insn = null;
+
+        // ── keyword forms ────────────────────────────────────────────────
+        if (code.startsWith("increment ")) {
+            operand = code.substring(10).trim();
+            insn = "INC";
+        } else if (code.startsWith("decrement ")) {
+            operand = code.substring(10).trim();
+            insn = "DEC";
+        } else if (code.startsWith("inc ")) {
+            operand = code.substring(4).trim();
+            insn = "INC";
+        } else if (code.startsWith("dec ")) {
+            operand = code.substring(4).trim();
+            insn = "DEC";
+        }
+        // ── prefix forms: ++operand / --operand ──────────────────────────
+        else if (code.startsWith("++")) {
+            operand = code.substring(2).trim();
+            insn = "INC";
+        } else if (code.startsWith("--")) {
+            operand = code.substring(2).trim();
+            insn = "DEC";
+        }
+        // ── postfix forms: operand++ / operand-- ─────────────────────────
+        else if (code.endsWith("++")) {
+            operand = code.substring(0, code.length() - 2).trim();
+            insn = "INC";
+        } else if (code.endsWith("--")) {
+            operand = code.substring(0, code.length() - 2).trim();
+            insn = "DEC";
+        }
+
+        if (insn == null || operand == null || operand.isEmpty()) return null;
+        return "    " + insn + " " + wrapIfVar(operand);
     }
 
     private String tryMulDiv(String code) {
@@ -725,7 +841,7 @@ public class SasmTranslator {
             String name = m.group(1);
             String dir  = sizeDirective(m.group(2));
             String count = m.group(3);
-            return name + ": " + dir + " " + count + " DUP (0)";
+            return name + ": TIMES " + count + " " + dir + " 0";
         }
         // data <name> as <type> = <values>
         m = Pattern.compile("data\\s+(\\w+)\\s+as\\s+(byte|word|dword|qword)\\s*=\\s*(.+)")
@@ -739,21 +855,31 @@ public class SasmTranslator {
     }
 
     private String translateVar(String code) {
-        // var <name> as <type> = <value>
-        Matcher m = Pattern.compile(
-                "var\\s+(\\w+)\\s+as\\s+(byte|word|dword|qword)\\s*=\\s*(.+)")
-                .matcher(code);
+        // var <name> [as] <type>[<count>] [signed|unsigned] = <value>
+        Matcher m = VAR_INIT.matcher(code);
         if (m.matches()) {
-            String name = m.group(1);
-            String dir  = sizeDirective(m.group(2));
-            return name + ": " + dir + " " + m.group(3).trim();
+            String name  = m.group(1);
+            String count = m.group(3);          // nullable — array element count
+            boolean signed = "signed".equals(m.group(4));
+            declaredVars.put(name, signed);
+            String dir   = sizeDirective(m.group(2));
+            String value = m.group(5).trim();
+            if (count != null) {
+                return name + ": TIMES " + count + " " + dir + " " + value;
+            }
+            return name + ": " + dir + " " + value;
         }
-        // var <name> as <type>
-        m = Pattern.compile("var\\s+(\\w+)\\s+as\\s+(byte|word|dword|qword)")
-                .matcher(code);
+        // var <name> [as] <type>[<count>] [signed|unsigned]
+        m = VAR_DECL.matcher(code);
         if (m.matches()) {
-            String name = m.group(1);
-            String dir  = sizeDirective(m.group(2));
+            String name  = m.group(1);
+            String count = m.group(3);          // nullable — array element count
+            boolean signed = "signed".equals(m.group(4));
+            declaredVars.put(name, signed);
+            String dir   = sizeDirective(m.group(2));
+            if (count != null) {
+                return name + ": TIMES " + count + " " + dir + " 0";
+            }
             return name + ": " + dir + " 0";
         }
         return null;
@@ -808,6 +934,455 @@ public class SasmTranslator {
             return "    BOUND " + m.group(1) + ", " + m.group(2);
 
         return null;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Expression Assignment  (dst = src  /  dst = op1 {+|-|*|div|<<|>>} op2 …)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /** Pattern for {@code <dst> = <rhs>} expression syntax. */
+    private static final Pattern EXPR_ASSIGN = Pattern.compile(
+            "(.+?)\\s*=\\s*(.+)");
+
+    /**
+     * Tries to translate an expression assignment such as
+     * {@code ax = cx + bx} or {@code eax = ecx}.
+     *
+     * <p>Supported operators (binary, outside square brackets):
+     * {@code +}, {@code -}, {@code *}, {@code div} (unsigned division),
+     * {@code sdiv} (signed division), {@code <<}, {@code >>},
+     * {@code &&} (bitwise AND), {@code ||} (bitwise OR).
+     * Multiple operators are supported and evaluated left-to-right
+     * (e.g. {@code ax = bx + 3 + dx * 2}).</p>
+     *
+     * <p>When a variable declared as {@code signed} is used with
+     * {@code div}, signed division ({@code IDIV}) with sign-extension
+     * is emitted automatically.  The {@code >>} operator emits
+     * arithmetic shift ({@code SAR}) when the shifted operand is signed,
+     * and logical shift ({@code SHR}) otherwise.</p>
+     *
+     * <p>The unary {@code !} (bitwise NOT) is supported in the form
+     * {@code dst = !src}.</p>
+     */
+    private String tryExpression(String code) {
+        if (code.indexOf('=') < 0) return null;
+
+        Matcher m = EXPR_ASSIGN.matcher(code);
+        if (!m.matches()) return null;
+
+        String dst = m.group(1).trim();
+        String rhs = m.group(2).trim();
+        if (dst.isEmpty() || rhs.isEmpty()) return null;
+
+        // Auto-wrap bare variable names on the destination side
+        dst = wrapIfVar(dst);
+
+        // Tokenize the RHS into operands and operators
+        List<String> operands = new ArrayList<>();
+        List<Integer> operators = new ArrayList<>(); // '+', '-', '*', 'd' (div), 'S' (sdiv), 'L' (<<), 'R' (>>), 'A' (&& bitwise AND), 'O' (|| bitwise OR); unary '!' handled separately
+        splitExprTokens(rhs, operands, operators);
+
+        // ── Detect inline ++/-- on operands (pre/post-increment/decrement) ──
+        // Pre-increments (++op) emit INC *before* the expression;
+        // post-increments (op++) emit INC *after* the expression.
+        List<String> preInsns  = new ArrayList<>();
+        List<String> postInsns = new ArrayList<>();
+        for (int i = 0; i < operands.size(); i++) {
+            String op = operands.get(i);
+            if (op.startsWith("++")) {
+                String bare = op.substring(2).trim();
+                operands.set(i, bare);
+                preInsns.add("    INC " + wrapIfVar(bare));
+            } else if (op.startsWith("--")) {
+                String bare = op.substring(2).trim();
+                operands.set(i, bare);
+                preInsns.add("    DEC " + wrapIfVar(bare));
+            } else if (op.endsWith("++")) {
+                String bare = op.substring(0, op.length() - 2).trim();
+                operands.set(i, bare);
+                postInsns.add("    INC " + wrapIfVar(bare));
+            } else if (op.endsWith("--")) {
+                String bare = op.substring(0, op.length() - 2).trim();
+                operands.set(i, bare);
+                postInsns.add("    DEC " + wrapIfVar(bare));
+            }
+        }
+
+        // Auto-wrap bare variable names in operands
+        for (int i = 0; i < operands.size(); i++) {
+            operands.set(i, wrapIfVar(operands.get(i)));
+        }
+
+        if (operands.isEmpty()) return null;
+
+        // Build the core expression ASM
+        String core = buildExpressionCore(dst, rhs, operands, operators);
+        if (core == null) return null;
+
+        // Sandwich the core between pre- and post-increment/decrement
+        if (preInsns.isEmpty() && postInsns.isEmpty()) return core;
+
+        StringBuilder result = new StringBuilder();
+        for (String pre : preInsns) {
+            result.append(pre).append('\n');
+        }
+        result.append(core);
+        for (String post : postInsns) {
+            result.append('\n').append(post);
+        }
+        return result.toString();
+    }
+
+    /**
+     * Builds the core NASM instructions for an expression assignment
+     * (without any surrounding pre/post-increment/decrement lines).
+     */
+    private String buildExpressionCore(String dst, String rhs,
+                                       List<String> operands,
+                                       List<Integer> operators) {
+        // Single operand: simple assignment or unary NOT
+        if (operators.isEmpty()) {
+            String sole = operands.get(0);
+            if (sole.startsWith("!")) {
+                String inner = sole.substring(1).trim();
+                if (inner.isEmpty()) return null;
+                inner = wrapIfVar(inner);
+                boolean sameAsDst = dst.equalsIgnoreCase(inner);
+                return sameAsDst
+                        ? "    NOT " + dst
+                        : "    MOV " + dst + ", " + inner + "\n    NOT " + dst;
+            }
+            return "    MOV " + dst + ", " + sole;
+        }
+
+        // Single operator: original two-operand behaviour
+        if (operators.size() == 1) {
+            String op1 = operands.get(0);
+            String op2 = operands.get(1);
+            int opKind = operators.get(0);
+
+            if (op1.isEmpty() || op2.isEmpty()) {
+                return "    MOV " + dst + ", " + rhs;
+            }
+
+            boolean sameAsDst = dst.equalsIgnoreCase(op1);
+
+            return switch (opKind) {
+                case '+' -> sameAsDst
+                        ? "    ADD " + dst + ", " + op2
+                        : "    MOV " + dst + ", " + op1 + "\n    ADD " + dst + ", " + op2;
+                case '-' -> sameAsDst
+                        ? "    SUB " + dst + ", " + op2
+                        : "    MOV " + dst + ", " + op1 + "\n    SUB " + dst + ", " + op2;
+                case '*' -> sameAsDst
+                        ? "    IMUL " + dst + ", " + op2
+                        : "    MOV " + dst + ", " + op1 + "\n    IMUL " + dst + ", " + op2;
+                case 'L' -> sameAsDst
+                        ? "    SHL " + dst + ", " + op2
+                        : "    MOV " + dst + ", " + op1 + "\n    SHL " + dst + ", " + op2;
+                case 'R' -> {
+                    String shr = isSignedVar(op1) ? "SAR" : "SHR";
+                    yield sameAsDst
+                        ? "    " + shr + " " + dst + ", " + op2
+                        : "    MOV " + dst + ", " + op1 + "\n    " + shr + " " + dst + ", " + op2;
+                }
+                case 'A' -> sameAsDst
+                        ? "    AND " + dst + ", " + op2
+                        : "    MOV " + dst + ", " + op1 + "\n    AND " + dst + ", " + op2;
+                case 'O' -> sameAsDst
+                        ? "    OR " + dst + ", " + op2
+                        : "    MOV " + dst + ", " + op1 + "\n    OR " + dst + ", " + op2;
+                case 'd' -> buildDiv(dst, op1, op2,
+                        isSignedVar(op1) || isSignedVar(op2));
+                case 'S' -> buildDiv(dst, op1, op2, true);
+                default  -> null;
+            };
+        }
+
+        // Multiple operators: emit left-to-right instruction sequence.
+        for (int opKind : operators) {
+            if (opKind == 'd' || opKind == 'S') return null;
+        }
+
+        boolean firstSigned = isSignedVar(operands.get(0));
+
+        StringBuilder sb = new StringBuilder();
+        String first = operands.get(0);
+
+        if (!dst.equalsIgnoreCase(first)) {
+            sb.append("    MOV ").append(dst).append(", ").append(first);
+        }
+
+        for (int i = 0; i < operators.size(); i++) {
+            int opKind = operators.get(i);
+            String operand = operands.get(i + 1);
+
+            if (sb.length() > 0) sb.append('\n');
+
+            switch (opKind) {
+                case '+' -> sb.append("    ADD ").append(dst).append(", ").append(operand);
+                case '-' -> sb.append("    SUB ").append(dst).append(", ").append(operand);
+                case '*' -> sb.append("    IMUL ").append(dst).append(", ").append(operand);
+                case 'L' -> sb.append("    SHL ").append(dst).append(", ").append(operand);
+                case 'R' -> sb.append(firstSigned ? "    SAR " : "    SHR ")
+                              .append(dst).append(", ").append(operand);
+                case 'A' -> sb.append("    AND ").append(dst).append(", ").append(operand);
+                case 'O' -> sb.append("    OR ").append(dst).append(", ").append(operand);
+                default  -> { /* skip */ }
+            }
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * Builds the NASM instruction sequence for a division expression
+     * {@code dst = op1 div op2} (unsigned) or {@code dst = op1 sdiv op2}
+     * (signed).
+     *
+     * <p>When {@code signed} is {@code false}, emits unsigned {@code DIV}
+     * with zero-extension ({@code XOR high, high}).  When {@code signed}
+     * is {@code true}, emits signed {@code IDIV} with sign-extension
+     * ({@code CBW}/{@code CWD}/{@code CDQ}/{@code CQO}).</p>
+     *
+     * <p>x86 {@code DIV}/{@code IDIV} always uses the accumulator pair
+     * (e.g. DX:AX) as the implicit dividend.  This helper emits:</p>
+     * <ol>
+     *   <li>{@code MOV quotient, op1} (if op1 ≠ quotient reg)</li>
+     *   <li>Zero- or sign-extend the dividend</li>
+     *   <li>{@code DIV op2} or {@code IDIV op2}</li>
+     *   <li>{@code MOV dst, quotient} (if dst ≠ quotient reg)</li>
+     * </ol>
+     */
+    private static String buildDiv(String dst, String op1, String op2,
+                                   boolean signed) {
+        String[] pair = divRegisters(dst, op1);
+        String quot = pair[0]; // AL / AX / EAX / RAX  (quotient register)
+        String high = pair[1]; // AH / DX / EDX / RDX  (high register to clear)
+
+        StringBuilder sb = new StringBuilder();
+        if (!op1.equalsIgnoreCase(quot)) {
+            sb.append("    MOV ").append(quot).append(", ").append(op1).append('\n');
+        }
+        if (signed) {
+            // Sign-extend the dividend into the high register
+            String ext = signExtendInsn(high);
+            if (ext != null) {
+                sb.append("    ").append(ext).append('\n');
+            }
+        } else {
+            // Zero-extend (clear the high register)
+            if (high != null) {
+                sb.append("    XOR ").append(high).append(", ").append(high).append('\n');
+            }
+        }
+        sb.append(signed ? "    IDIV " : "    DIV ").append(op2);
+        if (!dst.equalsIgnoreCase(quot)) {
+            sb.append('\n').append("    MOV ").append(dst).append(", ").append(quot);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Returns the sign-extension mnemonic for the given high register.
+     * <ul>
+     *   <li>{@code AH} → {@code CBW} (sign-extend AL → AX)</li>
+     *   <li>{@code DX} → {@code CWD} (sign-extend AX → DX:AX)</li>
+     *   <li>{@code EDX} → {@code CDQ} (sign-extend EAX → EDX:EAX)</li>
+     *   <li>{@code RDX} → {@code CQO} (sign-extend RAX → RDX:RAX)</li>
+     * </ul>
+     */
+    private static String signExtendInsn(String highReg) {
+        if (highReg == null) return null;
+        return switch (highReg.toUpperCase()) {
+            case "AH"  -> "CBW";
+            case "DX"  -> "CWD";
+            case "EDX" -> "CDQ";
+            case "RDX" -> "CQO";
+            default    -> null;
+        };
+    }
+
+    /**
+     * Determines the quotient register and high-word register pair to use
+     * for a {@code DIV} instruction, based on the register width of the
+     * operands.
+     *
+     * @return {@code {quotientReg, highReg}} where quotientReg receives
+     *         the division result and highReg must be zeroed beforehand.
+     */
+    private static String[] divRegisters(String dst, String op1) {
+        // Check dst first, then op1, for width hints
+        String[] r = regWidth(dst);
+        if (r != null) return r;
+        r = regWidth(op1);
+        if (r != null) return r;
+        // Default to 16-bit
+        return new String[]{"AX", "DX"};
+    }
+
+    /** Maps a register name to its {quotient, highReg} pair, or null.
+     *  For 8-bit DIV the quotient is in AL and AH must be cleared. */
+    private static String[] regWidth(String name) {
+        String n = name.toLowerCase().trim();
+        // 64-bit
+        if (n.matches("r[a-d]x|rsi|rdi|rsp|rbp|r([89]|1[0-5])"))
+            return new String[]{"RAX", "RDX"};
+        // 32-bit
+        if (n.matches("e[a-d]x|esi|edi|esp|ebp|r([89]|1[0-5])d"))
+            return new String[]{"EAX", "EDX"};
+        // 8-bit (DIV uses AX as implicit dividend; quotient → AL, remainder → AH)
+        if (n.matches("[a-d][hl]|sil|dil|spl|bpl|r([89]|1[0-5])b"))
+            return new String[]{"AL", "AH"};
+        // 16-bit
+        if (n.matches("[a-d]x|si|di|sp|bp|r([89]|1[0-5])w"))
+            return new String[]{"AX", "DX"};
+        return null;
+    }
+
+    /**
+     * Splits an expression RHS into operands and operators.
+     *
+     * <p>Scans the string left to right at bracket depth&nbsp;0,
+     * splitting on {@code +}, {@code -}, {@code *}, {@code <<},
+     * {@code >>}, {@code &&}, {@code ||}, and the keywords {@code div}
+     * and {@code sdiv}.
+     * Operators inside square brackets or quotes are ignored.
+     * A leading {@code -} (unary minus) is treated as part of the
+     * first operand, not as a binary operator.</p>
+     *
+     * @param rhs       the right-hand side of the expression
+     * @param operands  (out) list of operand strings, trimmed
+     * @param operators (out) list of operator kinds: {@code '+'}, {@code '-'},
+     *                  {@code '*'}, {@code 'L'} (for {@code <<}),
+     *                  {@code 'R'} (for {@code >>}), {@code 'A'}
+     *                  (for {@code &&}), {@code 'O'} (for {@code ||}),
+     *                  {@code 'd'} (for {@code div}), or
+     *                  {@code 'S'} (for {@code sdiv})
+     */
+    private static void splitExprTokens(String rhs,
+                                         List<String> operands,
+                                         List<Integer> operators) {
+        int depth = 0;
+        boolean inQuote = false;
+        int start = 0;   // start index of current operand
+
+        for (int i = 0; i < rhs.length(); i++) {
+            char c = rhs.charAt(i);
+            if (c == '\'') { inQuote = !inQuote; continue; }
+            if (inQuote) continue;
+            if (c == '[') { depth++; continue; }
+            if (c == ']') { depth--; continue; }
+            if (depth != 0) continue;
+
+            // Two-character operators: << >> && ||
+            // i > 0 is a fast-path guard; the !before.isEmpty() check below
+            // is the real safeguard against treating a leading token as an operator.
+            if ((c == '<' || c == '>' || c == '&' || c == '|') && i + 1 < rhs.length()
+                    && rhs.charAt(i + 1) == c && i > 0) {
+                String before = rhs.substring(start, i).trim();
+                if (!before.isEmpty()) {
+                    operands.add(before);
+                    operators.add(switch (c) {
+                        case '<' -> (int) 'L';
+                        case '>' -> (int) 'R';
+                        case '&' -> (int) 'A';
+                        case '|' -> (int) 'O';
+                        default  -> (int) c;
+                    });
+                    start = i + 2;
+                    i++;  // skip second char of the operator
+                    continue;
+                }
+            }
+            // Skip ++ and -- pairs: they are inline increment/decrement
+            // operators (part of an operand), not binary +/- operators.
+            if ((c == '+' || c == '-') && i + 1 < rhs.length()
+                    && rhs.charAt(i + 1) == c) {
+                i++;  // skip both characters of the pair
+                continue;
+            }
+            // Single-character operators
+            // i > 0 allows a leading '-' (unary minus) to be treated as part
+            // of the first operand rather than as a binary subtraction operator.
+            if ((c == '+' || c == '-' || c == '*') && i > 0) {
+                String before = rhs.substring(start, i).trim();
+                if (!before.isEmpty()) {
+                    operands.add(before);
+                    operators.add((int) c);
+                    start = i + 1;
+                    continue;
+                }
+            }
+            // 'sdiv' keyword with word boundaries (signed division)
+            if (c == 's' && i > 0 && i + 3 < rhs.length()
+                    && rhs.charAt(i + 1) == 'd' && rhs.charAt(i + 2) == 'i'
+                    && rhs.charAt(i + 3) == 'v') {
+                boolean wBefore = !isIdentChar(rhs.charAt(i - 1));
+                boolean wAfter  = i + 4 >= rhs.length()
+                        || !isIdentChar(rhs.charAt(i + 4));
+                if (wBefore && wAfter) {
+                    String before = rhs.substring(start, i).trim();
+                    if (!before.isEmpty()) {
+                        operands.add(before);
+                        operators.add((int) 'S');  // 'S' for signed div
+                        start = i + 4;
+                        continue;
+                    }
+                }
+            }
+            // 'div' keyword with word boundaries
+            if (c == 'd' && i + 2 < rhs.length()
+                    && rhs.charAt(i + 1) == 'i' && rhs.charAt(i + 2) == 'v'
+                    && i > 0) {
+                boolean wBefore = !isIdentChar(rhs.charAt(i - 1));
+                boolean wAfter  = i + 3 >= rhs.length()
+                        || !isIdentChar(rhs.charAt(i + 3));
+                if (wBefore && wAfter) {
+                    String before = rhs.substring(start, i).trim();
+                    if (!before.isEmpty()) {
+                        operands.add(before);
+                        operators.add((int) 'd');
+                        start = i + 3;
+                        continue;
+                    }
+                }
+            }
+        }
+        // Trailing operand
+        String tail = rhs.substring(start).trim();
+        if (!tail.isEmpty()) {
+            operands.add(tail);
+        }
+    }
+
+    /**
+     * If {@code operand} is a bare identifier that was declared with
+     * {@code var}, wraps it in square brackets so the generated assembly
+     * accesses the value rather than the address.  Operands already
+     * wrapped in brackets (e.g. {@code [myVar]}), register names, or
+     * numeric literals are returned unchanged.
+     */
+    private String wrapIfVar(String operand) {
+        if (operand.startsWith("[")) return operand;            // already bracketed
+        if (regWidth(operand) != null) return operand;          // register name
+        if (declaredVars.containsKey(operand)) return "[" + operand + "]";
+        return operand;
+    }
+
+    /**
+     * Returns {@code true} if the given operand references a variable
+     * declared with the {@code signed} modifier.  Handles both bare
+     * names ({@code myVar}) and bracketed names ({@code [myVar]}).
+     */
+    private boolean isSignedVar(String operand) {
+        String inner = operand;
+        if (inner.startsWith("[") && inner.endsWith("]")) {
+            inner = inner.substring(1, inner.length() - 1).trim();
+        }
+        if (!inner.matches("\\w+")) return false;
+        Boolean signed = declaredVars.get(inner);
+        return signed != null && signed;
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -894,6 +1469,11 @@ public class SasmTranslator {
         return sb.toString();
     }
 
+    /** {@code true} if {@code c} can appear in an identifier (letter, digit, or underscore). */
+    private static boolean isIdentChar(char c) {
+        return Character.isLetterOrDigit(c) || c == '_';
+    }
+
     /** Returns the NASM data directive for a SASM type keyword. */
     private static String sizeDirective(String type) {
         return switch (type.toLowerCase()) {
@@ -934,7 +1514,18 @@ public class SasmTranslator {
                 if (c == '[') depth++;
                 else if (c == ']') depth--;
                 else if (c == '-' && depth == 0
-                        && i + 1 < line.length() && line.charAt(i + 1) == '-') {
+                        && i + 1 < line.length() && line.charAt(i + 1) == '-'
+                        // Require whitespace before "--" so that postfix
+                        // decrements like "ax--" are not mistaken for
+                        // inline comments.  Position 0 is handled by the
+                        // line-comment check in translateLine().
+                        && i > 0 && Character.isWhitespace(line.charAt(i - 1))
+                        // Require that "--" is NOT immediately followed by a
+                        // letter or '[', which would indicate a prefix
+                        // decrement (e.g. "ax + --bx").
+                        && (i + 2 >= line.length()
+                            || (!Character.isLetter(line.charAt(i + 2))
+                                && line.charAt(i + 2) != '['))) {
                     return i;
                 }
             }
