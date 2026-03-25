@@ -563,10 +563,12 @@ public class SasmIdePanel extends JPanel {
         // Override default wheel scrolling so each notch scrolls a fixed
         // number of lines regardless of the platform's Scrollable unit
         // calculation — gives a consistently fast, responsive feel.
+        // lineHeight is computed once here; the font is set above and never
+        // changes, so there is no need to call getFontMetrics on every event.
+        final int lineHeight = editor.getFontMetrics(editor.getFont()).getHeight();
         editorScroll.setWheelScrollingEnabled(false);
         editorScroll.addMouseWheelListener(e -> {
             JScrollBar vsb = editorScroll.getVerticalScrollBar();
-            int lineHeight = editor.getFontMetrics(editor.getFont()).getHeight();
             int delta = (int) Math.round(
                     e.getPreciseWheelRotation() * lineHeight * WHEEL_SCROLL_LINES);
             if (delta != 0) {
@@ -692,6 +694,10 @@ public class SasmIdePanel extends JPanel {
      * </ol>
      */
     private void updateLineHighlight() {
+        // Suppress spurious calls fired by editor.setText() / setCaretPosition()
+        // inside applyPerLinePadding().  A single explicit call at the end of
+        // updateAsmOutput() is sufficient once the padding is stable.
+        if (updatingPadding) return;
         // ── editor highlight ─────────────────────────────────────────────
         try {
             int caretPos = editor.getCaretPosition();
@@ -924,6 +930,12 @@ public class SasmIdePanel extends JPanel {
         // Convert caret to source-relative position (strip padding offsets)
         int srcCaret = caretToSourceOffset(caretPos);
 
+        // Preserve scroll position: editor.setText() resets the DefaultCaret,
+        // which calls scrollRectToVisible() and can move the viewport.
+        // We restore it synchronously after setCaretPosition() so the view
+        // stays anchored at the user's current scroll position.
+        int savedScrollY = editorScroll.getVerticalScrollBar().getValue();
+
         paddingLines = newPadding;
         editorLineNumbers.setPaddingLines(paddingLines);
 
@@ -936,6 +948,12 @@ public class SasmIdePanel extends JPanel {
             editor.setCaretPosition(newCaret);
         }
         updatingPadding = false;
+
+        // Restore scroll position after setText/setCaretPosition (both may have
+        // changed the vertical scroll bar via scrollRectToVisible).
+        JScrollBar vsb = editorScroll.getVerticalScrollBar();
+        int maxScroll = Math.max(0, vsb.getMaximum() - vsb.getVisibleAmount());
+        vsb.setValue(Math.min(savedScrollY, maxScroll));
 
         editorLineNumbers.revalidate();
         editorLineNumbers.repaint();
