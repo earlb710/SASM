@@ -27,6 +27,8 @@ import javax.swing.*;
  * to the full {@link SasmIdePanel} (file tree on the left, editor on the
  * right).  The <em>File → Add New SASM File</em> menu item creates a new
  * {@code .sasm} source file in the project directory and opens it.
+ * The <em>File → Import SASM Files</em> menu item copies one or more existing
+ * {@code .sasm} files into the selected project directory.
  * The <em>File → Delete File</em> menu item permanently removes the currently
  * open file after a confirmation prompt.</p>
  */
@@ -48,6 +50,7 @@ public class SasmMain {
     private static CardLayout  cardLayout;
     private static JPanel      cardPanel;
     private static JMenuItem   addFileItem;       // enabled when a dir is selected
+    private static JMenuItem   importFilesItem;   // enabled when a dir is selected
     private static JMenuItem   addVariantItem;    // enabled only when a project is open
     private static JMenuItem   renameProjectItem; // enabled only when a project is open
     private static JMenuItem   deleteFileItem;    // enabled only when a file is open
@@ -117,6 +120,10 @@ public class SasmMain {
         addFileItem.setEnabled(false);   // enabled when a core/variant dir is selected
         fileMenu.add(addFileItem);
 
+        importFilesItem = new JMenuItem("Import SASM Files");
+        importFilesItem.setEnabled(false); // enabled when a core/variant dir is selected
+        fileMenu.add(importFilesItem);
+
         renameFileItem = new JMenuItem("Rename File");
         renameFileItem.setEnabled(false); // enabled when a file is selected
         fileMenu.add(renameFileItem);
@@ -174,6 +181,7 @@ public class SasmMain {
             boolean dirSel  = idePanel.isDirectorySelected();
             boolean fileSel = idePanel.isFileSelected();
             addFileItem.setEnabled(dirSel || fileSel);
+            importFilesItem.setEnabled(dirSel || fileSel);
             renameFileItem.setEnabled(fileSel);
             propertiesItem.setEnabled(dirSel);
         });
@@ -261,6 +269,8 @@ public class SasmMain {
         addVariantItem.addActionListener(e -> promptAddVariant());
 
         addFileItem.addActionListener(e -> promptAddNewFile());
+
+        importFilesItem.addActionListener(e -> promptImportSasmFiles());
 
         renameFileItem.addActionListener(e -> promptRenameFile());
 
@@ -519,6 +529,63 @@ public class SasmMain {
         dlg.setMinimumSize(new Dimension(400, dlg.getHeight()));
         dlg.setLocationRelativeTo(mainFrame);
         dlg.setVisible(true);
+    }
+
+    // ── import-sasm-files action ─────────────────────────────────────────────
+
+    /**
+     * Shows a multi-select file chooser filtered to {@code .sasm} files,
+     * then copies all chosen files into the currently selected project directory.
+     */
+    private static void promptImportSasmFiles() {
+        File targetDir = idePanel.getSelectedContextDirectory();
+        if (targetDir == null) return;
+
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Import SASM Files");
+        chooser.setMultiSelectionEnabled(true);
+        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                "SASM source files (*.sasm)", "sasm"));
+        chooser.setAcceptAllFileFilterUsed(false);
+
+        int result = chooser.showOpenDialog(mainFrame);
+        if (result != JFileChooser.APPROVE_OPTION) {
+            statusBar.setText(" Import cancelled");
+            return;
+        }
+
+        File[] selected = chooser.getSelectedFiles();
+        if (selected == null || selected.length == 0) return;
+
+        if (!targetDir.exists() && !targetDir.mkdirs()) {
+            statusBar.setText(" Could not create directory: " + targetDir.getPath());
+            return;
+        }
+
+        int copied = 0;
+        List<String> skipped = new ArrayList<>();
+        for (File src : selected) {
+            if (!src.isFile()) continue;
+            File dest = new File(targetDir, src.getName());
+            if (dest.exists()) {
+                skipped.add(src.getName());
+                continue;
+            }
+            try {
+                Files.copy(src.toPath(), dest.toPath());
+                copied++;
+            } catch (Exception ex) {
+                skipped.add(src.getName() + " (" + ex.getMessage() + ")");
+            }
+        }
+
+        idePanel.refreshFileList();
+
+        if (skipped.isEmpty()) {
+            statusBar.setText(" Imported " + copied + " file(s) into " + targetDir.getName() + "/");
+        } else {
+            statusBar.setText(" Imported " + copied + " file(s); skipped: " + String.join(", ", skipped));
+        }
     }
 
     // ── delete-file dialog ───────────────────────────────────────────────────
@@ -968,6 +1035,7 @@ public class SasmMain {
         cardLayout.show(cardPanel, CARD_IDE);
         idePanel.setProject(pf);
         addFileItem.setEnabled(false);    // enabled when a dir is selected in tree
+        importFilesItem.setEnabled(false); // enabled when a dir is selected in tree
         renameFileItem.setEnabled(false);
         propertiesItem.setEnabled(false);
         addVariantItem.setEnabled(true);
@@ -1028,6 +1096,7 @@ public class SasmMain {
                 + "Use File → Add Variant to add a target-platform variant\n"
                 + "  (OS, output type, format variant, processor).\n"
                 + "Use File → Add New SASM File to create .sasm source files.\n"
+                + "Use File → Import SASM Files to copy existing .sasm files into the project.\n"
                 + "Use File → Delete File to permanently remove the open file.\n",
                 10, 40);
         ta.setEditable(false);
