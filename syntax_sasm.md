@@ -195,6 +195,41 @@ if (bx > 10) {         // emits CMP bx, 10 then JLE (skip if less or equal)
 }
 ```
 
+**if / else if / else chains** work exactly like C:
+
+```sasm
+var cond as word = 0
+if (cond == 1) {
+    move 1 to ax
+} else if (cond == 3) {
+    move 3 to ax
+} else {
+    move 0 to ax
+}
+```
+
+The generated assembly uses conditional and unconditional jumps to
+implement the chain:
+
+```asm
+    CMP [cond], 1
+    JNE .L0           ; skip if cond ≠ 1
+    MOV ax, 1
+    JMP .Lend1        ; done — skip remaining branches
+.L0:
+    CMP [cond], 3
+    JNE .L2           ; skip if cond ≠ 3
+    MOV ax, 3
+    JMP .Lend1        ; done — skip remaining branches
+.L2:
+    MOV ax, 0         ; else (fallthrough)
+.Lend1:
+```
+
+Any number of `} else if` clauses may be chained, and the final
+`} else {` clause is optional.  Condition-word syntax and C-style
+comparisons may be freely mixed in the same chain.
+
 ### Count Loops
 
 ```sasm

@@ -62,13 +62,40 @@ public class SasmTranslator {
     }
 
     /**
-     * Block-nesting stack used to pair {@code for (...) \{} openings with
-     * their closing {@code \}}.  A {@code null} entry represents a non-for
-     * block ({@code if}, {@code while}, {@code repeat}, etc.); a non-null
-     * {@link ForContext} represents a {@code for} block whose closing brace
-     * must emit the step instruction, a jump back, and the end label.
+     * Holds context for an {@code if}/{@code else if}/{@code else} block.
+     * <ul>
+     *   <li>{@code skipLabel} — the label to jump to when this block's
+     *       condition is false (e.g. the start of the next {@code else if}
+     *       or {@code else}).  {@code null} for an {@code else} block.</li>
+     *   <li>{@code endLabel} — the label at the very end of the entire
+     *       if/else chain, used for the unconditional jump that skips
+     *       subsequent alternatives after executing one block.
+     *       {@code null} for a standalone {@code if} (no {@code else}).</li>
+     * </ul>
      */
-    private final Deque<ForContext> blockStack = new LinkedList<>();
+    private static class IfContext {
+        final String skipLabel;
+        String endLabel;        // assigned lazily when an else-if or else is seen
+        IfContext(String skipLabel, String endLabel) {
+            this.skipLabel = skipLabel;
+            this.endLabel  = endLabel;
+        }
+    }
+
+    /**
+     * Block-nesting stack used to pair block openings with their closing
+     * {@code \}}.
+     * <ul>
+     *   <li>{@code null} — a block that needs no special closing code
+     *       ({@code while}, {@code repeat}, {@code atomic}, etc.).</li>
+     *   <li>{@link ForContext} — a {@code for} block whose closing brace
+     *       must emit the step instruction, a jump back, and the end
+     *       label.</li>
+     *   <li>{@link IfContext} — an {@code if}/{@code else if}/{@code else}
+     *       block whose closing brace must emit skip/end labels.</li>
+     * </ul>
+     */
+    private final Deque<Object> blockStack = new LinkedList<>();
 
     /** Pattern for {@code #REF <file> <alias>} import directives. */
     private static final Pattern REF_DIRECTIVE = Pattern.compile(
@@ -235,15 +262,27 @@ public class SasmTranslator {
         // ── structural keywords ──────────────────────────────────────────────
         if (code.equals("{")) return null; // standalone opening brace — passthrough
         if (code.equals("}")) {
-            // If the stack says we are closing a for-loop, emit step + jump + end label.
             if (!blockStack.isEmpty()) {
-                ForContext ctx = blockStack.pop();
-                if (ctx != null) {
-                    return ctx.stepCode + "\n    JMP " + ctx.loopLabel
-                            + "\n" + ctx.endLabel + ":";
+                Object ctx = blockStack.pop();
+                if (ctx instanceof ForContext fc) {
+                    return fc.stepCode + "\n    JMP " + fc.loopLabel
+                            + "\n" + fc.endLabel + ":";
+                }
+                if (ctx instanceof IfContext ic) {
+                    if (ic.endLabel != null) {
+                        if (ic.skipLabel != null) {
+                            // Last else-if in chain (no following else):
+                            // emit both the skip label and the end label.
+                            return ic.skipLabel + ":\n" + ic.endLabel + ":";
+                        }
+                        // Else block → emit end-of-chain label only.
+                        return ic.endLabel + ":";
+                    }
+                    // Standalone if (no else) → emit the skip label.
+                    return ic.skipLabel + ":";
                 }
             }
-            return null; // non-for block — passthrough
+            return null; // while / repeat / atomic — passthrough
         }
         if (code.startsWith("proc "))   return translateProc(code);
         if (code.startsWith("block "))  return translateBlock(code);
@@ -848,45 +887,86 @@ public class SasmTranslator {
     // ══════════════════════════════════════════════════════════════════════════
 
     private String tryIf(String code) {
-        // if <condition> {   →   J<opposite> .else_N
+        // ── if <condition> { ─────────────────────────────────────────────
         Matcher m = Pattern.compile("if\\s+(.+?)\\s*\\{").matcher(code);
         if (m.matches()) {
-            blockStack.push(null);
             String cond = m.group(1).trim();
-            String lbl = ".L" + (labelSeq++);
-            // C-style inline comparison: if (op1 == op2) { or if (op1 != op2) {
+            String skipLbl = ".L" + (labelSeq++);
+            // endLabel starts as null; assigned lazily if an else-if/else follows.
+            blockStack.push(new IfContext(skipLbl, null));
+
+            // C-style inline comparison: if (op1 == op2) {
             String[] ic = parseInlineCompare(cond);
             if (ic != null) {
                 String inv = conditionToJump(invertCondition(ic[1]));
-                return ic[0] + "\n    " + inv + " " + lbl + "   ; if " + cond;
+                return ic[0] + "\n    " + inv + " " + skipLbl + "   ; if " + cond;
             }
             String inv = conditionToJump(invertCondition(cond));
-            return "    " + inv + " " + lbl + "   ; if " + cond;
+            return "    " + inv + " " + skipLbl + "   ; if " + cond;
         }
+
+        // ── } else if <condition> { ──────────────────────────────────────
         if (code.startsWith("} else if ")) {
-            if (!blockStack.isEmpty()) blockStack.pop();
-            blockStack.push(null);
+            IfContext prev = popIfContext();
+            if (prev == null) return null;
+
+            // Lazily create the shared end-of-chain label.
+            String endLbl = prev.endLabel;
+            if (endLbl == null) {
+                endLbl = ".Lend" + (labelSeq++);
+                prev.endLabel = endLbl;      // retroactively set on prev
+            }
+
             String rest = code.substring(10).trim();
             Matcher m2 = Pattern.compile("(.+?)\\s*\\{").matcher(rest);
             if (m2.matches()) {
                 String cond = m2.group(1).trim();
-                String lbl = ".L" + (labelSeq++);
+                String skipLbl = ".L" + (labelSeq++);
+                blockStack.push(new IfContext(skipLbl, endLbl));
+
                 // C-style inline comparison: } else if (op1 != op2) {
                 String[] ic = parseInlineCompare(cond);
                 if (ic != null) {
                     String inv = conditionToJump(invertCondition(ic[1]));
-                    return ic[0] + "\n    " + inv + " " + lbl + "   ; else if " + cond;
+                    return "    JMP " + endLbl + "\n"
+                            + prev.skipLabel + ":\n"
+                            + ic[0] + "\n    " + inv + " " + skipLbl
+                            + "   ; else if " + cond;
                 }
                 String inv = conditionToJump(invertCondition(cond));
-                return "    " + inv + " " + lbl + "   ; else if " + cond;
+                return "    JMP " + endLbl + "\n"
+                        + prev.skipLabel + ":\n"
+                        + "    " + inv + " " + skipLbl
+                        + "   ; else if " + cond;
             }
         }
+
+        // ── } else { ────────────────────────────────────────────────────
         if (code.equals("} else {")) {
-            if (!blockStack.isEmpty()) blockStack.pop();
-            blockStack.push(null);
-            return "    ; else";
+            IfContext prev = popIfContext();
+            if (prev == null) return null;
+
+            String endLbl = prev.endLabel;
+            if (endLbl == null) {
+                endLbl = ".Lend" + (labelSeq++);
+                prev.endLabel = endLbl;
+            }
+            blockStack.push(new IfContext(null, endLbl));
+            return "    JMP " + endLbl + "\n" + prev.skipLabel + ":";
         }
+
         return null;
+    }
+
+    /**
+     * Pops the top of the {@link #blockStack} and returns it as an
+     * {@link IfContext}, or {@code null} if the stack is empty or the
+     * top entry is not an {@code IfContext}.
+     */
+    private IfContext popIfContext() {
+        if (blockStack.isEmpty()) return null;
+        Object top = blockStack.pop();
+        return (top instanceof IfContext ic) ? ic : null;
     }
 
     private String tryRepeat(String code) {

@@ -1,0 +1,178 @@
+// testIfElse.sasm
+// Project : Test-projects
+//
+// Demonstrates if / else if / else chains supported by SASM:
+//   1. Standalone if with C-style comparison
+//   2. if / else
+//   3. if / else if / else
+//   4. Multiple else-if chain
+//   5. Nested if/else
+//   6. if with condition-word syntax
+//   7. if/else with various comparison operators (<, <=, >, >=, ==, !=)
+//   8. if/else inside a for loop
+
+section .text
+global _start
+
+// ── variables ────────────────────────────────────────────────────
+var result as word = 0
+var cond   as word = 0
+var x      as word = 0
+var y      as word = 0
+var i      as word = 0
+var limit  as word = 10
+
+// //---------------------------------------------------------------
+// 1. Standalone if — C-style comparison
+//    Only executes the body when cond equals 1.
+// //---------------------------------------------------------------
+proc test_standalone_if {
+    if (cond == 1) {
+        move 1 to [result]
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// 2. if / else — two-way branch
+//    Sets result to 1 if cond equals 1, else sets it to 0.
+// //---------------------------------------------------------------
+proc test_if_else {
+    if (cond == 1) {
+        move 1 to [result]
+    } else {
+        move 0 to [result]
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// 3. if / else if / else — three-way branch
+//    Matches the syntax from the issue:
+//    if (cond==1) {...} else if (cond==3) {...} else {...}
+// //---------------------------------------------------------------
+proc test_if_elseif_else {
+    if (cond == 1) {
+        move 1 to [result]
+    } else if (cond == 3) {
+        move 3 to [result]
+    } else {
+        move 0 to [result]
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// 4. Multiple else-if chain — four-way branch
+//    Tests that long chains are translated correctly.
+// //---------------------------------------------------------------
+proc test_multi_elseif {
+    if (cond == 1) {
+        move 1 to [result]
+    } else if (cond == 2) {
+        move 2 to [result]
+    } else if (cond == 3) {
+        move 3 to [result]
+    } else if (cond == 4) {
+        move 4 to [result]
+    } else {
+        move 0 to [result]
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// 5. Nested if/else — inner chain inside outer chain
+//    Demonstrates correct label scoping with nesting.
+// //---------------------------------------------------------------
+proc test_nested_if {
+    if (x == 1) {
+        if (y == 2) {
+            move 12 to [result]
+        } else {
+            move 10 to [result]
+        }
+    } else {
+        if (y == 3) {
+            move 3 to [result]
+        } else {
+            move 0 to [result]
+        }
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// 6. Condition-word syntax — traditional SASM flag-based conditions
+//    A compare instruction must precede the if.
+// //---------------------------------------------------------------
+proc test_condition_word_if {
+    compare [cond] with 5
+    if equal {
+        move 5 to [result]
+    }
+
+    compare [cond] with 10
+    if equal {
+        move 10 to [result]
+    } else if not equal {
+        move 0 to [result]
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// 7. All C-style comparison operators
+//    Verifies <, <=, >, >=, ==, != in if/else if chains.
+// //---------------------------------------------------------------
+proc test_comparison_ops {
+    if (x < 5) {
+        move 1 to [result]
+    } else if (x <= 10) {
+        move 2 to [result]
+    } else if (x > 100) {
+        move 3 to [result]
+    } else if (x >= 50) {
+        move 4 to [result]
+    } else if (x != 20) {
+        move 5 to [result]
+    } else {
+        move 6 to [result]
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// 8. if/else inside a for loop — block nesting
+//    The if's } must not be confused with the for loop's }.
+// //---------------------------------------------------------------
+proc test_if_in_for {
+    for (i=0; i<limit; i++) {
+        if (i == 5) {
+            move 0xFF to [result]
+        } else if (i == 3) {
+            move 0x33 to [result]
+        } else {
+            move 0 to [result]
+        }
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// _start — exercise each test
+// //---------------------------------------------------------------
+_start:
+    call test_standalone_if
+    call test_if_else
+    call test_if_elseif_else
+    call test_multi_elseif
+    call test_nested_if
+    call test_condition_word_if
+    call test_comparison_ops
+    call test_if_in_for
+
+    // Exit (Linux syscall: sys_exit)
+    move 0 to bl
+    move 1 to ax
+    syscall 0x80
