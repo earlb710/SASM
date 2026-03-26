@@ -44,7 +44,7 @@ _start:
     // ── Step 2: create a file and write to it ───────────────────
     push path_bytes                   // file path: "test.txt"
     call @io.create_file_write        // eax = file handle
-    add 4 to esp                      // clean up our arg (non-stdcall caller side)
+    add 4 to esp                      // clean caller arg (wrapper uses plain RET)
 
     // Check for error
     compare eax with io_INVALID_HANDLE

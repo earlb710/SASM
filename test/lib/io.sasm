@@ -91,7 +91,7 @@ io_open_file_read:
     push 0                            // lpSecurityAttributes = NULL
     push io_FILE_SHARE_READ           // dwShareMode
     push io_GENERIC_READ              // dwDesiredAccess
-    push dword [ebp+8]               // lpFileName (caller's arg)
+    push dword [ebp+8]               // lpFileName (file path from caller)
     call _CreateFileA@28
 
     pop ebp
@@ -122,7 +122,7 @@ io_create_file_write:
     push 0                            // lpSecurityAttributes = NULL
     push 0                            // dwShareMode = 0 (exclusive)
     push io_GENERIC_WRITE             // dwDesiredAccess
-    push dword [ebp+8]               // lpFileName (caller's arg)
+    push dword [ebp+8]               // lpFileName (file path from caller)
     call _CreateFileA@28
 
     pop ebp
