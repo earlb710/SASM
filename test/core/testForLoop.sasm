@@ -1,0 +1,105 @@
+// testForLoop.sasm
+// Project : Test-projects
+//
+// Demonstrates the C-style for loop supported by SASM:
+//   for (init; condition; step) { ... }
+//
+// Comparison operators: <, <=, >, >=, ==, !=
+// Init and step can be any valid SASM statement.
+
+section .text
+global _start
+
+(* ── static data ──────────────────────────────────────────────── *)
+data buffer as byte[10]
+
+(* ── variables ────────────────────────────────────────────────── *)
+var i as word = 0
+var limit as word = 10
+var sum as word = 0
+
+// //---------------------------------------------------------------
+// 1. Basic for loop — fill buffer with 0xAA
+//    Uses a declared variable as the loop counter.
+// //---------------------------------------------------------------
+proc fill_buffer {
+    for (i=0; i<limit; i++) {
+        move 0xAA to byte [buffer + i]
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// 2. Countdown for loop — decrement from 9 to 0
+//    Uses the >= operator and postfix decrement.
+// //---------------------------------------------------------------
+proc countdown {
+    for (i=9; i>=0; i--) {
+        move i to al
+        move al to byte [buffer + i]
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// 3. For loop with bracket-style operands
+//    Uses explicit bracket notation instead of declared variables.
+// //---------------------------------------------------------------
+proc fill_direct {
+    for ([i]=0; [i]<10; [i]++) {
+        move 0xBB to byte [buffer + i]
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// 4. For loop with != condition
+//    Loops while i != limit.
+// //---------------------------------------------------------------
+proc fill_not_equal {
+    for (i=0; i!=limit; i++) {
+        move 0xCC to byte [buffer + i]
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// 5. Nested for loop with if inside
+//    Demonstrates block nesting: the if's closing } does not
+//    interfere with the for loop's closing }.
+// //---------------------------------------------------------------
+proc fill_conditional {
+    for (i=0; i<limit; i++) {
+        if (i == 5) {
+            move 0xFF to byte [buffer + i]
+        }
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// 6. For loop with <= condition
+//    Fills buffer[0..9] inclusive.
+// //---------------------------------------------------------------
+proc fill_inclusive {
+    for (i=0; i<=9; i++) {
+        move 0xDD to byte [buffer + i]
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// _start — exercise each for-loop variant
+// //---------------------------------------------------------------
+_start:
+    call fill_buffer           // 1. basic for loop
+    call countdown             // 2. countdown (>= / --)
+    call fill_direct           // 3. bracket-style operands
+    call fill_not_equal        // 4. != condition
+    call fill_conditional      // 5. nested if inside for
+    call fill_inclusive         // 6. <= condition
+
+    // Exit (Linux syscall: sys_exit)
+    move 0 to bl
+    move 1 to ax
+    interrupt 0x80

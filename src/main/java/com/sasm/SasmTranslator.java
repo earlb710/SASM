@@ -1,7 +1,9 @@
 package com.sasm;
 
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -42,6 +44,31 @@ public class SasmTranslator {
      * declared with the {@code signed} modifier, {@code false} otherwise.</p>
      */
     private final Map<String, Boolean> declaredVars = new HashMap<>();
+
+    /**
+     * Holds the step code, loop label, and end label for a {@code for} loop.
+     * Pushed onto {@link #blockStack} when a {@code for (...) \{} line is
+     * translated; popped when the matching {@code \}} is encountered.
+     */
+    private static class ForContext {
+        final String stepCode;
+        final String loopLabel;
+        final String endLabel;
+        ForContext(String stepCode, String loopLabel, String endLabel) {
+            this.stepCode  = stepCode;
+            this.loopLabel = loopLabel;
+            this.endLabel  = endLabel;
+        }
+    }
+
+    /**
+     * Block-nesting stack used to pair {@code for (...) \{} openings with
+     * their closing {@code \}}.  A {@code null} entry represents a non-for
+     * block ({@code if}, {@code while}, {@code repeat}, etc.); a non-null
+     * {@link ForContext} represents a {@code for} block whose closing brace
+     * must emit the step instruction, a jump back, and the end label.
+     */
+    private final Deque<ForContext> blockStack = new LinkedList<>();
 
     /** Pattern for {@code #REF <file> <alias>} import directives. */
     private static final Pattern REF_DIRECTIVE = Pattern.compile(
@@ -91,6 +118,7 @@ public class SasmTranslator {
         labelSeq = 0;
         aliasMap.clear();
         declaredVars.clear();
+        blockStack.clear();
 
         // ── first pass: collect #REF alias mappings ──────────────────────────
         String[] lines = sasmSource.split("\\r?\\n", -1);
@@ -205,7 +233,18 @@ public class SasmTranslator {
         if (code.endsWith(":") && !code.contains(" ")) return code;
 
         // ── structural keywords ──────────────────────────────────────────────
-        if (code.equals("{") || code.equals("}")) return null; // passthrough braces
+        if (code.equals("{")) return null; // standalone opening brace — passthrough
+        if (code.equals("}")) {
+            // If the stack says we are closing a for-loop, emit step + jump + end label.
+            if (!blockStack.isEmpty()) {
+                ForContext ctx = blockStack.pop();
+                if (ctx != null) {
+                    return ctx.stepCode + "\n    JMP " + ctx.loopLabel
+                            + "\n" + ctx.endLabel + ":";
+                }
+            }
+            return null; // non-for block — passthrough
+        }
         if (code.startsWith("proc "))   return translateProc(code);
         if (code.startsWith("block "))  return translateBlock(code);
         if (code.equals("return"))      return "    RET";
@@ -262,6 +301,7 @@ public class SasmTranslator {
         if ((r = tryIf(code))            != null) return r;
         if ((r = tryRepeat(code))        != null) return r;
         if ((r = tryWhile(code))         != null) return r;
+        if ((r = tryFor(code))           != null) return r;
         if ((r = tryAtomic(code))        != null) return r;
 
         // ── miscellaneous flags / extensions ─────────────────────────────────
@@ -490,15 +530,19 @@ public class SasmTranslator {
     private static final Pattern COMPARE = Pattern.compile(
             "(?:compare|comp)\\s+(.+?)\\s+with\\s+(.+)", Pattern.CASE_INSENSITIVE);
 
-    /** Matches {@code op1 == op2} or {@code op1 != op2} (C-style comparison). */
+    /** Matches C-style comparison operators: {@code ==}, {@code !=},
+     *  {@code <=}, {@code >=}, {@code <}, {@code >}.
+     *  Negative lookaheads on {@code <} and {@code >} prevent matching
+     *  shift operators ({@code <<}, {@code >>}). */
     private static final Pattern C_CMP = Pattern.compile(
-            "(.+?)\\s*(==|!=)\\s*(.+)");
+            "(.+?)\\s*(==|!=|<=|>=|<(?![<=])|>(?![>=]))\\s*(.+)");
 
     private String tryCompare(String code) {
         Matcher m = COMPARE.matcher(code);
         if (m.matches()) return "    CMP " + m.group(1) + ", " + m.group(2);
-        // Standalone == / != (not inside control structures with braces)
-        if (!code.contains("{") && !code.contains("}")) {
+        // Standalone C-style comparison (not inside control structures)
+        if (!code.contains("{") && !code.contains("}")
+                && !code.contains("<<") && !code.contains(">>")) {
             m = C_CMP.matcher(code);
             if (m.matches()) return "    CMP " + m.group(1).trim() + ", " + m.group(3).trim();
         }
@@ -507,12 +551,12 @@ public class SasmTranslator {
 
     /**
      * Tries to parse a parenthesised inline comparison from a condition
-     * string.  If the condition is {@code (op1 == op2)} or
-     * {@code (op1 != op2)}, returns a two-element array:
+     * string.  If the condition matches a C-style comparison operator
+     * ({@code ==}, {@code !=}, {@code <}, {@code <=}, {@code >},
+     * {@code >=}), returns a two-element array:
      * <ol>
      *   <li>the CMP instruction (e.g.&nbsp;{@code "    CMP cx, 10"})</li>
-     *   <li>the condition word ({@code "equal"} for {@code ==},
-     *       {@code "not equal"} for {@code !=})</li>
+     *   <li>the condition word (e.g.&nbsp;{@code "equal"}, {@code "less"})</li>
      * </ol>
      * Returns {@code null} if the condition does not match.
      */
@@ -523,8 +567,22 @@ public class SasmTranslator {
         if (!m.matches()) return null;
         String op1 = wrapIfVar(m.group(1).trim());
         String op2 = wrapIfVar(m.group(3).trim());
-        String condWord = m.group(2).equals("==") ? "equal" : "not equal";
+        String condWord = operatorToCondition(m.group(2));
+        if (condWord == null) return null;
         return new String[]{"    CMP " + op1 + ", " + op2, condWord};
+    }
+
+    /** Maps a C-style comparison operator to a SASM condition word. */
+    private static String operatorToCondition(String op) {
+        return switch (op) {
+            case "==" -> "equal";
+            case "!=" -> "not equal";
+            case "<"  -> "less";
+            case "<=" -> "less or equal";
+            case ">"  -> "greater";
+            case ">=" -> "greater or equal";
+            default   -> null;
+        };
     }
 
     private String tryExtend(String code) {
@@ -793,6 +851,7 @@ public class SasmTranslator {
         // if <condition> {   →   J<opposite> .else_N
         Matcher m = Pattern.compile("if\\s+(.+?)\\s*\\{").matcher(code);
         if (m.matches()) {
+            blockStack.push(null);
             String cond = m.group(1).trim();
             String lbl = ".L" + (labelSeq++);
             // C-style inline comparison: if (op1 == op2) { or if (op1 != op2) {
@@ -805,6 +864,8 @@ public class SasmTranslator {
             return "    " + inv + " " + lbl + "   ; if " + cond;
         }
         if (code.startsWith("} else if ")) {
+            if (!blockStack.isEmpty()) blockStack.pop();
+            blockStack.push(null);
             String rest = code.substring(10).trim();
             Matcher m2 = Pattern.compile("(.+?)\\s*\\{").matcher(rest);
             if (m2.matches()) {
@@ -821,6 +882,8 @@ public class SasmTranslator {
             }
         }
         if (code.equals("} else {")) {
+            if (!blockStack.isEmpty()) blockStack.pop();
+            blockStack.push(null);
             return "    ; else";
         }
         return null;
@@ -830,6 +893,7 @@ public class SasmTranslator {
         // repeat <operand> times {
         Matcher m = Pattern.compile("repeat\\s+(\\S+)\\s+times\\s*\\{").matcher(code);
         if (m.matches()) {
+            blockStack.push(null);
             String operand = m.group(1).trim();
             String lbl = ".loop" + (labelSeq++);
             if (operand.equalsIgnoreCase("cx")) {
@@ -842,6 +906,7 @@ public class SasmTranslator {
         // repeat <operand> times while <condition> {
         m = Pattern.compile("repeat\\s+(\\S+)\\s+times\\s+while\\s+(.+?)\\s*\\{").matcher(code);
         if (m.matches()) {
+            blockStack.push(null);
             String operand = m.group(1).trim();
             String lbl = ".loop" + (labelSeq++);
             if (operand.equalsIgnoreCase("cx")) {
@@ -852,11 +917,13 @@ public class SasmTranslator {
         }
         // repeat { … } until <condition>
         if (code.equals("repeat {")) {
+            blockStack.push(null);
             String lbl = ".loop" + (labelSeq++);
             return lbl + ":   ; repeat";
         }
         m = Pattern.compile("\\}\\s+until\\s+(.+)").matcher(code);
         if (m.matches()) {
+            if (!blockStack.isEmpty()) blockStack.pop();
             String cond = m.group(1).trim();
             // C-style inline comparison: } until (op1 == op2)
             String[] ic = parseInlineCompare(cond);
@@ -873,6 +940,7 @@ public class SasmTranslator {
     private String tryWhile(String code) {
         Matcher m = Pattern.compile("while\\s+(.+?)\\s*\\{").matcher(code);
         if (m.matches()) {
+            blockStack.push(null);
             String cond = m.group(1).trim();
             String lbl = ".while" + (labelSeq++);
             // C-style inline comparison: while (op1 != op2) {
@@ -886,8 +954,99 @@ public class SasmTranslator {
     }
 
     private String tryAtomic(String code) {
-        if (code.equals("atomic {")) return "    ; atomic {  (LOCK prefix)";
+        if (code.equals("atomic {")) {
+            blockStack.push(null);
+            return "    ; atomic {  (LOCK prefix)";
+        }
         return null;
+    }
+
+    /**
+     * Translates a C-style {@code for} loop header.
+     *
+     * <p>Syntax: {@code for (init; condition; step) \{}
+     *
+     * <p>The <em>init</em> and <em>step</em> parts are each translated
+     * through the normal SASM engine ({@link #tryTranslateCode}).
+     * The <em>condition</em> must be a C-style comparison using one of
+     * {@code <}, {@code <=}, {@code >}, {@code >=}, {@code ==}, or
+     * {@code !=}.
+     *
+     * <p>The generated assembly for the opening is:
+     * <pre>
+     *     &lt;init&gt;
+     * .forN:
+     *     CMP op1, op2
+     *     J&lt;inverted&gt; .endforM
+     * </pre>
+     * The matching closing {@code \}} emits:
+     * <pre>
+     *     &lt;step&gt;
+     *     JMP .forN
+     * .endforM:
+     * </pre>
+     */
+    private String tryFor(String code) {
+        Matcher m = Pattern.compile("for\\s*\\((.+)\\)\\s*\\{").matcher(code);
+        if (!m.matches()) return null;
+
+        String inner = m.group(1);
+        String[] parts = splitForParts(inner);
+        if (parts == null) return null;
+
+        String initPart = parts[0].trim();
+        String condPart = parts[1].trim();
+        String stepPart = parts[2].trim();
+
+        // ── translate init ───────────────────────────────────────────────
+        String initAsm = tryTranslateCode(initPart);
+        if (initAsm == null) return null;
+
+        // ── parse condition (C-style comparison) ─────────────────────────
+        Matcher cm = C_CMP.matcher(condPart);
+        if (!cm.matches()) return null;
+        String op1 = wrapIfVar(cm.group(1).trim());
+        String op2 = wrapIfVar(cm.group(3).trim());
+        String condWord = operatorToCondition(cm.group(2));
+        if (condWord == null) return null;
+        String exitJmp = conditionToJump(invertCondition(condWord));
+
+        // ── translate step ───────────────────────────────────────────────
+        String stepAsm = tryTranslateCode(stepPart);
+        if (stepAsm == null) return null;
+
+        // ── generate labels & push context ───────────────────────────────
+        String loopLabel = ".for" + (labelSeq++);
+        String endLabel  = ".endfor" + (labelSeq++);
+        blockStack.push(new ForContext(stepAsm, loopLabel, endLabel));
+
+        // ── emit opening code ────────────────────────────────────────────
+        return initAsm + "\n"
+                + loopLabel + ":\n"
+                + "    CMP " + op1 + ", " + op2 + "\n"
+                + "    " + exitJmp + " " + endLabel;
+    }
+
+    /**
+     * Splits the interior of a {@code for (...)} header into three parts
+     * on semicolons, respecting bracket nesting.  Returns a 3-element
+     * array or {@code null} if not exactly three parts are found.
+     */
+    private static String[] splitForParts(String inner) {
+        List<String> parts = new ArrayList<>();
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < inner.length(); i++) {
+            char c = inner.charAt(i);
+            if (c == '(' || c == '[') depth++;
+            else if (c == ')' || c == ']') depth--;
+            else if (c == ';' && depth == 0) {
+                parts.add(inner.substring(start, i));
+                start = i + 1;
+            }
+        }
+        parts.add(inner.substring(start));
+        return parts.size() == 3 ? parts.toArray(new String[0]) : null;
     }
 
     // ══════════════════════════════════════════════════════════════════════════

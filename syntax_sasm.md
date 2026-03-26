@@ -179,7 +179,7 @@ if <condition> {
 
 `<condition>` is a condition word or phrase corresponding to the flag state (see [Control Transfer](#control-transfer)).
 
-**C-style inline comparison:** wrap the condition in parentheses with `==` or `!=` to emit a `CMP` automatically:
+**C-style inline comparison:** wrap the condition in parentheses with `==`, `!=`, `<`, `<=`, `>`, or `>=` to emit a `CMP` automatically:
 
 ```sasm
 if (ax == 0) {         // emits CMP ax, 0 then JNE (skip if not equal)
@@ -188,6 +188,10 @@ if (ax == 0) {         // emits CMP ax, 0 then JNE (skip if not equal)
 
 if (cx != 5) {         // emits CMP cx, 5 then JE (skip if equal)
     move 2 to bx
+}
+
+if (bx > 10) {         // emits CMP bx, 10 then JLE (skip if less or equal)
+    move 3 to bx
 }
 ```
 
@@ -271,7 +275,7 @@ while not equal {               // loop while bx ≠ 10 (ZF = 0)
 Any condition word may be used: `while equal`, `while above`, `while less or equal`, etc.
 See the full list under [Condition Words](#condition-words).
 
-**C-style inline comparison:** wrap the condition in parentheses with `==` or `!=` to emit a `CMP` automatically:
+**C-style inline comparison:** wrap the condition in parentheses with `==`, `!=`, `<`, `<=`, `>`, or `>=` to emit a `CMP` automatically:
 
 ```sasm
 while (bx != 10) {             // emits CMP bx, 10 then label
@@ -280,7 +284,7 @@ while (bx != 10) {             // emits CMP bx, 10 then label
 }
 ```
 
-The parenthesized form `while (op1 != op2)` emits the initial `CMP` and sets the condition to `not equal`.  You must still re-set flags at the end of the loop body (with `compare`, `comp`, `==`, or `!=`).
+The parenthesized form `while (op1 != op2)` emits the initial `CMP` and sets the condition to `not equal`.  You must still re-set flags at the end of the loop body (with `compare`, `comp`, `==`, `!=`, `<`, `<=`, `>`, or `>=`).
 
 ### Repeat-Until Loop
 
@@ -299,6 +303,62 @@ repeat {
     increment bx
 } until (bx == 10)             // emits CMP bx, 10 then JNE .loop
 ```
+
+### C-Style For Loop
+
+```sasm
+for (init; condition; step) {
+    <body>
+}
+```
+
+A structured loop that combines initialization, condition checking, and stepping into one header.  The generated assembly is:
+
+```nasm
+    <init>                ; translated SASM init statement
+.forN:
+    CMP op1, op2          ; from the condition
+    J<inverted> .endforM  ; exit when condition is false
+    ; ... body ...
+    <step>                ; translated SASM step statement
+    JMP .forN             ; back to condition
+.endforM:
+```
+
+The **init** and **step** parts are each translated through the normal SASM engine, so they can be any valid single-line SASM statement (assignments, increments, etc.).
+
+The **condition** must be a C-style comparison using `<`, `<=`, `>`, `>=`, `==`, or `!=`.  Declared variable names are auto-wrapped in brackets.
+
+**Examples:**
+
+```sasm
+var i as word
+var limit as word = 10
+
+// Count from 0 to limit-1
+for (i=0; i<limit; i++) {
+    move 0xAA to byte [buffer + i]
+}
+
+// Countdown from 9 to 0
+for (i=9; i>=0; i--) {
+    move i to al
+}
+
+// Bracket-style operands
+for ([i]=0; [i]<10; [i]++) {
+    move 0xBB to byte [buffer + i]
+}
+
+// Nested if inside for
+for (i=0; i<limit; i++) {
+    if (i == 5) {
+        move 0xFF to byte [buffer + i]
+    }
+}
+```
+
+Nesting works correctly: `if`, `while`, and `repeat` blocks inside a `for` loop are tracked separately, so their closing `}` does not interfere with the `for` loop's closing `}`.
 
 ### Atomic Block
 
@@ -1181,6 +1241,10 @@ reverse_bytes:
 | `comp <op1> with <op2>` | `CMP op1, op2` | Short form of `compare` |
 | `<op1> == <op2>` | `CMP op1, op2` | C-style comparison (sets flags) |
 | `<op1> != <op2>` | `CMP op1, op2` | C-style comparison (sets flags) |
+| `<op1> < <op2>` | `CMP op1, op2` | C-style comparison (sets flags) |
+| `<op1> <= <op2>` | `CMP op1, op2` | C-style comparison (sets flags) |
+| `<op1> > <op2>` | `CMP op1, op2` | C-style comparison (sets flags) |
+| `<op1> >= <op2>` | `CMP op1, op2` | C-style comparison (sets flags) |
 | `extend byte to word` | `CBW` | Sign-extend `al` → `ax` |
 | `extend word to double` | `CWD` | Sign-extend `ax` → `DX:AX` |
 | `extend double to quad` | `CDQE` | Sign-extend `eax` → `rax` (x86-64 only) |
