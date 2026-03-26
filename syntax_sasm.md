@@ -1981,7 +1981,9 @@ library files that are shared across all variants of the project.
   - `std_io.sasm` — Linux console I/O (`print_char` via `int 0x80`)
   - `io.sasm` — Windows file I/O (`open_file_read`, `create_file_write`,
     `read_file`, `write_file`, `close_file`, `write_stdout` via
-    kernel32 Win32 API)
+    kernel32 Win32 API).
+    Compatible with all 32-bit Windows versions from Windows 95 / NT 3.1
+    onward, and all 64-bit Windows versions via WoW64.
 * Users can add additional library files to `lib/` for project-specific
   shared code.
 * Like `core/`, the `lib/` directory cannot be renamed or deleted through
