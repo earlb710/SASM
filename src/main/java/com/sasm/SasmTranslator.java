@@ -1372,7 +1372,8 @@ public class SasmTranslator {
      * <p>Supported operators (binary, outside square brackets):
      * {@code +}, {@code -}, {@code *}, {@code div} (unsigned division),
      * {@code sdiv} (signed division), {@code <<}, {@code >>},
-     * {@code &&} (bitwise AND), {@code ||} (bitwise OR).
+     * {@code &&} (bitwise AND), {@code ||} (bitwise OR),
+     * {@code ^^} (bitwise XOR).
      * Multiple operators are supported and evaluated left-to-right
      * (e.g. {@code ax = bx + 3 + dx * 2}).</p>
      *
@@ -1400,7 +1401,7 @@ public class SasmTranslator {
 
         // Tokenize the RHS into operands and operators
         List<String> operands = new ArrayList<>();
-        List<Integer> operators = new ArrayList<>(); // '+', '-', '*', 'd' (div), 'S' (sdiv), 'L' (<<), 'R' (>>), 'A' (&& bitwise AND), 'O' (|| bitwise OR); unary '!' handled separately
+        List<Integer> operators = new ArrayList<>(); // '+', '-', '*', 'd' (div), 'S' (sdiv), 'L' (<<), 'R' (>>), 'A' (&& bitwise AND), 'O' (|| bitwise OR), 'X' (^^ bitwise XOR); unary '!' handled separately
         splitExprTokens(rhs, operands, operators);
 
         // ── Detect inline ++/-- on operands (pre/post-increment/decrement) ──
@@ -1513,6 +1514,9 @@ public class SasmTranslator {
                 case 'O' -> sameAsDst
                         ? "    OR " + dst + ", " + op2
                         : "    MOV " + dst + ", " + op1 + "\n    OR " + dst + ", " + op2;
+                case 'X' -> sameAsDst
+                        ? "    XOR " + dst + ", " + op2
+                        : "    MOV " + dst + ", " + op1 + "\n    XOR " + dst + ", " + op2;
                 case 'd' -> buildDiv(dst, op1, op2,
                         isSignedVar(op1) || isSignedVar(op2));
                 case 'S' -> buildDiv(dst, op1, op2, true);
@@ -1549,6 +1553,7 @@ public class SasmTranslator {
                               .append(dst).append(", ").append(operand);
                 case 'A' -> sb.append("    AND ").append(dst).append(", ").append(operand);
                 case 'O' -> sb.append("    OR ").append(dst).append(", ").append(operand);
+                case 'X' -> sb.append("    XOR ").append(dst).append(", ").append(operand);
                 default  -> { /* skip */ }
             }
         }
@@ -1678,6 +1683,7 @@ public class SasmTranslator {
      *                  {@code '*'}, {@code 'L'} (for {@code <<}),
      *                  {@code 'R'} (for {@code >>}), {@code 'A'}
      *                  (for {@code &&}), {@code 'O'} (for {@code ||}),
+     *                  {@code 'X'} (for {@code ^^}),
      *                  {@code 'd'} (for {@code div}), or
      *                  {@code 'S'} (for {@code sdiv})
      */
@@ -1696,10 +1702,10 @@ public class SasmTranslator {
             if (c == ']') { depth--; continue; }
             if (depth != 0) continue;
 
-            // Two-character operators: << >> && ||
+            // Two-character operators: << >> && || ^^
             // i > 0 is a fast-path guard; the !before.isEmpty() check below
             // is the real safeguard against treating a leading token as an operator.
-            if ((c == '<' || c == '>' || c == '&' || c == '|') && i + 1 < rhs.length()
+            if ((c == '<' || c == '>' || c == '&' || c == '|' || c == '^') && i + 1 < rhs.length()
                     && rhs.charAt(i + 1) == c && i > 0) {
                 String before = rhs.substring(start, i).trim();
                 if (!before.isEmpty()) {
@@ -1709,6 +1715,7 @@ public class SasmTranslator {
                         case '>' -> (int) 'R';
                         case '&' -> (int) 'A';
                         case '|' -> (int) 'O';
+                        case '^' -> (int) 'X';
                         default  -> (int) c;
                     });
                     start = i + 2;

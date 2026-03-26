@@ -969,7 +969,7 @@ assembly instructions generated for certain expression operators:
 | `div`    | `DIV` (zero-extend with `XOR`) | `IDIV` (sign-extend with `CWD`/`CDQ`/`CQO`) |
 | `>>`     | `SHR` (logical, zero-fill) | `SAR` (arithmetic, sign-preserving) |
 | `sdiv`   | — | Always emits `IDIV` (explicit signed division) |
-| `*`, `+`, `-`, `<<`, `&&`, `||`, `!` | Unchanged | Unchanged (same binary result) |
+| `*`, `+`, `-`, `<<`, `&&`, `||`, `^^`, `!` | Unchanged | Unchanged (same binary result) |
 
 ```sasm
 var value1 as word signed = -10    // DW -10; operations use signed variants
@@ -1389,7 +1389,8 @@ either value may be negative.
 In addition to the English-phrase syntax above, SASM supports a compact
 **expression assignment** form using the operators `=`, `+`, `-`, `*`, `div`,
 `sdiv` (signed division), `<<` (left shift), `>>` (right shift),
-`&&` (bitwise AND), `||` (bitwise OR), and `!` (bitwise NOT):
+`&&` (bitwise AND), `||` (bitwise OR), `^^` (bitwise XOR),
+and `!` (bitwise NOT):
 
 ```
 <dst> = <src>                // simple assignment
@@ -1402,6 +1403,7 @@ In addition to the English-phrase syntax above, SASM supports a compact
 <dst> = <op1> >> <op2>       // right shift (auto: SHR or SAR based on var signedness)
 <dst> = <op1> && <op2>       // bitwise AND
 <dst> = <op1> || <op2>       // bitwise OR
+<dst> = <op1> ^^ <op2>       // bitwise XOR
 <dst> = !<src>               // bitwise NOT (one's complement)
 ```
 
@@ -1444,6 +1446,9 @@ produces one assembly instruction:
 | `ax = bx \|\| cx` | `MOV ax, bx` / `OR ax, cx` | Bitwise OR |
 | `ax = ax \|\| 0x80` | `OR ax, 0x80` | Optimized when `dst = op1` |
 | `rax = rbx \|\| rcx` | `MOV rax, rbx` / `OR rax, rcx` | 64-bit bitwise OR |
+| `ax = bx ^^ cx` | `MOV ax, bx` / `XOR ax, cx` | Bitwise XOR |
+| `ax = ax ^^ 0xFF` | `XOR ax, 0xFF` | Optimized when `dst = op1` |
+| `rax = rbx ^^ rcx` | `MOV rax, rbx` / `XOR rax, rcx` | 64-bit bitwise XOR |
 | `ax = !bx` | `MOV ax, bx` / `NOT ax` | Bitwise NOT (one's complement) |
 | `ax = !ax` | `NOT ax` | Optimized when `dst = src` |
 | `rax = !rbx` | `MOV rax, rbx` / `NOT rax` | 64-bit bitwise NOT |

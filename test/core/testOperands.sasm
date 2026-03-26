@@ -54,6 +54,12 @@ proc test_expressions {
     // bitwise OR with variable
     ax = [value2] || 0x100            // ax = 20 | 0x100 = 276
 
+    // bitwise XOR with variable
+    ax = [value1] ^^ 0xFF             // ax = 10 ^ 0xFF = 245
+
+    // bitwise XOR optimized (dst == op1)
+    ax = ax ^^ 0xFF                   // ax = ax ^ 0xFF
+
     // shift with variable operand
     ax = [value1] << 2                // ax = 10 << 2 = 40
 
