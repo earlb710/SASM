@@ -260,6 +260,12 @@ public class NewProjectWizard extends JDialog {
             throw new java.io.IOException(
                     "Cannot create core directory: " + coreDir.getAbsolutePath());
         }
+        // Create the lib/ subdirectory for standard/shared library files
+        java.io.File libDir = new java.io.File(dir, "lib");
+        if (!libDir.exists() && !libDir.mkdirs()) {
+            throw new java.io.IOException(
+                    "Cannot create lib directory: " + libDir.getAbsolutePath());
+        }
         java.io.File out = new java.io.File(dir, name + ".json");
         JsonLoader.saveProjectFile(pf, out);
         return out;

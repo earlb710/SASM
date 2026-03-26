@@ -1940,6 +1940,52 @@ record_tick:
 
 ---
 
+## Project Structure
+
+A SASM project lives in a **working directory** chosen when you create the
+project.  The IDE creates the following subdirectories automatically:
+
+```
+<project>/
+├── <project>.json        ← project metadata
+├── core/                 ← main source files (always present)
+├── lib/                  ← standard / shared library files (always present)
+└── <variant>/            ← variant-specific source files (user-created)
+```
+
+### core/
+
+The `core/` directory holds the project's main SASM source files.
+It is created automatically when a new project is made and cannot be
+renamed or deleted.  New files added via *File → Add New SASM File*
+default to `core/` unless another directory is selected.
+
+### lib/
+
+The `lib/` directory is the **standard library** folder.  It is created
+alongside `core/` for every new project and is intended for reusable
+library files that are shared across all variants of the project.
+
+* Files in `lib/` can be referenced from `core/` or variant files using
+  the `#REF` directive:
+  ```sasm
+  #REF lib/std_io.sasm io
+  call @io.print_char
+  ```
+* Users can add additional library files to `lib/` for project-specific
+  shared code.
+* Like `core/`, the `lib/` directory cannot be renamed or deleted through
+  the IDE.
+
+### Variant directories
+
+Variant directories are created via *File → Add Variant* and represent
+different target-platform configurations (e.g. Linux x86, Windows x64).
+Each variant has its own set of source files that can override or extend
+the shared code in `core/` and `lib/`.
+
+---
+
 ## File Imports
 
 SASM provides a file-import mechanism that lets you reference symbols from external assembly files using a short alias.

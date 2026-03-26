@@ -1,0 +1,29 @@
+// std_io.sasm
+// Standard I/O library — included in every new project.
+//
+// This file lives in the lib/ directory and provides common
+// I/O routines that can be referenced from core/ or variant
+// files using:
+//     #REF lib/std_io.sasm io
+//     call @io.print_char
+//
+// Users can add additional library files to lib/ for their
+// project-specific shared code.
+
+section .text
+
+// ── print_char ──────────────────────────────────────────────────
+// Writes the character in AL to stdout (Linux sys_write).
+//
+// Input:  AL = character to print
+// Clobbers: AX, BX, CX, DX
+print_char:
+    // store char on stack
+    push ax
+    move sp to cx           // cx = pointer to char on stack
+    move 4 to ax            // sys_write
+    move 1 to bx            // fd = stdout
+    move 1 to dx            // length = 1
+    interrupt 0x80
+    pop ax
+    return

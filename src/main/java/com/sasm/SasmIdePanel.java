@@ -220,10 +220,17 @@ public class SasmIdePanel extends JPanel {
             addDirectorySection(coreDir, "core");
         }
 
-        // ── variant subdirectories (alphabetical, excluding core) ─────────
+        // ── lib/ always second (standard libraries) ──────────────────────
+        File libDir = new File(workDir, "lib");
+        if (libDir.isDirectory()) {
+            addDirectorySection(libDir, "lib");
+        }
+
+        // ── variant subdirectories (alphabetical, excluding core and lib) ─
         File[] subDirs = workDir.listFiles(
                 f -> f.isDirectory()
                         && !f.getName().equals("core")
+                        && !f.getName().equals("lib")
                         && !f.getName().startsWith("."));
         if (subDirs != null) {
             Arrays.sort(subDirs,
@@ -445,11 +452,12 @@ public class SasmIdePanel extends JPanel {
         }
 
         // ── placeholder stubs for sibling variants ───────────────────────
-        // When adding to a variant dir (not core), create a placeholder in
-        // every other variant dir so that #REF imports resolve everywhere.
+        // When adding to a variant dir (not core or lib), create a placeholder
+        // in every other variant dir so that #REF imports resolve everywhere.
         File workDir = new File(project.workingDirectory);
         boolean isVariantDir = targetDir.getParentFile().equals(workDir)
-                && !targetDir.getName().equals("core");
+                && !targetDir.getName().equals("core")
+                && !targetDir.getName().equals("lib");
         if (isVariantDir) {
             createPlaceholderInSiblingVariants(fileName, targetDir, workDir);
         }
@@ -469,6 +477,7 @@ public class SasmIdePanel extends JPanel {
         File[] siblings = workDir.listFiles(
                 f -> f.isDirectory()
                         && !f.getName().equals("core")
+                        && !f.getName().equals("lib")
                         && !f.getName().startsWith(".")
                         && !f.equals(originDir));
         if (siblings == null) return;
