@@ -1977,6 +1977,11 @@ library files that are shared across all variants of the project.
   #REF lib/std_io.sasm io
   call @io.print_char
   ```
+* **Included standard libraries:**
+  - `std_io.sasm` — Linux console I/O (`print_char` via `int 0x80`)
+  - `io.sasm` — Windows file I/O (`open_file_read`, `create_file_write`,
+    `read_file`, `write_file`, `close_file`, `write_stdout` via
+    kernel32 Win32 API)
 * Users can add additional library files to `lib/` for project-specific
   shared code.
 * Like `core/`, the `lib/` directory cannot be renamed or deleted through

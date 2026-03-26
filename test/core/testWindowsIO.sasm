@@ -1,0 +1,100 @@
+// testWindowsIO.sasm
+// Project : Test-projects
+//
+// Demonstrates the Windows file I/O library (lib/io.sasm).
+// This test shows how to import and use the io library to:
+//   1. Write a message to stdout (console)
+//   2. Create and write to a file
+//   3. Open and read from a file
+//   4. Close file handles
+//
+// Target: 32-bit Windows PE console executable.
+//
+// Build with:
+//   nasm -f win32 testWindowsIO.asm -o testWindowsIO.obj
+//   link testWindowsIO.obj /subsystem:console /entry:_start /out:testWindowsIO.exe
+//
+// NOTE: This file tests SASM-to-NASM translation only.
+//       Running the executable requires Windows with kernel32.dll.
+
+#REF lib/io.sasm io
+
+section .data
+
+var hello_msg as byte[14]
+data hello_bytes as byte = 'H','e','l','l','o',' ','W','o','r','l','d','!',13,10
+var file_path as byte[11]
+data path_bytes as byte = 't','e','s','t','.','t','x','t',0
+var write_data as byte[6]
+data write_bytes as byte = 'S','A','S','M',13,10
+var read_buf as byte[256]
+var file_handle as dword = 0
+
+section .text
+global _start
+
+extern _ExitProcess@4
+
+_start:
+    // ── Step 1: write greeting to stdout ────────────────────────
+    push 14                           // length of "Hello World!\r\n"
+    push hello_bytes                  // pointer to message
+    call @io.write_stdout             // write to console
+
+    // ── Step 2: create a file and write to it ───────────────────
+    push path_bytes                   // file path: "test.txt"
+    call @io.create_file_write        // eax = file handle
+    add 4 to esp                      // clean up our arg (non-stdcall caller side)
+
+    // Check for error
+    compare eax with io_INVALID_HANDLE
+    if equal {
+        // File creation failed — exit with error code 1
+        push 1
+        call _ExitProcess@4
+    }
+
+    // Save handle
+    move eax to [file_handle]
+
+    // Write "SASM\r\n" to the file
+    push 6                            // length
+    push write_bytes                  // buffer
+    push dword [file_handle]          // handle
+    call @io.write_file
+
+    // Close the file
+    push dword [file_handle]
+    call @io.close_file
+
+    // ── Step 3: re-open the file for reading ────────────────────
+    push path_bytes                   // file path: "test.txt"
+    call @io.open_file_read           // eax = file handle
+    add 4 to esp
+
+    compare eax with io_INVALID_HANDLE
+    if equal {
+        push 2
+        call _ExitProcess@4
+    }
+
+    move eax to [file_handle]
+
+    // Read up to 256 bytes from the file
+    push 256                          // bytes to read
+    push read_buf                     // destination buffer
+    push dword [file_handle]          // handle
+    call @io.read_file
+
+    // Write what we read back to stdout
+    push 6                            // we know we wrote 6 bytes
+    push read_buf                     // buffer with read data
+    call @io.write_stdout
+
+    // Close the file
+    push dword [file_handle]
+    call @io.close_file
+
+    // ── Step 4: exit cleanly ────────────────────────────────────
+    push 0
+    call _ExitProcess@4
