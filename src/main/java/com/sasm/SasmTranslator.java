@@ -134,6 +134,10 @@ public class SasmTranslator {
     private static final Pattern REF_DIRECTIVE = Pattern.compile(
             "#REF\\s+(\\S+)\\s+(\\S+)");
 
+    /** Pattern for {@code #COMPAT <description>} OS-compatibility declarations. */
+    private static final Pattern COMPAT_DIRECTIVE = Pattern.compile(
+            "#COMPAT\\s+(.+)");
+
     /**
      * Pattern for {@code @alias.symbol} qualified references.
      * Matches {@code @} followed by a word (the alias), a dot, and
@@ -230,6 +234,12 @@ public class SasmTranslator {
             String file  = refM.group(1);
             String alias = refM.group(2);
             return "%include \"" + file + "\"  ; alias: " + alias;
+        }
+
+        // ── #COMPAT OS-compatibility declarations ────────────────────────────
+        Matcher compatM = COMPAT_DIRECTIVE.matcher(trimmed);
+        if (compatM.matches()) {
+            return "; COMPAT: " + compatM.group(1);
         }
 
         // ── comments (no alias resolution inside pure comments) ──────────────

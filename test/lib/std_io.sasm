@@ -10,6 +10,8 @@
 // Users can add additional library files to lib/ for their
 // project-specific shared code.
 
+#COMPAT Linux x86 (i386, int 0x80 ABI)
+
 section .text
 
 // ── print_char ──────────────────────────────────────────────────

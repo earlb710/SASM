@@ -22,7 +22,8 @@
 14. [Processor Control](#processor-control)
 15. [x86-64 Considerations](#x86-64-64-bit-considerations)
 16. [File Imports](#file-imports)
-17. [Full Examples](#full-examples)
+17. [OS Compatibility Declarations](#os-compatibility-declarations)
+18. [Full Examples](#full-examples)
 
 > **See also:** [`doc/instruction_8086.md`](doc/instruction_8086.md) — comprehensive Intel 8086 instruction set reference with status, operands, and compatibility notes.  
 > **See also:** [`doc/instruction_x86_64.md`](doc/instruction_x86_64.md) — x86-64 (64-bit) instruction set reference: new registers, new instructions, and removed instructions.
@@ -2093,6 +2094,61 @@ _start:
 * The imported file's symbols should use the `alias_` prefix naming convention so that `@alias.symbol` resolves correctly.
 * `@alias.symbol` references inside pure comments (`//` lines and `(* *)` blocks) are **not** resolved — they are preserved verbatim.
 * The `@` character is only special when followed by a known `alias.symbol` pattern; standalone `@` has no special meaning.
+
+---
+
+## OS Compatibility Declarations
+
+Library files can declare which operating systems they are compatible with using the `#COMPAT` directive.  This is especially useful for platform-specific libraries (e.g. Windows kernel32 wrappers, Linux `int 0x80` routines) so that users can see at a glance whether a library works on their target OS.
+
+### Syntax
+
+```sasm
+#COMPAT <description>
+```
+
+* `<description>` — free-form text describing the compatible OS or platform (e.g. `Windows 10, 11`, `Linux x86 (i386, int 0x80 ABI)`).
+* Multiple `#COMPAT` lines are allowed — one per OS family or group.
+* `#COMPAT` directives are typically placed near the top of the file, after the header comment and before any `section` directives.
+
+### Translation
+
+The translator converts each `#COMPAT` line into a NASM comment:
+
+| SASM | NASM equivalent |
+|------|-----------------|
+| `#COMPAT Windows 10, 11` | `; COMPAT: Windows 10, 11` |
+| `#COMPAT Linux x86 (i386)` | `; COMPAT: Linux x86 (i386)` |
+
+`#COMPAT` is a **documentation-only** directive — it produces no executable code, just a comment in the assembled output.
+
+### Example
+
+```sasm
+// io.sasm — Windows File I/O Library
+
+#COMPAT Windows 95, 98, ME
+#COMPAT Windows NT 3.1, 3.51, 4.0
+#COMPAT Windows 2000, XP, Vista, 7, 8, 8.1, 10, 11
+#COMPAT Windows XP x64, Vista x64, 7 x64, 8 x64, 8.1 x64, 10 x64, 11 x64 (via WoW64)
+
+section .data
+    ...
+```
+
+*Equivalent NASM output:*
+
+```asm
+; io.sasm — Windows File I/O Library
+
+; COMPAT: Windows 95, 98, ME
+; COMPAT: Windows NT 3.1, 3.51, 4.0
+; COMPAT: Windows 2000, XP, Vista, 7, 8, 8.1, 10, 11
+; COMPAT: Windows XP x64, Vista x64, 7 x64, 8 x64, 8.1 x64, 10 x64, 11 x64 (via WoW64)
+
+section .data
+    ...
+```
 
 ---
 
