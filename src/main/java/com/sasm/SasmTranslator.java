@@ -83,6 +83,35 @@ public class SasmTranslator {
     }
 
     /**
+     * Holds context for the outer {@code switch (operand) \{} block.
+     * Pushed when the {@code switch} header is parsed; popped when the
+     * matching outer {@code \}} is encountered, emitting the end label.
+     */
+    private static class SwitchContext {
+        final String operand;   // CMP target, e.g. "ax" or "[myVar]"
+        final String endLabel;  // label at the very end of the switch
+        SwitchContext(String operand, String endLabel) {
+            this.operand  = operand;
+            this.endLabel = endLabel;
+        }
+    }
+
+    /**
+     * Holds context for a single {@code value : \{} case block inside a
+     * switch.  The closing {@code \}} emits a {@code JMP} to the shared
+     * end label, then defines the skip label so the next case (or the
+     * switch end) begins here.
+     */
+    private static class SwitchCaseContext {
+        final String skipLabel; // null for 'default' case
+        final String endLabel;  // shared end-of-switch label
+        SwitchCaseContext(String skipLabel, String endLabel) {
+            this.skipLabel = skipLabel;
+            this.endLabel  = endLabel;
+        }
+    }
+
+    /**
      * Block-nesting stack used to pair block openings with their closing
      * {@code \}}.
      * <ul>
@@ -93,6 +122,10 @@ public class SasmTranslator {
      *       label.</li>
      *   <li>{@link IfContext} — an {@code if}/{@code else if}/{@code else}
      *       block whose closing brace must emit skip/end labels.</li>
+     *   <li>{@link SwitchContext} — the outer {@code switch} block whose
+     *       closing brace emits the end-of-switch label.</li>
+     *   <li>{@link SwitchCaseContext} — a single {@code value : \{} case
+     *       inside a switch.</li>
      * </ul>
      */
     private final Deque<Object> blockStack = new LinkedList<>();
@@ -281,6 +314,18 @@ public class SasmTranslator {
                     // Standalone if (no else) → emit the skip label.
                     return ic.skipLabel + ":";
                 }
+                if (ctx instanceof SwitchCaseContext sc) {
+                    // Closing a case block inside a switch.
+                    if (sc.skipLabel != null) {
+                        return "    JMP " + sc.endLabel + "\n" + sc.skipLabel + ":";
+                    }
+                    // Default case — no skip label, no jump needed.
+                    return "";
+                }
+                if (ctx instanceof SwitchContext sw) {
+                    // Closing the outer switch block.
+                    return sw.endLabel + ":";
+                }
             }
             return null; // while / repeat / atomic — passthrough
         }
@@ -338,6 +383,7 @@ public class SasmTranslator {
 
         // ── conditional / loop structures ────────────────────────────────────
         if ((r = tryIf(code))            != null) return r;
+        if ((r = trySwitch(code))        != null) return r;
         if ((r = tryRepeat(code))        != null) return r;
         if ((r = tryWhile(code))         != null) return r;
         if ((r = tryFor(code))           != null) return r;
@@ -967,6 +1013,78 @@ public class SasmTranslator {
         if (blockStack.isEmpty()) return null;
         Object top = blockStack.pop();
         return (top instanceof IfContext ic) ? ic : null;
+    }
+
+    /**
+     * Translates a {@code switch} statement or a case label inside a switch.
+     *
+     * <p>Supported forms:
+     * <ul>
+     *   <li>{@code switch (operand) \{} — opens the switch block</li>
+     *   <li>{@code value : \{} — opens a case block (value is a literal)</li>
+     *   <li>{@code default : \{} — opens the default case block</li>
+     * </ul>
+     *
+     * <p>Generated assembly for the opening:
+     * <pre>
+     *     ; switch operand
+     * </pre>
+     * Each case emits:
+     * <pre>
+     *     CMP operand, value
+     *     JNE .LcaseN        ; skip if no match
+     * </pre>
+     * Case closing {@code \}} emits:
+     * <pre>
+     *     JMP .LswendM       ; skip remaining cases
+     * .LcaseN:
+     * </pre>
+     * The outer closing {@code \}} emits:
+     * <pre>
+     * .LswendM:
+     * </pre>
+     */
+    private String trySwitch(String code) {
+        // ── switch (operand) { ───────────────────────────────────────────
+        Matcher m = Pattern.compile("switch\\s*\\((.+?)\\)\\s*\\{").matcher(code);
+        if (m.matches()) {
+            String operand = wrapIfVar(m.group(1).trim());
+            String endLbl = ".Lswend" + (labelSeq++);
+            blockStack.push(new SwitchContext(operand, endLbl));
+            return "    ; switch " + operand;
+        }
+
+        // ── value : { (case label inside switch) ─────────────────────────
+        Matcher mc = Pattern.compile("(.+?)\\s*:\\s*\\{").matcher(code);
+        if (mc.matches()) {
+            String value = mc.group(1).trim();
+            // Find the enclosing SwitchContext on the stack.
+            SwitchContext sw = findSwitchContext();
+            if (sw == null) return null;
+
+            if (value.equals("default")) {
+                blockStack.push(new SwitchCaseContext(null, sw.endLabel));
+                return "    ; default";
+            }
+
+            String skipLbl = ".Lcase" + (labelSeq++);
+            blockStack.push(new SwitchCaseContext(skipLbl, sw.endLabel));
+            return "    CMP " + sw.operand + ", " + value + "\n"
+                    + "    JNE " + skipLbl + "   ; case " + value;
+        }
+
+        return null;
+    }
+
+    /**
+     * Searches the {@link #blockStack} for the nearest enclosing
+     * {@link SwitchContext} without removing it.
+     */
+    private SwitchContext findSwitchContext() {
+        for (Object o : blockStack) {
+            if (o instanceof SwitchContext sw) return sw;
+        }
+        return null;
     }
 
     private String tryRepeat(String code) {

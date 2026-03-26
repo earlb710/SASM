@@ -230,6 +230,77 @@ Any number of `} else if` clauses may be chained, and the final
 `} else {` clause is optional.  Condition-word syntax and C-style
 comparisons may be freely mixed in the same chain.
 
+### Switch / Case Blocks
+
+```sasm
+switch (operand) {
+    value1 : {
+        <body1>
+    }
+    value2 : {
+        <body2>
+    }
+    default : {
+        <default-body>
+    }
+}
+```
+
+`operand` is a register, memory reference, or declared variable name
+(auto-bracketed).  Each `value : {` arm compares the operand against
+the literal value and executes the body if they match.  The optional
+`default : {` arm runs when no preceding case matched.
+
+**Example:**
+
+```sasm
+var choice as word = 0
+switch (choice) {
+    10 : {
+        move 1 to ax
+    }
+    20 : {
+        move 2 to ax
+    }
+    default : {
+        move 0 to ax
+    }
+}
+```
+
+The generated assembly uses a chain of `CMP`/`JNE` pairs:
+
+```asm
+    CMP [choice], 10
+    JNE .Lcase1       ; skip if choice ≠ 10
+    MOV ax, 1
+    JMP .Lswend0      ; done — skip remaining cases
+.Lcase1:
+    CMP [choice], 20
+    JNE .Lcase2       ; skip if choice ≠ 20
+    MOV ax, 2
+    JMP .Lswend0
+.Lcase2:
+    MOV ax, 0         ; default (fallthrough)
+.Lswend0:
+```
+
+The `default` case is optional.  If omitted, unmatched values simply
+fall through to the code after the switch.
+
+Bracket-style operands are also supported for explicit memory
+references:
+
+```sasm
+switch ([myVar]) {
+    0xFF : { move 1 to ax }
+    0x00 : { move 2 to ax }
+}
+```
+
+Switch blocks nest correctly inside `if`, `for`, `while`, and other
+block structures.
+
 ### Count Loops
 
 ```sasm

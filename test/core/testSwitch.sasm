@@ -1,0 +1,152 @@
+// testSwitch.sasm
+// Project : Test-projects
+//
+// Demonstrates switch/case blocks supported by SASM:
+//   1. Basic switch with register operand
+//   2. Switch with variable operand
+//   3. Switch with default case
+//   4. Switch inside other blocks (if, for)
+//   5. Nested switch statements
+
+section .text
+global _start
+
+// ── variables ────────────────────────────────────────────────────
+var choice  as word = 0
+var result  as word = 0
+var counter as word = 0
+
+// //---------------------------------------------------------------
+// 1. Basic switch — register operand
+//    Dispatches on the value of ax.
+// //---------------------------------------------------------------
+proc test_switch_register {
+    switch (ax) {
+        1 : {
+            move 10 to bx
+        }
+        2 : {
+            move 20 to bx
+        }
+        3 : {
+            move 30 to bx
+        }
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// 2. Switch with variable operand
+//    Dispatches on the value of a declared variable.
+// //---------------------------------------------------------------
+proc test_switch_variable {
+    switch (choice) {
+        10 : {
+            move 1 to [result]
+        }
+        20 : {
+            move 2 to [result]
+        }
+        30 : {
+            move 3 to [result]
+        }
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// 3. Switch with default case
+//    The default case catches all unmatched values.
+// //---------------------------------------------------------------
+proc test_switch_default {
+    switch (choice) {
+        1 : {
+            move 100 to [result]
+        }
+        2 : {
+            move 200 to [result]
+        }
+        default : {
+            move 0 to [result]
+        }
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// 4. Switch inside an if block — nesting with other structures
+//    Demonstrates that switch blocks nest correctly with if.
+// //---------------------------------------------------------------
+proc test_switch_in_if {
+    if (choice == 5) {
+        switch (choice) {
+            5 : {
+                move 50 to [result]
+            }
+            10 : {
+                move 100 to [result]
+            }
+        }
+    } else {
+        move 0 to [result]
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// 5. Switch with bracket-style operand
+//    Uses the syntax from the issue: switch ([var1]) { ... }
+// //---------------------------------------------------------------
+proc test_switch_bracket_operand {
+    switch ([choice]) {
+        0xFF : {
+            move 1 to [result]
+        }
+        0x00 : {
+            move 2 to [result]
+        }
+        default : {
+            move 0 to [result]
+        }
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// 6. Switch inside a for loop
+//    Demonstrates nesting switch inside a for loop.
+// //---------------------------------------------------------------
+proc test_switch_in_for {
+    var i as word = 0
+    var limit as word = 10
+    for (i=0; i<limit; i++) {
+        switch (i) {
+            3 : {
+                move 33 to [result]
+            }
+            7 : {
+                move 77 to [result]
+            }
+            default : {
+                move 0 to [result]
+            }
+        }
+    }
+    return
+}
+
+// //---------------------------------------------------------------
+// _start — exercise each test
+// //---------------------------------------------------------------
+_start:
+    call test_switch_register
+    call test_switch_variable
+    call test_switch_default
+    call test_switch_in_if
+    call test_switch_bracket_operand
+    call test_switch_in_for
+
+    // Exit (Linux syscall: sys_exit)
+    move 0 to bl
+    move 1 to ax
+    syscall 0x80
