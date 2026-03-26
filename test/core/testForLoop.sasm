@@ -102,4 +102,4 @@ _start:
     // Exit (Linux syscall: sys_exit)
     move 0 to bl
     move 1 to ax
-    interrupt 0x80
+    syscall 0x80
