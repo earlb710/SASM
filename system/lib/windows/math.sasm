@@ -15,13 +15,15 @@
 //     call @math.max_array       // EAX = max of dword array (ESI=ptr, ECX=count)
 //     call @math.min_array       // EAX = min of dword array (ESI=ptr, ECX=count)
 //
-// Float routines (x87 FPU stack):
+// Float/double routines (x87 FPU stack):
 //     call @math.square_float    // ST(0) = ST(0) × ST(0)
 //     call @math.sqrt_float      // ST(0) = √ST(0)
-//     call @math.max_float       // ST(0) = max(ST(0), ST(1)); pops ST(1)
-//     call @math.min_float       // ST(0) = min(ST(0), ST(1)); pops ST(1)
+//     call @math.max_float       // ST(0) = max(ST(0), ST(1)); pops ST(1)  (works with doubles too)
+//     call @math.min_float       // ST(0) = min(ST(0), ST(1)); pops ST(1)  (works with doubles too)
 //     call @math.max_array_float // ST(0) = max of float array (ESI=ptr, ECX=count)
 //     call @math.min_array_float // ST(0) = min of float array (ESI=ptr, ECX=count)
+//     call @math.max_array_double // ST(0) = max of double array (ESI=ptr, ECX=count)
+//     call @math.min_array_double // ST(0) = min of double array (ESI=ptr, ECX=count)
 
 #COMPAT Windows x86 (Win32)
 
@@ -205,17 +207,26 @@ sqrt_float:
     return
 
 // ── max_float ───────────────────────────────────────────────────
-// Returns the larger of two floats on the FPU stack.
+// Returns the larger of two floats (or doubles) on the FPU stack.
+// Since the x87 FPU uses 80-bit extended precision internally, this
+// routine works identically for single-precision and double-precision
+// values.  The caller controls precision via FLD dword / FLD qword.
 //
 // Input:  ST(0) = first value, ST(1) = second value
 // Output: ST(0) = max(first, second)  (one value popped)
 // Clobbers: x87 FPU stack (net pop of one entry)
 //
-// Example:
+// Example (float):
 //   fld dword [val_a]         // push a
 //   fld dword [val_b]         // push b  (ST(0)=b, ST(1)=a)
 //   call @math.max_float      // ST(0) = max(b, a)
 //   fstp dword [result]
+//
+// Example (double):
+//   fld qword [dval_a]        // push a (double)
+//   fld qword [dval_b]        // push b (double)
+//   call @math.max_float      // ST(0) = max(b, a)
+//   fstp qword [dresult]
 max_float:
     fcom st1                    // compare ST(0) to ST(1)
     fstsw ax                    // store FPU status word in AX
@@ -228,17 +239,26 @@ max_float:
     return
 
 // ── min_float ───────────────────────────────────────────────────
-// Returns the smaller of two floats on the FPU stack.
+// Returns the smaller of two floats (or doubles) on the FPU stack.
+// Since the x87 FPU uses 80-bit extended precision internally, this
+// routine works identically for single-precision and double-precision
+// values.  The caller controls precision via FLD dword / FLD qword.
 //
 // Input:  ST(0) = first value, ST(1) = second value
 // Output: ST(0) = min(first, second)  (one value popped)
 // Clobbers: x87 FPU stack (net pop of one entry)
 //
-// Example:
+// Example (float):
 //   fld dword [val_a]         // push a
 //   fld dword [val_b]         // push b  (ST(0)=b, ST(1)=a)
 //   call @math.min_float      // ST(0) = min(b, a)
 //   fstp dword [result]
+//
+// Example (double):
+//   fld qword [dval_a]        // push a (double)
+//   fld qword [dval_b]        // push b (double)
+//   call @math.min_float      // ST(0) = min(b, a)
+//   fstp qword [dresult]
 min_float:
     fcom st1                    // compare ST(0) to ST(1)
     fstsw ax                    // store FPU status word in AX
@@ -320,4 +340,76 @@ min_array_float:
     subtract 1 from ecx
     goto .min_af_loop
 .min_af_done:
+    return
+
+// ── max_array_double ──────────────────────────────────────────────
+// Finds the maximum value in a double (qword) array.
+//
+// Input:  ESI = pointer to first element (double array)
+//         ECX = number of elements (must be >= 1)
+// Output: ST(0) = maximum double value in the array
+// Clobbers: ECX, ESI, x87 FPU stack (one entry pushed)
+//
+// Example:
+//   move double_arr to esi
+//   move 4 to ecx
+//   call @math.max_array_double  // ST(0) = max element
+//   fstp qword [result]
+max_array_double:
+    fld qword [esi]             // ST(0) = first element
+    add 8 to esi
+    subtract 1 from ecx
+.max_ad_loop:
+    compare ecx with 0
+    goto .max_ad_done if equal
+    fld qword [esi]             // ST(0) = next element, ST(1) = current max
+    fcom st1                    // compare ST(0) to ST(1)
+    fstsw ax
+    sahf
+    jae .max_ad_new             // if new >= max, keep new
+    fstp st0                    // discard new; keep old max
+    goto .max_ad_next
+.max_ad_new:
+    fstp st1                    // replace old max with new
+.max_ad_next:
+    add 8 to esi
+    subtract 1 from ecx
+    goto .max_ad_loop
+.max_ad_done:
+    return
+
+// ── min_array_double ──────────────────────────────────────────────
+// Finds the minimum value in a double (qword) array.
+//
+// Input:  ESI = pointer to first element (double array)
+//         ECX = number of elements (must be >= 1)
+// Output: ST(0) = minimum double value in the array
+// Clobbers: ECX, ESI, x87 FPU stack (one entry pushed)
+//
+// Example:
+//   move double_arr to esi
+//   move 4 to ecx
+//   call @math.min_array_double  // ST(0) = min element
+//   fstp qword [result]
+min_array_double:
+    fld qword [esi]             // ST(0) = first element
+    add 8 to esi
+    subtract 1 from ecx
+.min_ad_loop:
+    compare ecx with 0
+    goto .min_ad_done if equal
+    fld qword [esi]             // ST(0) = next element, ST(1) = current min
+    fcom st1                    // compare ST(0) to ST(1)
+    fstsw ax
+    sahf
+    jbe .min_ad_new             // if new <= min, keep new
+    fstp st0                    // discard new; keep old min
+    goto .min_ad_next
+.min_ad_new:
+    fstp st1                    // replace old min with new
+.min_ad_next:
+    add 8 to esi
+    subtract 1 from ecx
+    goto .min_ad_loop
+.min_ad_done:
     return

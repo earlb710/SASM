@@ -1,7 +1,7 @@
 // testMath.sasm
 // Project : Test-projects
 //
-// Demonstrates the math library's integer and float routines,
+// Demonstrates the math library's integer, float, and double routines,
 // including max, min, and array variants.
 //
 // Usage:
@@ -15,13 +15,15 @@
 //     @math.min          — min of two signed integers (EAX, EBX → EAX)
 //     @math.max_array    — max of signed dword array (ESI, ECX → EAX)
 //     @math.min_array    — min of signed dword array (ESI, ECX → EAX)
-//   Float (x87 FPU stack):
-//     @math.square_float     — float square (ST(0) → ST(0))
-//     @math.sqrt_float       — float square root (ST(0) → ST(0))
-//     @math.max_float        — max of two floats (ST(0), ST(1) → ST(0))
-//     @math.min_float        — min of two floats (ST(0), ST(1) → ST(0))
-//     @math.max_array_float  — max of float array (ESI, ECX → ST(0))
-//     @math.min_array_float  — min of float array (ESI, ECX → ST(0))
+//   Float/Double (x87 FPU stack):
+//     @math.square_float      — float square (ST(0) → ST(0))
+//     @math.sqrt_float        — float square root (ST(0) → ST(0))
+//     @math.max_float         — max of two floats/doubles (ST(0), ST(1) → ST(0))
+//     @math.min_float         — min of two floats/doubles (ST(0), ST(1) → ST(0))
+//     @math.max_array_float   — max of float array (ESI, ECX → ST(0))
+//     @math.min_array_float   — min of float array (ESI, ECX → ST(0))
+//     @math.max_array_double  — max of double array (ESI, ECX → ST(0))
+//     @math.min_array_double  — min of double array (ESI, ECX → ST(0))
 //
 // Target: 32-bit Linux ELF executable (uses int 0x80 for exit).
 //
@@ -58,6 +60,17 @@ data int_arr as dword = 5, 3, 9, 1, 7
 
 // Float array for max_array_float / min_array_float tests
 data float_arr as float = __float32__(1.5), __float32__(8.0), __float32__(3.25), __float32__(6.0)
+
+// Double variables for max_float / min_float with double-precision tests
+var dval_a       as double = __float64__(7.0)
+var dval_b       as double = __float64__(2.5)
+var result_maxd  as double
+var result_mind  as double
+var result_mxad  as double
+var result_mnad  as double
+
+// Double array for max_array_double / min_array_double tests
+data double_arr as double = __float64__(1.5), __float64__(8.0), __float64__(3.25), __float64__(6.0)
 
 section .text
 global _start
@@ -187,6 +200,40 @@ _start:
     move 4 to ecx
     call @math.min_array_float     // ST(0) = 1.5
     fstp dword [result_mnaf]       // store result
+
+    // ═════════════════════════════════════════════════════════════
+    //  Double tests — max_float / min_float with double-precision
+    //  (max_float and min_float work with doubles since the x87
+    //   FPU uses 80-bit extended precision internally)
+    // ═════════════════════════════════════════════════════════════
+
+    // ── max_float with doubles: max(2.5, 7.0) = 7.0 ─────────────
+    fld qword [dval_a]             // push 7.0 (double)
+    fld qword [dval_b]             // push 2.5 (double)  (ST(0)=2.5, ST(1)=7.0)
+    call @math.max_float           // ST(0) = 7.0
+    fstp qword [result_maxd]       // store result as double
+
+    // ── min_float with doubles: min(2.5, 7.0) = 2.5 ─────────────
+    fld qword [dval_a]             // push 7.0 (double)
+    fld qword [dval_b]             // push 2.5 (double)  (ST(0)=2.5, ST(1)=7.0)
+    call @math.min_float           // ST(0) = 2.5
+    fstp qword [result_mind]       // store result as double
+
+    // ═════════════════════════════════════════════════════════════
+    //  Double tests — max_array_double / min_array_double
+    // ═════════════════════════════════════════════════════════════
+
+    // ── max_array_double([1.5, 8.0, 3.25, 6.0]) = 8.0 ──────────
+    move double_arr to esi
+    move 4 to ecx
+    call @math.max_array_double    // ST(0) = 8.0
+    fstp qword [result_mxad]       // store result as double
+
+    // ── min_array_double([1.5, 8.0, 3.25, 6.0]) = 1.5 ──────────
+    move double_arr to esi
+    move 4 to ecx
+    call @math.min_array_double    // ST(0) = 1.5
+    fstp qword [result_mnad]       // store result as double
 
     // ── exit cleanly ────────────────────────────────────────────
     move 1 to eax                  // sys_exit
