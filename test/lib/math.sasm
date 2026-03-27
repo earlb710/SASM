@@ -191,10 +191,16 @@ proc min_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
 // Output: ST(0) = value × value
 // Clobbers: none (result replaces input on FPU stack)
 //
-// Example:
+// Example (float):
 //   fld dword [my_float]
 //   call @math.square_float   // ST(0) = my_float²
 //   fstp dword [result]
+//
+// Example (double):
+//   fld qword [my_double]
+//   call @math.square_float   // ST(0) = my_double²
+//   fstp qword [dresult]
+// overload: proc square_float ( in double value, out double result )
 proc square_float ( in float value, out float result ) {
     fmul st0, st0              // ST(0) = ST(0) × ST(0)
     return
@@ -207,10 +213,16 @@ proc square_float ( in float value, out float result ) {
 // Output: ST(0) = √value
 // Clobbers: none (result replaces input on FPU stack)
 //
-// Example:
+// Example (float):
 //   fld dword [my_float]
 //   call @math.sqrt_float     // ST(0) = √my_float
 //   fstp dword [result]
+//
+// Example (double):
+//   fld qword [my_double]
+//   call @math.sqrt_float     // ST(0) = √my_double
+//   fstp qword [dresult]
+// overload: proc sqrt_float ( in double value, out double result )
 proc sqrt_float ( in float value, out float result ) {
     fsqrt                       // ST(0) = √ST(0)
     return
@@ -223,10 +235,16 @@ proc sqrt_float ( in float value, out float result ) {
 // Output: ST(0) = sin(angle)
 // Clobbers: none (result replaces input on FPU stack)
 //
-// Example:
+// Example (float):
 //   fld dword [my_angle]
 //   call @math.sin_float      // ST(0) = sin(my_angle)
 //   fstp dword [result]
+//
+// Example (double):
+//   fld qword [my_dangle]
+//   call @math.sin_float      // ST(0) = sin(my_dangle)
+//   fstp qword [dresult]
+// overload: proc sin_float ( in double angle, out double result )
 proc sin_float ( in float angle, out float result ) {
     fsin                        // ST(0) = sin(ST(0))
     return
@@ -239,10 +257,16 @@ proc sin_float ( in float angle, out float result ) {
 // Output: ST(0) = cos(angle)
 // Clobbers: none (result replaces input on FPU stack)
 //
-// Example:
+// Example (float):
 //   fld dword [my_angle]
 //   call @math.cos_float      // ST(0) = cos(my_angle)
 //   fstp dword [result]
+//
+// Example (double):
+//   fld qword [my_dangle]
+//   call @math.cos_float      // ST(0) = cos(my_dangle)
+//   fstp qword [dresult]
+// overload: proc cos_float ( in double angle, out double result )
 proc cos_float ( in float angle, out float result ) {
     fcos                        // ST(0) = cos(ST(0))
     return
@@ -269,6 +293,7 @@ proc cos_float ( in float angle, out float result ) {
 //   fld qword [dval_b]        // push b (double)
 //   call @math.max_float      // ST(0) = max(b, a)
 //   fstp qword [dresult]
+// overload: proc max_float ( in double first, in double second, out double result )
 proc max_float ( in float first, in float second, out float result ) {
     fcom st1                    // compare ST(0) to ST(1)
     fstsw ax                    // store FPU status word in AX
@@ -302,6 +327,7 @@ proc max_float ( in float first, in float second, out float result ) {
 //   fld qword [dval_b]        // push b (double)
 //   call @math.min_float      // ST(0) = min(b, a)
 //   fstp qword [dresult]
+// overload: proc min_float ( in double first, in double second, out double result )
 proc min_float ( in float first, in float second, out float result ) {
     fcom st1                    // compare ST(0) to ST(1)
     fstsw ax                    // store FPU status word in AX
