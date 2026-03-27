@@ -46,9 +46,10 @@ section .text
 // Example:
 //   move 7 to eax
 //   call @math.square      // eax = 49, edx = 0
-square:
+proc square ( in eax as value, out eax as result ) {
     multiply by eax            // MUL EAX → EDX:EAX = EAX × EAX
     return
+}
 
 // ── sqrt_int ────────────────────────────────────────────────────
 // Computes the integer square root of EAX using the x87 FPU.
@@ -63,7 +64,7 @@ square:
 // Example:
 //   move 49 to eax
 //   call @math.sqrt_int    // eax = 7
-sqrt_int:
+proc sqrt_int ( in eax as value, out eax as result ) {
     push ebp
     move esp to ebp
     subtract 4 from esp        // local: [ebp-4] = temp dword
@@ -77,6 +78,7 @@ sqrt_int:
     move ebp to esp
     pop ebp
     return
+}
 
 // ── max ─────────────────────────────────────────────────────────
 // Returns the larger of two signed integers.
@@ -90,12 +92,13 @@ sqrt_int:
 //   move 10 to eax
 //   move 20 to ebx
 //   call @math.max         // eax = 20
-max:
+proc max ( in eax as first, in ebx as second, out eax as result ) {
     compare eax with ebx
     goto .max_done if greater or equal
     move ebx to eax
 .max_done:
     return
+}
 
 // ── min ─────────────────────────────────────────────────────────
 // Returns the smaller of two signed integers.
@@ -109,12 +112,13 @@ max:
 //   move 10 to eax
 //   move 20 to ebx
 //   call @math.min         // eax = 10
-min:
+proc min ( in eax as first, in ebx as second, out eax as result ) {
     compare eax with ebx
     goto .min_done if less or equal
     move ebx to eax
 .min_done:
     return
+}
 
 // ── max_array ───────────────────────────────────────────────────
 // Finds the maximum value in a signed dword array.
@@ -128,7 +132,7 @@ min:
 //   move arr to esi
 //   move 5 to ecx
 //   call @math.max_array   // eax = max element
-max_array:
+proc max_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
     move dword [esi] to eax    // start with first element
     add 4 to esi
     subtract 1 from ecx
@@ -144,6 +148,7 @@ max_array:
     goto .max_array_loop
 .max_array_done:
     return
+}
 
 // ── min_array ───────────────────────────────────────────────────
 // Finds the minimum value in a signed dword array.
@@ -157,7 +162,7 @@ max_array:
 //   move arr to esi
 //   move 5 to ecx
 //   call @math.min_array   // eax = min element
-min_array:
+proc min_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
     move dword [esi] to eax    // start with first element
     add 4 to esi
     subtract 1 from ecx
@@ -173,6 +178,7 @@ min_array:
     goto .min_array_loop
 .min_array_done:
     return
+}
 
 // ═══════════════════════════════════════════════════════════════
 //  Float routines (x87 FPU stack-based)
@@ -189,9 +195,10 @@ min_array:
 //   fld dword [my_float]
 //   call @math.square_float   // ST(0) = my_float²
 //   fstp dword [result]
-square_float:
+proc square_float {
     fmul st0, st0              // ST(0) = ST(0) × ST(0)
     return
+}
 
 // ── sqrt_float ──────────────────────────────────────────────────
 // Computes the floating-point square root of ST(0).
@@ -204,9 +211,10 @@ square_float:
 //   fld dword [my_float]
 //   call @math.sqrt_float     // ST(0) = √my_float
 //   fstp dword [result]
-sqrt_float:
+proc sqrt_float {
     fsqrt                       // ST(0) = √ST(0)
     return
+}
 
 // ── sin_float ─────────────────────────────────────────────────
 // Computes the sine of ST(0).
@@ -219,9 +227,10 @@ sqrt_float:
 //   fld dword [my_angle]
 //   call @math.sin_float      // ST(0) = sin(my_angle)
 //   fstp dword [result]
-sin_float:
+proc sin_float {
     fsin                        // ST(0) = sin(ST(0))
     return
+}
 
 // ── cos_float ─────────────────────────────────────────────────
 // Computes the cosine of ST(0).
@@ -234,9 +243,10 @@ sin_float:
 //   fld dword [my_angle]
 //   call @math.cos_float      // ST(0) = cos(my_angle)
 //   fstp dword [result]
-cos_float:
+proc cos_float {
     fcos                        // ST(0) = cos(ST(0))
     return
+}
 
 // ── max_float ───────────────────────────────────────────────────
 // Returns the larger of two floats (or doubles) on the FPU stack.
@@ -259,7 +269,7 @@ cos_float:
 //   fld qword [dval_b]        // push b (double)
 //   call @math.max_float      // ST(0) = max(b, a)
 //   fstp qword [dresult]
-max_float:
+proc max_float {
     fcom st1                    // compare ST(0) to ST(1)
     fstsw ax                    // store FPU status word in AX
     sahf                        // load status flags from AH
@@ -269,6 +279,7 @@ max_float:
 .max_float_keep_st0:
     fstp st1                    // copy ST(0) over ST(1) and pop
     return
+}
 
 // ── min_float ───────────────────────────────────────────────────
 // Returns the smaller of two floats (or doubles) on the FPU stack.
@@ -291,7 +302,7 @@ max_float:
 //   fld qword [dval_b]        // push b (double)
 //   call @math.min_float      // ST(0) = min(b, a)
 //   fstp qword [dresult]
-min_float:
+proc min_float {
     fcom st1                    // compare ST(0) to ST(1)
     fstsw ax                    // store FPU status word in AX
     sahf                        // load status flags from AH
@@ -301,6 +312,7 @@ min_float:
 .min_float_keep_st0:
     fstp st1                    // copy ST(0) over ST(1) and pop
     return
+}
 
 // ── max_array_float ─────────────────────────────────────────────
 // Finds the maximum value in a float (dword) array.
@@ -315,7 +327,7 @@ min_float:
 //   move 4 to ecx
 //   call @math.max_array_float  // ST(0) = max element
 //   fstp dword [result]
-max_array_float:
+proc max_array_float ( in esi as array_ptr, in ecx as count ) {
     fld dword [esi]             // ST(0) = first element
     add 4 to esi
     subtract 1 from ecx
@@ -337,6 +349,7 @@ max_array_float:
     goto .max_af_loop
 .max_af_done:
     return
+}
 
 // ── min_array_float ─────────────────────────────────────────────
 // Finds the minimum value in a float (dword) array.
@@ -351,7 +364,7 @@ max_array_float:
 //   move 4 to ecx
 //   call @math.min_array_float  // ST(0) = min element
 //   fstp dword [result]
-min_array_float:
+proc min_array_float ( in esi as array_ptr, in ecx as count ) {
     fld dword [esi]             // ST(0) = first element
     add 4 to esi
     subtract 1 from ecx
@@ -373,6 +386,7 @@ min_array_float:
     goto .min_af_loop
 .min_af_done:
     return
+}
 
 // ── max_array_double ──────────────────────────────────────────────
 // Finds the maximum value in a double (qword) array.
@@ -387,7 +401,7 @@ min_array_float:
 //   move 4 to ecx
 //   call @math.max_array_double  // ST(0) = max element
 //   fstp qword [result]
-max_array_double:
+proc max_array_double ( in esi as array_ptr, in ecx as count ) {
     fld qword [esi]             // ST(0) = first element
     add 8 to esi
     subtract 1 from ecx
@@ -409,6 +423,7 @@ max_array_double:
     goto .max_ad_loop
 .max_ad_done:
     return
+}
 
 // ── min_array_double ──────────────────────────────────────────────
 // Finds the minimum value in a double (qword) array.
@@ -423,7 +438,7 @@ max_array_double:
 //   move 4 to ecx
 //   call @math.min_array_double  // ST(0) = min element
 //   fstp qword [result]
-min_array_double:
+proc min_array_double ( in esi as array_ptr, in ecx as count ) {
     fld qword [esi]             // ST(0) = first element
     add 8 to esi
     subtract 1 from ecx
@@ -445,3 +460,4 @@ min_array_double:
     goto .min_ad_loop
 .min_ad_done:
     return
+}
