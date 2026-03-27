@@ -18,6 +18,8 @@
 // Float/double routines (x87 FPU stack):
 //     call @math.square_float    // ST(0) = ST(0) × ST(0)
 //     call @math.sqrt_float      // ST(0) = √ST(0)
+//     call @math.sin_float       // ST(0) = sin(ST(0))  (radians)
+//     call @math.cos_float       // ST(0) = cos(ST(0))  (radians)
 //     call @math.max_float       // ST(0) = max(ST(0), ST(1)); pops ST(1)  (works with doubles too)
 //     call @math.min_float       // ST(0) = min(ST(0), ST(1)); pops ST(1)  (works with doubles too)
 //     call @math.max_array_float // ST(0) = max of float array (ESI=ptr, ECX=count)
@@ -204,6 +206,36 @@ square_float:
 //   fstp dword [result]
 sqrt_float:
     fsqrt                       // ST(0) = √ST(0)
+    return
+
+// ── sin_float ─────────────────────────────────────────────────
+// Computes the sine of ST(0).
+//
+// Input:  ST(0) = angle in radians (IEEE 754 single or double)
+// Output: ST(0) = sin(angle)
+// Clobbers: none (result replaces input on FPU stack)
+//
+// Example:
+//   fld dword [my_angle]
+//   call @math.sin_float      // ST(0) = sin(my_angle)
+//   fstp dword [result]
+sin_float:
+    fsin                        // ST(0) = sin(ST(0))
+    return
+
+// ── cos_float ─────────────────────────────────────────────────
+// Computes the cosine of ST(0).
+//
+// Input:  ST(0) = angle in radians (IEEE 754 single or double)
+// Output: ST(0) = cos(angle)
+// Clobbers: none (result replaces input on FPU stack)
+//
+// Example:
+//   fld dword [my_angle]
+//   call @math.cos_float      // ST(0) = cos(my_angle)
+//   fstp dword [result]
+cos_float:
+    fcos                        // ST(0) = cos(ST(0))
     return
 
 // ── max_float ───────────────────────────────────────────────────
