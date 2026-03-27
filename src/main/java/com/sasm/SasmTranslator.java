@@ -44,6 +44,9 @@ public class SasmTranslator {
     /** 1-based source line number, updated during the second translation pass. */
     private int currentLine = 0;
 
+    /** {@code true} while inside a multi-line {@code (* ... *)} block comment. */
+    private boolean inBlockComment = false;
+
     /**
      * Collects error messages produced during translation.
      * Populated when source violates ordering rules (e.g. a {@code #REF}
@@ -209,6 +212,7 @@ public class SasmTranslator {
         declaredVars.clear();
         blockStack.clear();
         seenCode = false;
+        inBlockComment = false;
         currentLine = 0;
         errors.clear();
 
@@ -282,8 +286,18 @@ public class SasmTranslator {
         if (trimmed.startsWith("//")) {                               // line comment
             return leading + "; " + trimmed.substring(2).stripLeading();
         }
-        if (trimmed.startsWith("(*")) return toAsmComment(trimmed); // block comment open
-        if (trimmed.endsWith("*)"))   return toAsmComment(trimmed); // block comment close/single
+        if (trimmed.startsWith("(*")) {                               // block comment open
+            if (!trimmed.endsWith("*)"))                               // multi-line
+                inBlockComment = true;
+            return toAsmComment(trimmed);
+        }
+        if (trimmed.endsWith("*)")) {                                  // block comment close
+            inBlockComment = false;
+            return toAsmComment(trimmed);
+        }
+        if (inBlockComment) {                                          // block comment middle
+            return toAsmComment(trimmed);
+        }
 
         // Any non-blank, non-comment, non-directive line counts as code.
         seenCode = true;
@@ -302,6 +316,16 @@ public class SasmTranslator {
             comment = "  ; " + commentBody;
         }
 
+        // ── normalize operand brackets: ( ) → [ ] ──────────────────────────
+        // Allow parentheses as an alternative to square brackets for memory
+        // operands.  Control-flow constructs (if, else if, while, for, switch),
+        // proc declarations, and data declarations use parentheses for their
+        // own syntax (e.g. __float32__(3.0) macros) and must not be normalised.
+        if (!code.startsWith("proc ") && !code.startsWith("var ")
+                && !code.startsWith("data ") && !isControlFlowLine(code)) {
+            code = code.replace('(', '[').replace(')', ']');
+        }
+
         String asm = tryTranslateCode(code);
         if (asm != null) {
             if (asm.indexOf('\n') >= 0) {
@@ -318,8 +342,10 @@ public class SasmTranslator {
             }
             return leading + asm + comment;
         }
-        // Passthrough — already ASM or unrecognised
-        return line;
+        // Passthrough — already ASM or unrecognised.
+        // Return the normalised code (with comment) so parentheses used
+        // as memory-operand brackets are converted even for raw NASM lines.
+        return leading + code + comment;
     }
 
     // ── translation engine ───────────────────────────────────────────────────
@@ -1930,6 +1956,21 @@ public class SasmTranslator {
     // ══════════════════════════════════════════════════════════════════════════
     //  Helpers
     // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Returns {@code true} if the line is a control-flow construct that
+     * uses parentheses for its own syntax (e.g. {@code if (...)},
+     * {@code while (...)}, {@code for (...)}, {@code switch (...)}).
+     * Such lines must not have their parentheses normalised to brackets.
+     */
+    private static boolean isControlFlowLine(String code) {
+        return code.startsWith("if ")
+                || code.startsWith("} else if ")
+                || code.startsWith("else if ")
+                || code.startsWith("while ")
+                || code.startsWith("for ")
+                || code.startsWith("switch ");
+    }
 
     /**
      * Resolves {@code @alias.symbol} references in a line.

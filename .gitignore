@@ -12,3 +12,6 @@ target/
 # macOS
 .DS_Store
 target/
+
+# Compiled class files at root
+*.class

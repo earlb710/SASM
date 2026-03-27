@@ -1,0 +1,55 @@
+// testBracketOperands.sasm
+// Project : Test-projects
+//
+// Demonstrates using ( ) parentheses as an alternative to [ ] square
+// brackets for memory operands.  Both bracket styles are supported
+// and produce identical NASM output.
+//
+// Target: 32-bit Linux ELF executable (uses int 0x80 for exit).
+//
+// Build (after SASM translation):
+//   nasm -f elf32 testBracketOperands.asm -o testBracketOperands.o
+//   ld -m elf_i386 testBracketOperands.o -o testBracketOperands
+//
+// NOTE: This file tests SASM-to-NASM translation only.
+
+section .data
+
+var value1 as dword = 10
+var value2 as dword = 20
+var result as dword = 0
+var fval   as float = __float32__(3.0)
+var fresult as float
+
+section .text
+global _start
+
+_start:
+
+// ── move with parentheses ─────────────────────────────────
+move (value1) to eax                 // MOV eax, [value1]
+move eax to dword (result)           // MOV dword [result], eax
+
+// ── add with parentheses ──────────────────────────────────
+add (value2) to eax                  // ADD eax, [value2]
+
+// ── compare with parentheses ──────────────────────────────
+compare (value1) with 10             // CMP [value1], 10
+
+// ── push / pop with parentheses ───────────────────────────
+push (value1)                        // PUSH [value1]
+pop (result)                         // POP [result]
+
+// ── FPU with parentheses (passthrough instructions) ───────
+fld dword (fval)                     // fld dword [fval]
+fstp dword (fresult)                 // fstp dword [fresult]
+
+// ── mixed: square brackets still work ─────────────────────
+move [value1] to ebx                 // MOV ebx, [value1]
+add [value2] to ebx                  // ADD ebx, [value2]
+move ebx to dword [result]           // MOV dword [result], ebx
+
+// ── exit ──────────────────────────────────────────────────
+move 1 to eax
+move 0 to ebx
+interrupt 0x80
