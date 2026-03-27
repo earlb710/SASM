@@ -1,14 +1,18 @@
 // testMath.sasm
 // Project : Test-projects
 //
-// Demonstrates the math library's square and sqrt_int routines.
+// Demonstrates the math library's integer and float routines.
 //
 // Usage:
 //     #REF lib/math.sasm math
 //
 // The library provides:
-//   @math.square   — unsigned integer square (EAX → EAX)
-//   @math.sqrt_int — integer square root via x87 FPU (EAX → EAX)
+//   Integer:
+//     @math.square       — unsigned integer square (EAX → EAX)
+//     @math.sqrt_int     — integer square root via x87 FPU (EAX → EAX)
+//   Float (x87 FPU stack):
+//     @math.square_float — float square (ST(0) → ST(0))
+//     @math.sqrt_float   — float square root (ST(0) → ST(0))
 //
 // Target: 32-bit Linux ELF executable (uses int 0x80 for exit).
 //
@@ -25,11 +29,19 @@ section .data
 
 var result_sq    as dword = 0
 var result_sqrt  as dword = 0
+var val_f        as float = __float32__(3.0)
+var result_sqf   as float
+var result_sqrtf as float
+var val_9f       as float = __float32__(9.0)
 
 section .text
 global _start
 
 _start:
+    // ═════════════════════════════════════════════════════════════
+    //  Integer tests (same as before)
+    // ═════════════════════════════════════════════════════════════
+
     // ── square: 7² = 49 ─────────────────────────────────────────
     move 7 to eax
     call @math.square              // eax = 49, edx = 0
@@ -56,6 +68,26 @@ _start:
     move 5 to eax
     call @math.square              // eax = 25
     call @math.sqrt_int            // eax = 5
+
+    // ═════════════════════════════════════════════════════════════
+    //  Float tests
+    // ═════════════════════════════════════════════════════════════
+
+    // ── square_float: 3.0² = 9.0 ───────────────────────────────
+    fld dword [val_f]              // ST(0) = 3.0
+    call @math.square_float        // ST(0) = 9.0
+    fstp dword [result_sqf]        // store result
+
+    // ── sqrt_float: √9.0 = 3.0 ─────────────────────────────────
+    fld dword [val_9f]             // ST(0) = 9.0
+    call @math.sqrt_float          // ST(0) = 3.0
+    fstp dword [result_sqrtf]      // store result
+
+    // ── chain: sqrt_float(square_float(3.0)) = 3.0 ─────────────
+    fld dword [val_f]              // ST(0) = 3.0
+    call @math.square_float        // ST(0) = 9.0
+    call @math.sqrt_float          // ST(0) = 3.0
+    fstp dword [result_sqrtf]      // store result
 
     // ── exit cleanly ────────────────────────────────────────────
     move 1 to eax                  // sys_exit

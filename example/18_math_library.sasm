@@ -1,11 +1,15 @@
 // 18_math_library.sasm
-// Example 18 — Math Library (square and square root)
+// Example 18 — Math Library (integer and float square / square root)
 //
 // Demonstrates the math standard library.
 //
-// The math library provides:
-//   @math.square   — square EAX (unsigned): EDX:EAX = EAX × EAX
-//   @math.sqrt_int — integer square root via x87 FPU: EAX = √EAX
+// Integer routines:
+//   @math.square     — square EAX (unsigned): EDX:EAX = EAX × EAX
+//   @math.sqrt_int   — integer square root via x87 FPU: EAX = √EAX
+//
+// Float routines (x87 FPU stack):
+//   @math.square_float — square ST(0): ST(0) = ST(0) × ST(0)
+//   @math.sqrt_float   — square root ST(0): ST(0) = √ST(0)
 //
 // Target: 32-bit Linux ELF (int 0x80 for exit).
 //
@@ -20,26 +24,39 @@ section .data
 var input_val as dword = 0
 var squared   as dword = 0
 var root      as dword = 0
+var fval      as float = __float32__(5.0)
+var fsquared  as float
+var froot     as float
 
 section .text
 global _start
 
 _start:
-    // ── Compute 12² = 144 ──────────────────────────────────────
+    // ── Integer: 12² = 144 ──────────────────────────────────────
     move 12 to eax
     call @math.square              // eax = 144
     move eax to dword [squared]
 
-    // ── Compute √144 = 12 ──────────────────────────────────────
+    // ── Integer: √144 = 12 ──────────────────────────────────────
     call @math.sqrt_int            // eax = 12
     move eax to dword [root]
 
-    // ── Verify round-trip: √(n²) = n ───────────────────────────
+    // ── Integer round-trip: √(n²) = n ───────────────────────────
     move 25 to eax
     call @math.square              // eax = 625
-    call @math.sqrt_int            // eax = 25  (original value)
+    call @math.sqrt_int            // eax = 25
 
-    // ── Exit with the final result as exit code ─────────────────
+    // ── Float: 5.0² = 25.0 ─────────────────────────────────────
+    fld dword [fval]               // ST(0) = 5.0
+    call @math.square_float        // ST(0) = 25.0
+    fstp dword [fsquared]          // store result
+
+    // ── Float: √25.0 = 5.0 ─────────────────────────────────────
+    fld dword [fsquared]           // ST(0) = 25.0
+    call @math.sqrt_float          // ST(0) = 5.0
+    fstp dword [froot]             // store result
+
+    // ── Exit with the integer result as exit code ────────────────
     move eax to ebx                // ebx = 25 (exit code)
     move 1 to eax                  // sys_exit
     interrupt 0x80
