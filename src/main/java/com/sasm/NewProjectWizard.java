@@ -280,6 +280,8 @@ public class NewProjectWizard extends JDialog {
     /**
      * Copies all {@code .sasm} files from every OS subdirectory under
      * {@code system/lib/} into the project's {@code lib/} directory.
+     * Variant-specific subdirectories (e.g. {@code system/lib/linux/console/})
+     * are also scanned and their files are copied.
      *
      * <p>The system library directory is located using the same strategy as
      * {@link JsonLoader}: first relative to the current working directory,
@@ -297,19 +299,35 @@ public class NewProjectWizard extends JDialog {
         if (osDirs == null) return;
 
         for (java.io.File osDir : osDirs) {
-            java.io.File[] sasmFiles = osDir.listFiles(
-                    (d, n) -> n.endsWith(".sasm"));
-            if (sasmFiles == null) continue;
+            // Copy .sasm files directly under the OS directory
+            copySasmFiles(osDir, destLibDir);
 
-            for (java.io.File src : sasmFiles) {
-                java.io.File dest = new java.io.File(destLibDir, src.getName());
-                if (!dest.exists()) {
-                    try {
-                        java.nio.file.Files.copy(src.toPath(), dest.toPath());
-                    } catch (java.io.IOException ex) {
-                        System.err.println("Warning: could not copy system library "
-                                + src.getName() + ": " + ex.getMessage());
-                    }
+            // Copy .sasm files from variant subdirectories (e.g. console/)
+            java.io.File[] variantDirs = osDir.listFiles(java.io.File::isDirectory);
+            if (variantDirs == null) continue;
+            for (java.io.File variantDir : variantDirs) {
+                copySasmFiles(variantDir, destLibDir);
+            }
+        }
+    }
+
+    /**
+     * Copies all {@code .sasm} files from {@code srcDir} into {@code destDir},
+     * skipping any file whose name already exists in the destination.
+     */
+    private static void copySasmFiles(java.io.File srcDir, java.io.File destDir) {
+        java.io.File[] sasmFiles = srcDir.listFiles(
+                (d, n) -> n.endsWith(".sasm"));
+        if (sasmFiles == null) return;
+
+        for (java.io.File src : sasmFiles) {
+            java.io.File dest = new java.io.File(destDir, src.getName());
+            if (!dest.exists()) {
+                try {
+                    java.nio.file.Files.copy(src.toPath(), dest.toPath());
+                } catch (java.io.IOException ex) {
+                    System.err.println("Warning: could not copy system library "
+                            + src.getName() + ": " + ex.getMessage());
                 }
             }
         }
