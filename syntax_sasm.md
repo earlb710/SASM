@@ -2025,6 +2025,8 @@ library files that are shared across all variants of the project.
     kernel32 Win32 API).
     Compatible with all 32-bit Windows versions from Windows 95 / NT 3.1
     onward, and all 64-bit Windows versions via WoW64.
+  - `math.sasm` — Integer math routines (`square`, `sqrt_int`).
+    Platform-independent; uses x87 FPU for square root.
 * Users can add additional library files to `lib/` for project-specific
   shared code.
 * Like `core/`, the `lib/` directory cannot be renamed or deleted through
@@ -2214,6 +2216,8 @@ Complete example source files live in the [`example/`](example/) directory. The 
 | [`example/14_global_static_vars.sasm`](example/14_global_static_vars.sasm) | Global static variables — module-level `var <name> as <type>` and `var <name> as <type> = <val>` |
 | [`example/15_x86_64.sasm`](example/15_x86_64.sasm) | x86-64 (64-bit) — `qword` data types, 64-bit registers, System V and Windows x64 calling conventions, Linux `syscall` |
 | [`example/16_file_imports.sasm`](example/16_file_imports.sasm) | File imports — `#REF <file> <alias>` directives and `@alias.symbol` qualified references |
+| [`example/17_multi_dim_arrays.sasm`](example/17_multi_dim_arrays.sasm) | Multi-dimensional arrays — `data <name> as <type>[d1][d2]...` with row-major indexing |
+| [`example/18_math_library.sasm`](example/18_math_library.sasm) | Math library — `#REF lib/math.sasm math` with `@math.square` and `@math.sqrt_int` |
 
 ### Quick-reference snippets
 

@@ -1,0 +1,45 @@
+// 18_math_library.sasm
+// Example 18 — Math Library (square and square root)
+//
+// Demonstrates the math standard library.
+//
+// The math library provides:
+//   @math.square   — square EAX (unsigned): EDX:EAX = EAX × EAX
+//   @math.sqrt_int — integer square root via x87 FPU: EAX = √EAX
+//
+// Target: 32-bit Linux ELF (int 0x80 for exit).
+//
+// Build (after SASM translation):
+//   nasm -f elf32 18_math_library.asm -o 18_math_library.o
+//   ld -m elf_i386 18_math_library.o -o 18_math_library
+
+#REF lib/math.sasm math
+
+section .data
+
+var input_val as dword = 0
+var squared   as dword = 0
+var root      as dword = 0
+
+section .text
+global _start
+
+_start:
+    // ── Compute 12² = 144 ──────────────────────────────────────
+    move 12 to eax
+    call @math.square              // eax = 144
+    move eax to dword [squared]
+
+    // ── Compute √144 = 12 ──────────────────────────────────────
+    call @math.sqrt_int            // eax = 12
+    move eax to dword [root]
+
+    // ── Verify round-trip: √(n²) = n ───────────────────────────
+    move 25 to eax
+    call @math.square              // eax = 625
+    call @math.sqrt_int            // eax = 25  (original value)
+
+    // ── Exit with the final result as exit code ─────────────────
+    move eax to ebx                // ebx = 25 (exit code)
+    move 1 to eax                  // sys_exit
+    interrupt 0x80

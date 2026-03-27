@@ -1,0 +1,61 @@
+// math.sasm
+// Math Library — Integer square and square root.
+//
+// Platform-independent math routines using integer and x87 FPU
+// instructions.  Does not depend on any operating system calls.
+//
+// Usage:
+//     #REF lib/math.sasm math
+//     call @math.square
+//     call @math.sqrt_int
+//
+// After calling square, EAX contains the low 32 bits of the result
+// and EDX contains the high 32 bits.
+// After calling sqrt_int, EAX contains the integer square root.
+
+#COMPAT Windows x86 (Win32)
+
+section .text
+
+// ── square ──────────────────────────────────────────────────────
+// Computes the unsigned integer square of EAX.
+//
+// Input:  EAX = value to square (unsigned 32-bit)
+// Output: EAX = low 32 bits of value × value
+//         EDX = high 32 bits of value × value
+// Clobbers: EDX
+//
+// Example:
+//   move 7 to eax
+//   call @math.square      // eax = 49, edx = 0
+square:
+    multiply by eax            // MUL EAX → EDX:EAX = EAX × EAX
+    return
+
+// ── sqrt_int ────────────────────────────────────────────────────
+// Computes the integer square root of EAX using the x87 FPU.
+// The result is the nearest integer to sqrt(EAX).  For perfect
+// squares the result is exact.
+//
+// Input:  EAX = value (unsigned 32-bit; must be <= 2^31 - 1 for
+//                FILD to interpret correctly as signed positive)
+// Output: EAX = nearest integer to sqrt(value)
+// Clobbers: x87 FPU stack (one push/pop cycle)
+//
+// Example:
+//   move 49 to eax
+//   call @math.sqrt_int    // eax = 7
+sqrt_int:
+    push ebp
+    move esp to ebp
+    subtract 4 from esp        // local: [ebp-4] = temp dword
+
+    move eax to dword [ebp-4]  // store input
+    fild dword [ebp-4]         // push integer onto FPU stack
+    fsqrt                       // ST(0) = sqrt(ST(0))
+    fistp dword [ebp-4]        // pop and store as nearest integer
+    move dword [ebp-4] to eax  // return result in EAX
+
+    move ebp to esp
+    pop ebp
+    return

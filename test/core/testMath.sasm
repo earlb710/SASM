@@ -1,0 +1,63 @@
+// testMath.sasm
+// Project : Test-projects
+//
+// Demonstrates the math library's square and sqrt_int routines.
+//
+// Usage:
+//     #REF lib/math.sasm math
+//
+// The library provides:
+//   @math.square   — unsigned integer square (EAX → EAX)
+//   @math.sqrt_int — integer square root via x87 FPU (EAX → EAX)
+//
+// Target: 32-bit Linux ELF executable (uses int 0x80 for exit).
+//
+// Build with:
+//   nasm -f elf32 testMath.asm -o testMath.o
+//   ld -m elf_i386 testMath.o -o testMath
+//
+// NOTE: This file tests SASM-to-NASM translation only.
+//       Running the executable requires Linux with x87 FPU support.
+
+#REF lib/math.sasm math
+
+section .data
+
+var result_sq    as dword = 0
+var result_sqrt  as dword = 0
+
+section .text
+global _start
+
+_start:
+    // ── square: 7² = 49 ─────────────────────────────────────────
+    move 7 to eax
+    call @math.square              // eax = 49, edx = 0
+    move eax to dword [result_sq]  // store result
+
+    // ── square: 256² = 65536 ────────────────────────────────────
+    move 256 to eax
+    call @math.square              // eax = 65536, edx = 0
+
+    // ── sqrt_int: sqrt(49) = 7 ─────────────────────────────────
+    move 49 to eax
+    call @math.sqrt_int            // eax = 7
+    move eax to dword [result_sqrt]
+
+    // ── sqrt_int: sqrt(100) = 10 ────────────────────────────────
+    move 100 to eax
+    call @math.sqrt_int            // eax = 10
+
+    // ── sqrt_int: sqrt(2) ≈ 1 ──────────────────────────────────
+    move 2 to eax
+    call @math.sqrt_int            // eax = 1 (nearest integer)
+
+    // ── chain: sqrt(square(5)) = 5 ─────────────────────────────
+    move 5 to eax
+    call @math.square              // eax = 25
+    call @math.sqrt_int            // eax = 5
+
+    // ── exit cleanly ────────────────────────────────────────────
+    move 1 to eax                  // sys_exit
+    move 0 to ebx                  // exit code 0
+    interrupt 0x80
