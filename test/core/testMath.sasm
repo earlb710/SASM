@@ -3,6 +3,8 @@
 //
 // Demonstrates the math library's integer, float, and double routines,
 // including max, min, and array variants.
+// Verifies that the correct library functions are called when using
+// the overloaded float/double parameter signatures.
 //
 // Usage:
 //     #REF lib/math.sasm math
@@ -74,11 +76,23 @@ var result_mnad  as double
 // Double array for max_array_double / min_array_double tests
 data double_arr as double = __float64__(1.5), __float64__(8.0), __float64__(3.25), __float64__(6.0)
 
+// Double variables for square_float / sqrt_float with double-precision tests
+var val_d         as double = __float64__(3.0)
+var val_9d        as double = __float64__(9.0)
+var result_sqd    as double
+var result_sqrtd  as double
+
 // Trig test values (π/2 ≈ 1.5707963…, 0.0)
 var angle_half_pi as float = __float32__(1.5707963)
 var angle_zero    as float = __float32__(0.0)
 var result_sinf   as float
 var result_cosf   as float
+
+// Double trig test values
+var angle_half_pi_d as double = __float64__(1.5707963267948966)
+var angle_zero_d    as double = __float64__(0.0)
+var result_sind     as double
+var result_cosd     as double
 
 section .text
 global _start
@@ -256,6 +270,42 @@ _start:
     fld dword [angle_zero]
     call @math.cos_float           // ST(0) = cos(0) = 1.0
     fstp dword [result_cosf]
+
+    // ═════════════════════════════════════════════════════════════
+    //  Double tests — square_float / sqrt_float with double-precision
+    //  (overloaded: the same FPU routines work with doubles since
+    //   the x87 uses 80-bit extended precision internally)
+    // ═════════════════════════════════════════════════════════════
+
+    // ── square_float with double: 3.0² = 9.0 ────────────────────
+    fld qword [val_d]              // ST(0) = 3.0 (double)
+    call @math.square_float        // ST(0) = 9.0
+    fstp qword [result_sqd]        // store result as double
+
+    // ── sqrt_float with double: √9.0 = 3.0 ──────────────────────
+    fld qword [val_9d]             // ST(0) = 9.0 (double)
+    call @math.sqrt_float          // ST(0) = 3.0
+    fstp qword [result_sqrtd]      // store result as double
+
+    // ── chain with doubles: sqrt_float(square_float(3.0)) = 3.0 ─
+    fld qword [val_d]              // ST(0) = 3.0 (double)
+    call @math.square_float        // ST(0) = 9.0
+    call @math.sqrt_float          // ST(0) = 3.0
+    fstp qword [result_sqrtd]      // store result as double
+
+    // ═════════════════════════════════════════════════════════════
+    //  Double tests — sin_float / cos_float with double-precision
+    // ═════════════════════════════════════════════════════════════
+
+    // ── sin_float with double: sin(π/2) ≈ 1.0 ──────────────────
+    fld qword [angle_half_pi_d]
+    call @math.sin_float           // ST(0) = sin(π/2) ≈ 1.0
+    fstp qword [result_sind]       // store result as double
+
+    // ── cos_float with double: cos(0) = 1.0 ────────────────────
+    fld qword [angle_zero_d]
+    call @math.cos_float           // ST(0) = cos(0) = 1.0
+    fstp qword [result_cosd]       // store result as double
 
     // ── exit cleanly ────────────────────────────────────────────
     move 1 to eax                  // sys_exit
