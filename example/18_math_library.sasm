@@ -1,15 +1,23 @@
 // 18_math_library.sasm
-// Example 18 — Math Library (integer and float square / square root)
+// Example 18 — Math Library (square, sqrt, max, min, array variants)
 //
 // Demonstrates the math standard library.
 //
 // Integer routines:
-//   @math.square     — square EAX (unsigned): EDX:EAX = EAX × EAX
-//   @math.sqrt_int   — integer square root via x87 FPU: EAX = √EAX
+//   @math.square       — square EAX (unsigned): EDX:EAX = EAX × EAX
+//   @math.sqrt_int     — integer square root via x87 FPU: EAX = √EAX
+//   @math.max          — max of two signed integers: EAX = max(EAX, EBX)
+//   @math.min          — min of two signed integers: EAX = min(EAX, EBX)
+//   @math.max_array    — max of signed dword array: EAX = max(arr)
+//   @math.min_array    — min of signed dword array: EAX = min(arr)
 //
 // Float routines (x87 FPU stack):
-//   @math.square_float — square ST(0): ST(0) = ST(0) × ST(0)
-//   @math.sqrt_float   — square root ST(0): ST(0) = √ST(0)
+//   @math.square_float     — square ST(0): ST(0) = ST(0) × ST(0)
+//   @math.sqrt_float       — square root ST(0): ST(0) = √ST(0)
+//   @math.max_float        — max of ST(0) and ST(1): ST(0) = max
+//   @math.min_float        — min of ST(0) and ST(1): ST(0) = min
+//   @math.max_array_float  — max of float array → ST(0)
+//   @math.min_array_float  — min of float array → ST(0)
 //
 // Target: 32-bit Linux ELF (int 0x80 for exit).
 //
@@ -24,9 +32,18 @@ section .data
 var input_val as dword = 0
 var squared   as dword = 0
 var root      as dword = 0
+var max_val   as dword = 0
+var min_val   as dword = 0
 var fval      as float = __float32__(5.0)
 var fsquared  as float
 var froot     as float
+var fmax_r    as float
+var fmin_r    as float
+var fa        as float = __float32__(4.0)
+var fb        as float = __float32__(9.5)
+
+data scores as dword = 85, 92, 78, 95, 88
+data temps  as float = __float32__(22.5), __float32__(18.0), __float32__(30.1), __float32__(25.7)
 
 section .text
 global _start
@@ -46,6 +63,28 @@ _start:
     call @math.square              // eax = 625
     call @math.sqrt_int            // eax = 25
 
+    // ── Integer: max(42, 17) = 42 ───────────────────────────────
+    move 42 to eax
+    move 17 to ebx
+    call @math.max                 // eax = 42
+    move eax to dword [max_val]
+
+    // ── Integer: min(42, 17) = 17 ───────────────────────────────
+    move 42 to eax
+    move 17 to ebx
+    call @math.min                 // eax = 17
+    move eax to dword [min_val]
+
+    // ── Integer: max of array [85,92,78,95,88] = 95 ─────────────
+    move scores to esi
+    move 5 to ecx
+    call @math.max_array           // eax = 95
+
+    // ── Integer: min of array [85,92,78,95,88] = 78 ─────────────
+    move scores to esi
+    move 5 to ecx
+    call @math.min_array           // eax = 78
+
     // ── Float: 5.0² = 25.0 ─────────────────────────────────────
     fld dword [fval]               // ST(0) = 5.0
     call @math.square_float        // ST(0) = 25.0
@@ -56,7 +95,31 @@ _start:
     call @math.sqrt_float          // ST(0) = 5.0
     fstp dword [froot]             // store result
 
+    // ── Float: max(4.0, 9.5) = 9.5 ─────────────────────────────
+    fld dword [fa]                 // push 4.0
+    fld dword [fb]                 // push 9.5 (ST(0)=9.5, ST(1)=4.0)
+    call @math.max_float           // ST(0) = 9.5
+    fstp dword [fmax_r]
+
+    // ── Float: min(4.0, 9.5) = 4.0 ─────────────────────────────
+    fld dword [fa]                 // push 4.0
+    fld dword [fb]                 // push 9.5 (ST(0)=9.5, ST(1)=4.0)
+    call @math.min_float           // ST(0) = 4.0
+    fstp dword [fmin_r]
+
+    // ── Float: max of array [22.5,18.0,30.1,25.7] = 30.1 ───────
+    move temps to esi
+    move 4 to ecx
+    call @math.max_array_float     // ST(0) = 30.1
+    fstp dword [fmax_r]
+
+    // ── Float: min of array [22.5,18.0,30.1,25.7] = 18.0 ───────
+    move temps to esi
+    move 4 to ecx
+    call @math.min_array_float     // ST(0) = 18.0
+    fstp dword [fmin_r]
+
     // ── Exit with the integer result as exit code ────────────────
-    move eax to ebx                // ebx = 25 (exit code)
+    move eax to ebx                // ebx = last result (exit code)
     move 1 to eax                  // sys_exit
     interrupt 0x80

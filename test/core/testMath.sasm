@@ -1,7 +1,8 @@
 // testMath.sasm
 // Project : Test-projects
 //
-// Demonstrates the math library's integer and float routines.
+// Demonstrates the math library's integer and float routines,
+// including max, min, and array variants.
 //
 // Usage:
 //     #REF lib/math.sasm math
@@ -10,9 +11,17 @@
 //   Integer:
 //     @math.square       — unsigned integer square (EAX → EAX)
 //     @math.sqrt_int     — integer square root via x87 FPU (EAX → EAX)
+//     @math.max          — max of two signed integers (EAX, EBX → EAX)
+//     @math.min          — min of two signed integers (EAX, EBX → EAX)
+//     @math.max_array    — max of signed dword array (ESI, ECX → EAX)
+//     @math.min_array    — min of signed dword array (ESI, ECX → EAX)
 //   Float (x87 FPU stack):
-//     @math.square_float — float square (ST(0) → ST(0))
-//     @math.sqrt_float   — float square root (ST(0) → ST(0))
+//     @math.square_float     — float square (ST(0) → ST(0))
+//     @math.sqrt_float       — float square root (ST(0) → ST(0))
+//     @math.max_float        — max of two floats (ST(0), ST(1) → ST(0))
+//     @math.min_float        — min of two floats (ST(0), ST(1) → ST(0))
+//     @math.max_array_float  — max of float array (ESI, ECX → ST(0))
+//     @math.min_array_float  — min of float array (ESI, ECX → ST(0))
 //
 // Target: 32-bit Linux ELF executable (uses int 0x80 for exit).
 //
@@ -29,17 +38,33 @@ section .data
 
 var result_sq    as dword = 0
 var result_sqrt  as dword = 0
+var result_max   as dword = 0
+var result_min   as dword = 0
+var result_maxa  as dword = 0
+var result_mina  as dword = 0
 var val_f        as float = __float32__(3.0)
 var result_sqf   as float
 var result_sqrtf as float
 var val_9f       as float = __float32__(9.0)
+var result_maxf  as float
+var result_minf  as float
+var result_mxaf  as float
+var result_mnaf  as float
+var val_a        as float = __float32__(7.0)
+var val_b        as float = __float32__(2.5)
+
+// Integer array for max_array / min_array tests
+data int_arr as dword = 5, 3, 9, 1, 7
+
+// Float array for max_array_float / min_array_float tests
+data float_arr as float = __float32__(1.5), __float32__(8.0), __float32__(3.25), __float32__(6.0)
 
 section .text
 global _start
 
 _start:
     // ═════════════════════════════════════════════════════════════
-    //  Integer tests (same as before)
+    //  Integer tests — square / sqrt_int
     // ═════════════════════════════════════════════════════════════
 
     // ── square: 7² = 49 ─────────────────────────────────────────
@@ -70,7 +95,49 @@ _start:
     call @math.sqrt_int            // eax = 5
 
     // ═════════════════════════════════════════════════════════════
-    //  Float tests
+    //  Integer tests — max / min (two values)
+    // ═════════════════════════════════════════════════════════════
+
+    // ── max(10, 20) = 20 ────────────────────────────────────────
+    move 10 to eax
+    move 20 to ebx
+    call @math.max                 // eax = 20
+    move eax to dword [result_max]
+
+    // ── max(30, 5) = 30 ─────────────────────────────────────────
+    move 30 to eax
+    move 5 to ebx
+    call @math.max                 // eax = 30
+
+    // ── min(10, 20) = 10 ────────────────────────────────────────
+    move 10 to eax
+    move 20 to ebx
+    call @math.min                 // eax = 10
+    move eax to dword [result_min]
+
+    // ── min(30, 5) = 5 ──────────────────────────────────────────
+    move 30 to eax
+    move 5 to ebx
+    call @math.min                 // eax = 5
+
+    // ═════════════════════════════════════════════════════════════
+    //  Integer tests — max_array / min_array
+    // ═════════════════════════════════════════════════════════════
+
+    // ── max_array([5, 3, 9, 1, 7]) = 9 ─────────────────────────
+    move int_arr to esi
+    move 5 to ecx
+    call @math.max_array           // eax = 9
+    move eax to dword [result_maxa]
+
+    // ── min_array([5, 3, 9, 1, 7]) = 1 ─────────────────────────
+    move int_arr to esi
+    move 5 to ecx
+    call @math.min_array           // eax = 1
+    move eax to dword [result_mina]
+
+    // ═════════════════════════════════════════════════════════════
+    //  Float tests — square_float / sqrt_float
     // ═════════════════════════════════════════════════════════════
 
     // ── square_float: 3.0² = 9.0 ───────────────────────────────
@@ -88,6 +155,38 @@ _start:
     call @math.square_float        // ST(0) = 9.0
     call @math.sqrt_float          // ST(0) = 3.0
     fstp dword [result_sqrtf]      // store result
+
+    // ═════════════════════════════════════════════════════════════
+    //  Float tests — max_float / min_float (two values)
+    // ═════════════════════════════════════════════════════════════
+
+    // ── max_float(2.5, 7.0) = 7.0 ──────────────────────────────
+    fld dword [val_a]              // push 7.0
+    fld dword [val_b]              // push 2.5  (ST(0)=2.5, ST(1)=7.0)
+    call @math.max_float           // ST(0) = 7.0
+    fstp dword [result_maxf]       // store result
+
+    // ── min_float(2.5, 7.0) = 2.5 ──────────────────────────────
+    fld dword [val_a]              // push 7.0
+    fld dword [val_b]              // push 2.5  (ST(0)=2.5, ST(1)=7.0)
+    call @math.min_float           // ST(0) = 2.5
+    fstp dword [result_minf]       // store result
+
+    // ═════════════════════════════════════════════════════════════
+    //  Float tests — max_array_float / min_array_float
+    // ═════════════════════════════════════════════════════════════
+
+    // ── max_array_float([1.5, 8.0, 3.25, 6.0]) = 8.0 ──────────
+    move float_arr to esi
+    move 4 to ecx
+    call @math.max_array_float     // ST(0) = 8.0
+    fstp dword [result_mxaf]       // store result
+
+    // ── min_array_float([1.5, 8.0, 3.25, 6.0]) = 1.5 ──────────
+    move float_arr to esi
+    move 4 to ecx
+    call @math.min_array_float     // ST(0) = 1.5
+    fstp dword [result_mnaf]       // store result
 
     // ── exit cleanly ────────────────────────────────────────────
     move 1 to eax                  // sys_exit

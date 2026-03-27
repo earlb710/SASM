@@ -1,5 +1,5 @@
 // math.sasm
-// Math Library — Integer and floating-point square and square root.
+// Math Library — Integer and floating-point math routines.
 //
 // Platform-independent math routines using integer and x87 FPU
 // instructions.  Does not depend on any operating system calls.
@@ -10,15 +10,18 @@
 // Integer routines:
 //     call @math.square          // EAX = EAX × EAX (unsigned)
 //     call @math.sqrt_int        // EAX = integer √EAX
+//     call @math.max             // EAX = max(EAX, EBX) signed
+//     call @math.min             // EAX = min(EAX, EBX) signed
+//     call @math.max_array       // EAX = max of dword array (ESI=ptr, ECX=count)
+//     call @math.min_array       // EAX = min of dword array (ESI=ptr, ECX=count)
 //
 // Float routines (x87 FPU stack):
-//     fld dword [my_float]       // push float onto FPU stack
 //     call @math.square_float    // ST(0) = ST(0) × ST(0)
-//     fstp dword [result]        // pop result
-//
-//     fld dword [my_float]       // push float onto FPU stack
 //     call @math.sqrt_float      // ST(0) = √ST(0)
-//     fstp dword [result]        // pop result
+//     call @math.max_float       // ST(0) = max(ST(0), ST(1)); pops ST(1)
+//     call @math.min_float       // ST(0) = min(ST(0), ST(1)); pops ST(1)
+//     call @math.max_array_float // ST(0) = max of float array (ESI=ptr, ECX=count)
+//     call @math.min_array_float // ST(0) = min of float array (ESI=ptr, ECX=count)
 
 #COMPAT Windows x86 (Win32)
 
@@ -71,6 +74,102 @@ sqrt_int:
     pop ebp
     return
 
+// ── max ─────────────────────────────────────────────────────────
+// Returns the larger of two signed integers.
+//
+// Input:  EAX = first value (signed 32-bit)
+//         EBX = second value (signed 32-bit)
+// Output: EAX = max(EAX, EBX)
+// Clobbers: none
+//
+// Example:
+//   move 10 to eax
+//   move 20 to ebx
+//   call @math.max         // eax = 20
+max:
+    compare eax with ebx
+    goto .max_done if greater or equal
+    move ebx to eax
+.max_done:
+    return
+
+// ── min ─────────────────────────────────────────────────────────
+// Returns the smaller of two signed integers.
+//
+// Input:  EAX = first value (signed 32-bit)
+//         EBX = second value (signed 32-bit)
+// Output: EAX = min(EAX, EBX)
+// Clobbers: none
+//
+// Example:
+//   move 10 to eax
+//   move 20 to ebx
+//   call @math.min         // eax = 10
+min:
+    compare eax with ebx
+    goto .min_done if less or equal
+    move ebx to eax
+.min_done:
+    return
+
+// ── max_array ───────────────────────────────────────────────────
+// Finds the maximum value in a signed dword array.
+//
+// Input:  ESI = pointer to first element (dword array)
+//         ECX = number of elements (must be >= 1)
+// Output: EAX = maximum signed value in the array
+// Clobbers: ECX, ESI
+//
+// Example:
+//   move arr to esi
+//   move 5 to ecx
+//   call @math.max_array   // eax = max element
+max_array:
+    move dword [esi] to eax    // start with first element
+    add 4 to esi
+    subtract 1 from ecx
+.max_array_loop:
+    compare ecx with 0
+    goto .max_array_done if equal
+    compare eax with dword [esi]
+    goto .max_array_skip if greater or equal
+    move dword [esi] to eax
+.max_array_skip:
+    add 4 to esi
+    subtract 1 from ecx
+    goto .max_array_loop
+.max_array_done:
+    return
+
+// ── min_array ───────────────────────────────────────────────────
+// Finds the minimum value in a signed dword array.
+//
+// Input:  ESI = pointer to first element (dword array)
+//         ECX = number of elements (must be >= 1)
+// Output: EAX = minimum signed value in the array
+// Clobbers: ECX, ESI
+//
+// Example:
+//   move arr to esi
+//   move 5 to ecx
+//   call @math.min_array   // eax = min element
+min_array:
+    move dword [esi] to eax    // start with first element
+    add 4 to esi
+    subtract 1 from ecx
+.min_array_loop:
+    compare ecx with 0
+    goto .min_array_done if equal
+    compare eax with dword [esi]
+    goto .min_array_skip if less or equal
+    move dword [esi] to eax
+.min_array_skip:
+    add 4 to esi
+    subtract 1 from ecx
+    goto .min_array_loop
+.min_array_done:
+    return
+
 // ═══════════════════════════════════════════════════════════════
 //  Float routines (x87 FPU stack-based)
 // ═══════════════════════════════════════════════════════════════
@@ -103,4 +202,122 @@ square_float:
 //   fstp dword [result]
 sqrt_float:
     fsqrt                       // ST(0) = √ST(0)
+    return
+
+// ── max_float ───────────────────────────────────────────────────
+// Returns the larger of two floats on the FPU stack.
+//
+// Input:  ST(0) = first value, ST(1) = second value
+// Output: ST(0) = max(first, second)  (one value popped)
+// Clobbers: x87 FPU stack (net pop of one entry)
+//
+// Example:
+//   fld dword [val_a]         // push a
+//   fld dword [val_b]         // push b  (ST(0)=b, ST(1)=a)
+//   call @math.max_float      // ST(0) = max(b, a)
+//   fstp dword [result]
+max_float:
+    fcom st1                    // compare ST(0) to ST(1)
+    fstsw ax                    // store FPU status word in AX
+    sahf                        // load status flags from AH
+    jae .max_float_keep_st0     // if ST(0) >= ST(1), keep ST(0)
+    fstp st0                    // discard ST(0); ST(1) becomes ST(0)
+    return
+.max_float_keep_st0:
+    fstp st1                    // copy ST(0) over ST(1) and pop
+    return
+
+// ── min_float ───────────────────────────────────────────────────
+// Returns the smaller of two floats on the FPU stack.
+//
+// Input:  ST(0) = first value, ST(1) = second value
+// Output: ST(0) = min(first, second)  (one value popped)
+// Clobbers: x87 FPU stack (net pop of one entry)
+//
+// Example:
+//   fld dword [val_a]         // push a
+//   fld dword [val_b]         // push b  (ST(0)=b, ST(1)=a)
+//   call @math.min_float      // ST(0) = min(b, a)
+//   fstp dword [result]
+min_float:
+    fcom st1                    // compare ST(0) to ST(1)
+    fstsw ax                    // store FPU status word in AX
+    sahf                        // load status flags from AH
+    jbe .min_float_keep_st0     // if ST(0) <= ST(1), keep ST(0)
+    fstp st0                    // discard ST(0); ST(1) becomes ST(0)
+    return
+.min_float_keep_st0:
+    fstp st1                    // copy ST(0) over ST(1) and pop
+    return
+
+// ── max_array_float ─────────────────────────────────────────────
+// Finds the maximum value in a float (dword) array.
+//
+// Input:  ESI = pointer to first element (float array)
+//         ECX = number of elements (must be >= 1)
+// Output: ST(0) = maximum float value in the array
+// Clobbers: ECX, ESI, x87 FPU stack (one entry pushed)
+//
+// Example:
+//   move float_arr to esi
+//   move 4 to ecx
+//   call @math.max_array_float  // ST(0) = max element
+//   fstp dword [result]
+max_array_float:
+    fld dword [esi]             // ST(0) = first element
+    add 4 to esi
+    subtract 1 from ecx
+.max_af_loop:
+    compare ecx with 0
+    goto .max_af_done if equal
+    fld dword [esi]             // ST(0) = next element, ST(1) = current max
+    fcom st1                    // compare ST(0) to ST(1)
+    fstsw ax
+    sahf
+    jae .max_af_new             // if new >= max, keep new
+    fstp st0                    // discard new; keep old max
+    goto .max_af_next
+.max_af_new:
+    fstp st1                    // replace old max with new
+.max_af_next:
+    add 4 to esi
+    subtract 1 from ecx
+    goto .max_af_loop
+.max_af_done:
+    return
+
+// ── min_array_float ─────────────────────────────────────────────
+// Finds the minimum value in a float (dword) array.
+//
+// Input:  ESI = pointer to first element (float array)
+//         ECX = number of elements (must be >= 1)
+// Output: ST(0) = minimum float value in the array
+// Clobbers: ECX, ESI, x87 FPU stack (one entry pushed)
+//
+// Example:
+//   move float_arr to esi
+//   move 4 to ecx
+//   call @math.min_array_float  // ST(0) = min element
+//   fstp dword [result]
+min_array_float:
+    fld dword [esi]             // ST(0) = first element
+    add 4 to esi
+    subtract 1 from ecx
+.min_af_loop:
+    compare ecx with 0
+    goto .min_af_done if equal
+    fld dword [esi]             // ST(0) = next element, ST(1) = current min
+    fcom st1                    // compare ST(0) to ST(1)
+    fstsw ax
+    sahf
+    jbe .min_af_new             // if new <= min, keep new
+    fstp st0                    // discard new; keep old min
+    goto .min_af_next
+.min_af_new:
+    fstp st1                    // replace old min with new
+.min_af_next:
+    add 4 to esi
+    subtract 1 from ecx
+    goto .min_af_loop
+.min_af_done:
     return

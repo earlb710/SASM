@@ -2026,7 +2026,9 @@ library files that are shared across all variants of the project.
     Compatible with all 32-bit Windows versions from Windows 95 / NT 3.1
     onward, and all 64-bit Windows versions via WoW64.
   - `math.sasm` — Integer and floating-point math routines (`square`,
-    `sqrt_int`, `square_float`, `sqrt_float`).
+    `sqrt_int`, `max`, `min`, `max_array`, `min_array`, `square_float`,
+    `sqrt_float`, `max_float`, `min_float`, `max_array_float`,
+    `min_array_float`).
     Platform-independent; uses x87 FPU for float and square root operations.
 * Users can add additional library files to `lib/` for project-specific
   shared code.
@@ -2218,7 +2220,7 @@ Complete example source files live in the [`example/`](example/) directory. The 
 | [`example/15_x86_64.sasm`](example/15_x86_64.sasm) | x86-64 (64-bit) — `qword` data types, 64-bit registers, System V and Windows x64 calling conventions, Linux `syscall` |
 | [`example/16_file_imports.sasm`](example/16_file_imports.sasm) | File imports — `#REF <file> <alias>` directives and `@alias.symbol` qualified references |
 | [`example/17_multi_dim_arrays.sasm`](example/17_multi_dim_arrays.sasm) | Multi-dimensional arrays — `data <name> as <type>[d1][d2]...` with row-major indexing |
-| [`example/18_math_library.sasm`](example/18_math_library.sasm) | Math library — `#REF lib/math.sasm math` with `@math.square`, `@math.sqrt_int`, `@math.square_float`, `@math.sqrt_float` |
+| [`example/18_math_library.sasm`](example/18_math_library.sasm) | Math library — `#REF lib/math.sasm math` with `@math.square`, `@math.sqrt_int`, `@math.max`, `@math.min`, `@math.max_array`, `@math.min_array`, `@math.square_float`, `@math.sqrt_float`, `@math.max_float`, `@math.min_float`, `@math.max_array_float`, `@math.min_array_float` |
 
 ### Quick-reference snippets
 
