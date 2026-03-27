@@ -1,0 +1,94 @@
+// kbd_input.sasm
+// Linux Console Keyboard Input Library — standard library for reading
+// keyboard input from the console (terminal).
+//
+// This is a variant-specific library for Linux console programs.
+// It provides routines for reading characters and lines from stdin
+// using the Linux int 0x80 system-call ABI.
+//
+// Usage:
+//     #REF lib/kbd_input.sasm kbd
+//     call @kbd.read_char
+//     call @kbd.read_line
+//
+// After calling read_char, the character read is in AL.
+// After calling read_line, EAX contains the number of bytes read.
+
+#COMPAT Linux x86 (i386, int 0x80 ABI)
+
+section .text
+
+// ── read_char ───────────────────────────────────────────────────
+// Reads a single character from stdin (Linux sys_read).
+//
+// Input:  none
+// Output: AL = character read (0 on error/EOF)
+// Clobbers: EAX, EBX, ECX, EDX
+//
+// Example:
+//   call @kbd.read_char
+//   // al = character typed by user
+read_char:
+    push ebp
+    move esp to ebp
+    subtract 4 from esp       // local: [ebp-4] = char buffer
+
+    move 0 to dword [ebp-4]   // clear buffer
+
+    // sys_read(stdin, &buf, 1)
+    move 3 to eax              // sys_read
+    move 0 to ebx              // fd = stdin
+    address of ebp-4 to ecx    // ecx = pointer to buffer
+    move 1 to edx              // length = 1
+    interrupt 0x80
+
+    // If eax <= 0, return 0 in al
+    compare eax, 0
+    if less or equal {
+        move 0 to al
+        move ebp to esp
+        pop ebp
+        return
+    }
+
+    move byte [ebp-4] to al    // return character in al
+
+    move ebp to esp
+    pop ebp
+    return
+
+// ── read_line ───────────────────────────────────────────────────
+// Reads a line of input from stdin into a buffer (Linux sys_read).
+// Reads up to the specified maximum number of bytes.  The input
+// typically includes the trailing newline (0x0A) if the user
+// pressed Enter.
+//
+// Input:
+//   [esp+4]  = pointer to destination buffer
+//   [esp+8]  = maximum number of bytes to read (buffer size)
+//
+// Output:
+//   EAX = number of bytes actually read, or negative on error
+//
+// Clobbers: EAX, EBX, ECX, EDX
+//
+// Example:
+//   push 80                   // max bytes
+//   push input_buf            // buffer pointer
+//   call @kbd.read_line
+//   // eax = number of bytes read
+read_line:
+    push ebp
+    move esp to ebp
+
+    // sys_read(stdin, buffer, max_len)
+    move 3 to eax              // sys_read
+    move 0 to ebx              // fd = stdin
+    move [ebp+8] to ecx        // ecx = buffer pointer
+    move [ebp+12] to edx       // edx = max bytes to read
+    interrupt 0x80
+
+    // eax = bytes read (or negative error code)
+
+    pop ebp
+    return
