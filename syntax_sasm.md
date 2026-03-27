@@ -986,6 +986,8 @@ var flags  word unsigned = 0xFF    // DW 0xFF; operations use unsigned variants
 | `word`       | 2 bytes | `DW` | `0` |
 | `dword`      | 4 bytes | `DD` | `0` |
 | `qword`      | 8 bytes | `DQ` | `0` (x86-64) |
+| `float`      | 4 bytes | `DD` | `0` (IEEE 754 single-precision) |
+| `double`     | 8 bytes | `DQ` | `0` (IEEE 754 double-precision) |
 
 **Zero-initialized scalars:**
 
@@ -994,6 +996,8 @@ var counter as word             // counter: DW 0
 var flag    as byte             // flag:    DB 0
 var total   as dword            // total:   DD 0
 var big     as qword            // big:     DQ 0  (x86-64)
+var result  as float            // result:  DD 0  (single-precision)
+var accum   as double           // accum:   DQ 0  (double-precision)
 ```
 
 *Equivalent ASM:*
@@ -1003,6 +1007,8 @@ counter: DW 0
 flag:    DB 0
 total:   DD 0
 big:     DQ 0
+result:  DD 0
+accum:   DQ 0
 ```
 
 **Initialized scalars:**
@@ -1062,7 +1068,7 @@ CMP  [counter], [max_count]
 * Module-level `var` declarations must appear **outside** any `proc` or `block` body — they are emitted as data-segment labels.
 * A module-level `var` declaration may appear before or after the `proc`/`block` definitions that use it; the assembler resolves names in a single pass.
 * The same `var` keyword inside a `proc` or `block` body declares a **stack-local** variable instead (see [Local Variables](#local-variables)).
-* The `= <value>` initializer must be a single integer literal (decimal, `0x` hex, `0b` binary, or character literal). For multi-element initialized storage, use `data` (see [Static Data Arrays](#static-data-arrays) later in this section).
+* The `= <value>` initializer must be a single integer literal (decimal, `0x` hex, `0b` binary, or character literal), or a NASM floating-point macro (`__float32__()` / `__float64__()`) for `float` / `double` types. For multi-element initialized storage, use `data` (see [Static Data Arrays](#static-data-arrays) later in this section).
 * Global scalars are **not** automatically saved/restored across calls; if a `proc` modifies a global, document that side effect in the `proc`'s comment header.
 
 **Example — global counter used across two procs:**
@@ -1127,6 +1133,8 @@ order (the last dimension varies fastest, as in C).
 | `word`       | 2 bytes      | `DW`               |
 | `dword`      | 4 bytes      | `DD`               |
 | `qword`      | 8 bytes      | `DQ` (x86-64)      |
+| `float`      | 4 bytes      | `DD` (IEEE 754 single-precision) |
+| `double`     | 8 bytes      | `DQ` (IEEE 754 double-precision) |
 
 **Zero-initialized arrays** — element count is given in brackets; all elements start as zero:
 
@@ -1174,6 +1182,38 @@ data masks  as dword = 0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000
 primes: DB 2, 3, 5, 7, 11, 13, 17, 19
 lookup: DW 0000h, 00FFh, FF00h, FFFFh
 masks:  DD 000000FFh, 0000FF00h, 00FF0000h, FF000000h
+```
+
+**Floating-point arrays** — use NASM `__float32__()` / `__float64__()` macros for
+constant values:
+
+```sasm
+data weights as float  = __float32__(1.0), __float32__(0.5), __float32__(0.25)
+data precise as double = __float64__(3.14159265358979), __float64__(2.71828182845905)
+data zeroed  as float[8]                    // 8 × 4 bytes, all zero
+data grid    as double[3][3]                // 3×3 = 9 doubles, all zero
+```
+
+*Equivalent ASM:*
+
+```asm
+weights: DD __float32__(1.0), __float32__(0.5), __float32__(0.25)
+precise: DQ __float64__(3.14159265358979), __float64__(2.71828182845905)
+zeroed:  TIMES 8 DD 0
+grid:    TIMES 9 DQ 0
+```
+
+Float and double data can be loaded and manipulated using x87 FPU instructions
+(`fld`, `fadd`, `fstp`, etc.), which pass through to NASM verbatim:
+
+```sasm
+fld dword [weights]         // push weights[0] onto FPU stack
+fld dword [weights + 4]     // push weights[1]
+faddp                       // ST0 = weights[0] + weights[1]
+fstp dword [result]         // pop and store
+
+fld qword [precise]         // push precise[0] (double) onto FPU stack
+fstp qword [accum]          // pop and store as double
 ```
 
 **Accessing static array elements:**

@@ -165,7 +165,7 @@ public class SasmTranslator {
 
     /** Common base for var declarations: {@code var <name> [as] <type>[d1][d2]... [signed|unsigned]}. */
     private static final String VAR_BASE =
-            "var\\s+(\\w+)\\s+(?:as\\s+)?(byte|word|dword|qword)((?:\\[\\d+\\])+)?(?:\\s+(signed|unsigned))?";
+            "var\\s+(\\w+)\\s+(?:as\\s+)?(byte|word|dword|qword|float|double)((?:\\[\\d+\\])+)?(?:\\s+(signed|unsigned))?";
 
     /** var with initialization: {@code var <name> [as] <type>[d1][d2]... [signed|unsigned] = <value>}. */
     private static final Pattern VAR_INIT = Pattern.compile(VAR_BASE + "\\s*=\\s*(.+)");
@@ -1303,7 +1303,7 @@ public class SasmTranslator {
     private String translateData(String code) {
         // data <name> as <type>[d1][d2]...
         Matcher m = Pattern.compile(
-                "data\\s+(\\w+)\\s+as\\s+(byte|word|dword|qword)((?:\\[\\d+\\])+)")
+                "data\\s+(\\w+)\\s+as\\s+(byte|word|dword|qword|float|double)((?:\\[\\d+\\])+)")
                 .matcher(code);
         if (m.matches()) {
             String name = m.group(1);
@@ -1312,7 +1312,7 @@ public class SasmTranslator {
             return name + ": TIMES " + count + " " + dir + " 0";
         }
         // data <name> as <type> = <values>
-        m = Pattern.compile("data\\s+(\\w+)\\s+as\\s+(byte|word|dword|qword)\\s*=\\s*(.+)")
+        m = Pattern.compile("data\\s+(\\w+)\\s+as\\s+(byte|word|dword|qword|float|double)\\s*=\\s*(.+)")
                 .matcher(code);
         if (m.matches()) {
             String name = m.group(1);
@@ -1954,11 +1954,13 @@ public class SasmTranslator {
     /** Returns the NASM data directive for a SASM type keyword. */
     private static String sizeDirective(String type) {
         return switch (type.toLowerCase()) {
-            case "byte"  -> "DB";
-            case "word"  -> "DW";
-            case "dword" -> "DD";
-            case "qword" -> "DQ";
-            default      -> "DB";
+            case "byte"   -> "DB";
+            case "word"   -> "DW";
+            case "dword"  -> "DD";
+            case "qword"  -> "DQ";
+            case "float"  -> "DD";
+            case "double" -> "DQ";
+            default       -> "DB";
         };
     }
 
