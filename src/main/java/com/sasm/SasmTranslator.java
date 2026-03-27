@@ -376,7 +376,7 @@ public class SasmTranslator {
                     return sw.endLabel + ":";
                 }
             }
-            return null; // while / repeat / atomic — passthrough
+            return ""; // while / repeat / atomic / proc / block — consume brace
         }
         if (code.startsWith("proc "))   return translateProc(code);
         if (code.startsWith("block "))  return translateBlock(code);
@@ -1360,12 +1360,24 @@ public class SasmTranslator {
     // ══════════════════════════════════════════════════════════════════════════
 
     private String translateProc(String code) {
-        // proc <name> uses stack ( ... ) {
-        // proc <name> ( ... ) {
-        // proc <name> {
-        Matcher m = Pattern.compile("proc\\s+(\\w+).*\\{").matcher(code);
+        // Supported parameter styles (parameter overloading):
+        //   proc <name> {                                              (no params)
+        //   proc <name> ( in <reg> as <alias>, out <reg> as <alias> ) {  (register params)
+        //   proc <name> ( in <type> <name>, out <type> <name> ) {      (typed params)
+        //   proc <name> uses stack ( <p1>, <p2>, ... ) {               (stack params)
+        //
+        // All forms generate the same NASM label.  When a parameter list
+        // is present the translator emits it as a NASM comment so the
+        // contract is visible in the generated assembly.
+        Matcher m = Pattern.compile("proc\\s+(\\w+)\\s*(.*)\\{").matcher(code);
         if (m.find()) {
-            return m.group(1) + ":";
+            blockStack.push(null);
+            String name   = m.group(1);
+            String params = m.group(2).trim();
+            if (!params.isEmpty()) {
+                return "; proc " + name + " " + params + "\n" + name + ":";
+            }
+            return name + ":";
         }
         m = Pattern.compile("proc\\s+(\\w+)").matcher(code);
         if (m.find()) {
@@ -1377,6 +1389,7 @@ public class SasmTranslator {
     private String translateBlock(String code) {
         Matcher m = Pattern.compile("block\\s+(\\w+).*\\{").matcher(code);
         if (m.find()) {
+            blockStack.push(null);
             return m.group(1) + ":";
         }
         m = Pattern.compile("block\\s+(\\w+)").matcher(code);

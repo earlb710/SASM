@@ -656,17 +656,72 @@ add 6 to sp             // caller pops 3 × 2-byte args
 
 ---
 
+#### 3. Typed Parameters (Parameter Overloading)
+
+The `proc` declaration supports **typed parameters** as an alternative to register-based or stack-based declarations.  Typed parameters specify a data type (`byte`, `word`, `dword`, `qword`, `float`, `double`) instead of a register name.  This is called *parameter overloading* because the same procedure can be declared with either register-based or typed parameters — the translator accepts both forms.
+
+**Syntax:**
+
+```sasm
+proc <name> ( in <type> <param>, ..., out <type> <param> ) {
+    <body>
+    return
+}
+```
+
+* `in <type> <param>` — declares an input parameter of the given type.
+* `out <type> <param>` — declares an output parameter of the given type.
+* `in out <type> <param>` — the parameter is both read on entry and written on exit.
+* Supported types: `byte`, `word`, `dword`, `qword`, `float`, `double`.
+* The parameter list is **documentary** — it is emitted as a NASM comment in the generated assembly.  The procedure body still uses raw register or memory operands.
+
+**Example — typed parameter form for sin_float:**
+
+```sasm
+proc sin_float ( in dword angle, out dword result ) {
+    fld dword [esp+4]          // load angle from stack / memory
+    fsin                       // ST(0) = sin(angle)
+    fstp dword [esp+8]         // store result
+    return
+}
+```
+
+This is equivalent to the bare form:
+
+```sasm
+proc sin_float {
+    fsin                       // ST(0) = sin(ST(0))
+    return
+}
+```
+
+Both forms generate the same NASM label (`sin_float:`).  The typed-parameter form is useful for **self-documenting library APIs** where the parameter types clarify the expected calling convention.
+
+**Parameter overloading summary:**
+
+A given procedure name may be declared with *any* of the three parameter styles:
+
+| Style | Signature example |
+|-------|-------------------|
+| No params | `proc sin_float {` |
+| Register params | `proc square ( in eax as value, out eax as result ) {` |
+| Typed params | `proc sin_float ( in dword angle, out dword result ) {` |
+| Stack params | `proc read_line uses stack ( buffer_ptr, max_bytes ) {` |
+
+---
+
 #### Choosing a Convention
 
-| Criterion | Register params | Stack params |
-|-----------|----------------|--------------|
-| Number of arguments | ≤ 6 | Any number |
-| Speed | ✅ Fastest — no memory access for args | Slower — args in memory |
-| Interop with C | ❌ Non-standard | ✅ cdecl / stdcall compatible |
-| Recursive calls | ⚠️ Requires saving registers on stack | ✅ Each frame is independent |
-| Readability | ✅ Register roles are visible in signature | ✅ Named params in signature |
+| Criterion | Register params | Stack params | Typed params |
+|-----------|----------------|--------------|--------------|
+| Number of arguments | ≤ 6 | Any number | Any number |
+| Speed | ✅ Fastest — no memory access for args | Slower — args in memory | Depends on body |
+| Interop with C | ❌ Non-standard | ✅ cdecl / stdcall compatible | ✅ Documents C-compatible signatures |
+| Recursive calls | ⚠️ Requires saving registers on stack | ✅ Each frame is independent | Depends on body |
+| Readability | ✅ Register roles are visible in signature | ✅ Named params in signature | ✅ Types + names visible in signature |
+| Self-documenting | ⚠️ Must know register conventions | ✅ Named params | ✅ Typed + named params |
 
-For typical 8086 subroutines pass ≤ 4 values — **prefer register-based parameters**. For library procedures that may be called from C, or for procedures with many arguments — **prefer stack-based parameters**.
+For typical 8086 subroutines pass ≤ 4 values — **prefer register-based parameters**. For library procedures that may be called from C, or for procedures with many arguments — **prefer stack-based parameters**. For self-documenting library APIs where parameter types clarify the interface — **prefer typed parameters**.
 
 ---
 
