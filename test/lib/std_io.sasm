@@ -19,7 +19,7 @@ section .text
 //
 // Input:  AL = character to print
 // Clobbers: AX, BX, CX, DX
-print_char:
+proc print_char ( in al as char ) {
     // store char on stack
     push ax
     move sp to cx           // cx = pointer to char on stack
@@ -29,3 +29,4 @@ print_char:
     interrupt 0x80
     pop ax
     return
+}
