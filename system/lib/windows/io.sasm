@@ -109,7 +109,7 @@ extern _GetStdHandle@4
 //   push file_path
 //   call @io.open_file_read
 //   // eax = handle (check for io_INVALID_HANDLE)
-io_open_file_read:
+proc io_open_file_read uses stack ( file_path ) {
     push ebp
     move esp to ebp
 
@@ -124,6 +124,7 @@ io_open_file_read:
 
     pop ebp
     return
+}
 
 // ── create_file_write ───────────────────────────────────────────
 // Creates or truncates a file for writing.
@@ -140,7 +141,7 @@ io_open_file_read:
 //   push output_path
 //   call @io.create_file_write
 //   // eax = handle
-io_create_file_write:
+proc io_create_file_write uses stack ( file_path ) {
     push ebp
     move esp to ebp
 
@@ -155,6 +156,7 @@ io_create_file_write:
 
     pop ebp
     return
+}
 
 // ── read_file ───────────────────────────────────────────────────
 // Reads bytes from an open file handle.
@@ -178,7 +180,7 @@ io_create_file_write:
 //   push eax                         // hFile (handle from open)
 //   call @io.read_file
 //   // eax = TRUE/FALSE
-io_read_file:
+proc io_read_file uses stack ( file_handle, buffer_ptr, num_bytes ) {
     push ebp
     move esp to ebp
     subtract 4 from esp               // local: bytes_read (DWORD)
@@ -194,6 +196,7 @@ io_read_file:
     move ebp to esp
     pop ebp
     return
+}
 
 // ── write_file ──────────────────────────────────────────────────
 // Writes bytes to an open file handle.
@@ -214,7 +217,7 @@ io_read_file:
 //   push eax                         // hFile (handle from open/create)
 //   call @io.write_file
 //   // eax = TRUE/FALSE
-io_write_file:
+proc io_write_file uses stack ( file_handle, buffer_ptr, num_bytes ) {
     push ebp
     move esp to ebp
     subtract 4 from esp               // local: bytes_written (DWORD)
@@ -230,6 +233,7 @@ io_write_file:
     move ebp to esp
     pop ebp
     return
+}
 
 // ── close_file ──────────────────────────────────────────────────
 // Closes an open file handle.
@@ -245,7 +249,7 @@ io_write_file:
 // Example:
 //   push eax                         // hObject (file handle)
 //   call @io.close_file
-io_close_file:
+proc io_close_file uses stack ( file_handle ) {
     push ebp
     move esp to ebp
 
@@ -254,6 +258,7 @@ io_close_file:
 
     pop ebp
     return
+}
 
 // ── write_stdout ────────────────────────────────────────────────
 // Writes a message to the console standard output.
@@ -271,7 +276,7 @@ io_close_file:
 //   push 13                          // length
 //   push hello_msg                   // buffer
 //   call @io.write_stdout
-io_write_stdout:
+proc io_write_stdout uses stack ( buffer_ptr, num_bytes ) {
     push ebp
     move esp to ebp
     subtract 4 from esp               // local: bytes_written (DWORD)
@@ -293,3 +298,4 @@ io_write_stdout:
     move ebp to esp
     pop ebp
     return
+}

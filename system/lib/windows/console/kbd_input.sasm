@@ -40,7 +40,7 @@ extern _ReadFile@20
 // Example:
 //   call @kbd.read_char
 //   // al = character typed by user
-read_char:
+proc read_char ( out al as char ) {
     push ebp
     move esp to ebp
     subtract 8 from esp       // locals: [ebp-4]=char, [ebp-8]=bytes_read
@@ -77,6 +77,7 @@ read_char:
     move ebp to esp
     pop ebp
     return
+}
 
 // ── read_line ───────────────────────────────────────────────────
 // Reads a line of input from console stdin into a buffer
@@ -98,7 +99,7 @@ read_char:
 //   push input_buf            // buffer pointer
 //   call @kbd.read_line
 //   // eax = number of bytes read
-read_line:
+proc read_line uses stack ( buffer_ptr, max_bytes ) {
     push ebp
     move esp to ebp
     subtract 4 from esp        // local: [ebp-4] = bytes_read
@@ -133,3 +134,4 @@ read_line:
     move ebp to esp
     pop ebp
     return
+}

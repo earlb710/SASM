@@ -23,7 +23,7 @@ section .text
 // Example:
 //   move 'A' to al
 //   call @io.print_char
-print_char:
+proc print_char ( in al as char ) {
     // store char on stack
     push ax
     move sp to cx           // cx = pointer to char on stack
@@ -33,6 +33,7 @@ print_char:
     interrupt 0x80
     pop ax
     return
+}
 
 // ── print_string ────────────────────────────────────────────────
 // Writes a null-terminated string to stdout (Linux sys_write).
@@ -48,7 +49,7 @@ print_char:
 // Example:
 //   move msg to ecx
 //   call @io.print_string
-print_string:
+proc print_string ( in ecx as str_ptr, out eax as bytes_written ) {
     push ecx                // save start pointer
 
     // count string length
@@ -67,3 +68,4 @@ print_string:
     pop ecx                  // ecx = buffer pointer
     interrupt 0x80
     return
+}

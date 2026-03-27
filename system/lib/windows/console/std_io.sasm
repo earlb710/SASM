@@ -35,7 +35,7 @@ extern _WriteFile@20
 // Example:
 //   move 'A' to al
 //   call @io.print_char
-print_char:
+proc print_char ( in al as char ) {
     push ebp
     move esp to ebp
     subtract 8 from esp       // locals: [ebp-4]=char, [ebp-8]=written
@@ -60,6 +60,7 @@ print_char:
     move ebp to esp
     pop ebp
     return
+}
 
 // ── print_string ────────────────────────────────────────────────
 // Writes a null-terminated string to console stdout (Win32 WriteFile).
@@ -75,7 +76,7 @@ print_char:
 // Example:
 //   push msg
 //   call @io.print_string
-print_string:
+proc print_string uses stack ( str_ptr ) {
     push ebp
     move esp to ebp
     subtract 4 from esp       // local: [ebp-4] = bytes_written
@@ -110,3 +111,4 @@ print_string:
     move ebp to esp
     pop ebp
     return
+}
