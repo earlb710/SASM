@@ -195,7 +195,7 @@ proc min_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
 //   fld dword [my_float]
 //   call @math.square_float   // ST(0) = my_float²
 //   fstp dword [result]
-proc square_float {
+proc square_float ( in float value, out float result ) {
     fmul st0, st0              // ST(0) = ST(0) × ST(0)
     return
 }
@@ -211,7 +211,7 @@ proc square_float {
 //   fld dword [my_float]
 //   call @math.sqrt_float     // ST(0) = √my_float
 //   fstp dword [result]
-proc sqrt_float {
+proc sqrt_float ( in float value, out float result ) {
     fsqrt                       // ST(0) = √ST(0)
     return
 }
@@ -227,7 +227,7 @@ proc sqrt_float {
 //   fld dword [my_angle]
 //   call @math.sin_float      // ST(0) = sin(my_angle)
 //   fstp dword [result]
-proc sin_float {
+proc sin_float ( in float angle, out float result ) {
     fsin                        // ST(0) = sin(ST(0))
     return
 }
@@ -243,7 +243,7 @@ proc sin_float {
 //   fld dword [my_angle]
 //   call @math.cos_float      // ST(0) = cos(my_angle)
 //   fstp dword [result]
-proc cos_float {
+proc cos_float ( in float angle, out float result ) {
     fcos                        // ST(0) = cos(ST(0))
     return
 }
@@ -269,7 +269,7 @@ proc cos_float {
 //   fld qword [dval_b]        // push b (double)
 //   call @math.max_float      // ST(0) = max(b, a)
 //   fstp qword [dresult]
-proc max_float {
+proc max_float ( in float first, in float second, out float result ) {
     fcom st1                    // compare ST(0) to ST(1)
     fstsw ax                    // store FPU status word in AX
     sahf                        // load status flags from AH
@@ -302,7 +302,7 @@ proc max_float {
 //   fld qword [dval_b]        // push b (double)
 //   call @math.min_float      // ST(0) = min(b, a)
 //   fstp qword [dresult]
-proc min_float {
+proc min_float ( in float first, in float second, out float result ) {
     fcom st1                    // compare ST(0) to ST(1)
     fstsw ax                    // store FPU status word in AX
     sahf                        // load status flags from AH
