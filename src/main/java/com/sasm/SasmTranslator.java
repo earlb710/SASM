@@ -35,6 +35,23 @@ public class SasmTranslator {
     private final Map<String, String> aliasMap = new HashMap<>();
 
     /**
+     * Set to {@code true} once the first non-blank, non-comment,
+     * non-directive line is encountered during translation.
+     * Used to enforce that all {@code #} directives appear before code.
+     */
+    private boolean seenCode = false;
+
+    /** 1-based source line number, updated during the second translation pass. */
+    private int currentLine = 0;
+
+    /**
+     * Collects error messages produced during translation.
+     * Populated when source violates ordering rules (e.g. a {@code #REF}
+     * or {@code #COMPAT} directive appears after code).
+     */
+    private final List<String> errors = new ArrayList<>();
+
+    /**
      * Tracks variable names declared with {@code var} and whether each is
      * signed.  Bare names in expression assignments are automatically
      * wrapped in brackets, and signedness is used to select the correct
@@ -173,6 +190,14 @@ public class SasmTranslator {
         return lastLineMap;
     }
 
+    /**
+     * Returns the list of error messages produced by the most recent
+     * {@link #translate} call.  An empty list means no errors were found.
+     */
+    public List<String> getErrors() {
+        return errors;
+    }
+
     /** Translates a complete SASM source text into NASM assembly. */
     public String translate(String sasmSource) {
         if (sasmSource == null || sasmSource.isEmpty()) {
@@ -183,6 +208,9 @@ public class SasmTranslator {
         aliasMap.clear();
         declaredVars.clear();
         blockStack.clear();
+        seenCode = false;
+        currentLine = 0;
+        errors.clear();
 
         // ── first pass: collect #REF alias mappings ──────────────────────────
         String[] lines = sasmSource.split("\\r?\\n", -1);
@@ -198,6 +226,7 @@ public class SasmTranslator {
         StringBuilder out = new StringBuilder(sasmSource.length());
         for (int i = 0; i < lines.length; i++) {
             if (i > 0) out.append('\n');
+            currentLine = i + 1;
             String translated = translateLine(lines[i]);
             out.append(translated);
             // Count how many output lines this source line produced
@@ -228,17 +257,24 @@ public class SasmTranslator {
         String trimmed = line.trim();
         String leading = leadingWhitespace(line);
 
-        // ── #REF import directives ───────────────────────────────────────────
+        // ── # directives (must appear before any code) ─────────────────────────
         Matcher refM = REF_DIRECTIVE.matcher(trimmed);
         if (refM.matches()) {
+            if (seenCode) {
+                errors.add("line " + currentLine
+                        + ": #REF directive must appear before any code");
+            }
             String file  = refM.group(1);
             String alias = refM.group(2);
             return "%include \"" + file + "\"  ; alias: " + alias;
         }
 
-        // ── #COMPAT OS-compatibility declarations ────────────────────────────
         Matcher compatM = COMPAT_DIRECTIVE.matcher(trimmed);
         if (compatM.matches()) {
+            if (seenCode) {
+                errors.add("line " + currentLine
+                        + ": #COMPAT directive must appear before any code");
+            }
             return "; COMPAT: " + compatM.group(1);
         }
 
@@ -248,6 +284,9 @@ public class SasmTranslator {
         }
         if (trimmed.startsWith("(*")) return toAsmComment(trimmed); // block comment open
         if (trimmed.endsWith("*)"))   return toAsmComment(trimmed); // block comment close/single
+
+        // Any non-blank, non-comment, non-directive line counts as code.
+        seenCode = true;
 
         // ── resolve @alias.symbol references ─────────────────────────────────
         line = resolveAliasRefs(line);

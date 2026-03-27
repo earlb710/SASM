@@ -2089,7 +2089,7 @@ _start:
 
 ### Rules
 
-* `#REF` directives should appear at the top of the source file, before `section` directives.
+* `#REF` directives **must** appear at the top of the source file, before any code or data (blank lines and comments are allowed before them).  The translator reports an error if a `#REF` appears after code.
 * Each alias must be unique within a file.
 * The imported file's symbols should use the `alias_` prefix naming convention so that `@alias.symbol` resolves correctly.
 * `@alias.symbol` references inside pure comments (`//` lines and `(* *)` blocks) are **not** resolved — they are preserved verbatim.
@@ -2109,7 +2109,7 @@ Library files can declare which operating systems they are compatible with using
 
 * `<description>` — free-form text describing the compatible OS or platform (e.g. `Windows 10, 11`, `Linux x86 (i386, int 0x80 ABI)`).
 * Multiple `#COMPAT` lines are allowed — one per OS family or group.
-* `#COMPAT` directives are typically placed near the top of the file, after the header comment and before any `section` directives.
+* `#COMPAT` directives **must** appear at the top of the file, before any code or data (blank lines and comments are allowed before them).  The translator reports an error if a `#COMPAT` appears after code.
 
 ### Translation
 

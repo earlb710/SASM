@@ -1,0 +1,22 @@
+// testDirectiveOrder.sasm
+// Verifies that # directives (#REF, #COMPAT) work correctly
+// when placed before any code, as required by the language.
+//
+// This file follows the rule: all # directives must appear
+// before any code or data.  Blank lines and comments between
+// directives are permitted.
+
+#COMPAT Windows 10, 11
+#COMPAT Linux x86_64
+
+section .data
+
+var msg as byte[6]
+data msg_bytes as byte = 'H','e','l','l','o',0
+
+section .text
+global _start
+
+_start:
+    move msg_bytes to ax
+    halt
