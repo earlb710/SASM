@@ -48,7 +48,7 @@ move eax to dword [result_typed]
 // ── Test 4: proc with stack params ──────────────────────────
 push 4
 call double_stack
-add 4 to esp
+esp = esp + 4
 move eax to dword [result_stack]
 
 // ── exit ─────────────────────────────────────────────────────
@@ -62,19 +62,19 @@ interrupt 0x80
 
 // Style 1: No parameters — bare proc
 proc double_bare {
-    add eax to eax
+    eax = eax + eax
     return
 }
 
 // Style 2: Register parameters
 proc double_reg ( in eax as value, out eax as result ) {
-    add eax to eax
+    eax = eax + eax
     return
 }
 
 // Style 3: Typed parameters (parameter overloading)
 proc double_typed ( in dword value, out dword result ) {
-    add eax to eax
+    eax = eax + eax
     return
 }
 
@@ -83,7 +83,7 @@ proc double_stack uses stack ( value ) {
     push ebp
     move esp to ebp
     move [ebp+8] to eax
-    add eax to eax
+    eax = eax + eax
     pop ebp
     return
 }

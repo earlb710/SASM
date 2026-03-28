@@ -57,7 +57,7 @@ _start:
     push 80                            // max bytes
     push input_buf                     // buffer pointer
     call @kbd.read_line
-    add 8 to esp                       // clean args
+    esp = esp + 8                      // clean args
     // eax = number of bytes read
 
     // Echo the line back

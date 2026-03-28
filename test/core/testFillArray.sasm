@@ -44,7 +44,7 @@ proc sum_array {
     repeat cx times {
         move byte [buffer + bx] to dl
         move zero dl to dx            // zero-extend byte → word
-        add dx to ax
+        ax = ax + dx
         increment bx
     }
     return

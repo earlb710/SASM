@@ -31,7 +31,7 @@ move (value1) to eax                 // MOV eax, [value1]
 move eax to dword (result)           // MOV dword [result], eax
 
 // ── add with parentheses ──────────────────────────────────
-add (value2) to eax                  // ADD eax, [value2]
+eax = eax + (value2)                 // ADD eax, [value2]
 
 // ── compare with parentheses ──────────────────────────────
 compare (value1) with 10             // CMP [value1], 10
@@ -46,7 +46,7 @@ fstp dword (fresult)                 // fstp dword [fresult]
 
 // ── mixed: square brackets still work ─────────────────────
 move [value1] to ebx                 // MOV ebx, [value1]
-add [value2] to ebx                  // ADD ebx, [value2]
+ebx = ebx + [value2]                 // ADD ebx, [value2]
 move ebx to dword [result]           // MOV dword [result], ebx
 
 // ── exit ──────────────────────────────────────────────────

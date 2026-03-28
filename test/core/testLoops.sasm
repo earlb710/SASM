@@ -154,7 +154,7 @@ proc sum_while {
     while not equal {              // loop while bx != 10
         move byte [buffer + bx] to dl   // load one byte
         move zero dl to dx              // zero-extend to word
-        add dx to ax                    // accumulate
+        ax = ax + dx                    // accumulate
         increment bx                    // next index
         compare bx with 10             // re-set flags for the while check
     }
@@ -186,7 +186,7 @@ proc sum_while_cstyle {
     while (bx != 10) {
         move byte [buffer + bx] to dl
         move zero dl to dx
-        add dx to ax
+        ax = ax + dx
         increment bx
         bx != 10                       // re-set flags for the while check
     }
