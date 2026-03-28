@@ -1199,26 +1199,71 @@ cx = ++bx               -- INC bx; MOV cx, bx (increment, then copy)
 | `ax = counter++ + 5` | `MOV ax, [counter]` / `ADD ax, 5` / `INC [counter]` | Variable with post-increment |
 | `ax = ++counter + 5` | `INC [counter]` / `MOV ax, [counter]` / `ADD ax, 5` | Variable with pre-increment |
 
-Operands may be registers, immediates, or memory references (variables).
-When a variable defined with `var` is used in an expression, you can wrap it in
-square brackets (e.g. `[myVar]`) to access its value, or use the bare variable
-name directly — the translator automatically wraps known variable names in
-brackets:
+#### Bare Variables vs. Bracketed Variables — `result` vs. `[result]`
+
+In x86 assembly, square brackets denote a **memory dereference**: `[result]`
+means "the value stored at the address labelled `result`", while a bare
+`result` (without brackets) means the address itself.  SASM keeps this
+distinction but adds a convenience: in certain contexts it automatically wraps
+bare variable names in brackets so you can write shorter code.
+
+**When are brackets added automatically?**
+
+The translator auto-wraps bare variable names (declared with `var`) in two
+contexts:
+
+1. **Expression assignments** — `dst = src`, `dst = op1 + op2`, etc.
+2. **Standalone `++` / `--`** — `result++`, `--counter`, etc.
+
+In these contexts, `result` and `[result]` are **identical**:
 
 ```sasm
 var total word = 0
 var count word = 10
 
--- The following pairs are equivalent:
-ax = [total] + [count]      -- explicit brackets
-ax = total + count           -- bare names (auto-wrapped)
+-- The following pairs produce the same assembly:
+ax = [total] + [count]      -- explicit brackets → MOV ax, [total] / ADD ax, [count]
+ax = total + count           -- bare names        → MOV ax, [total] / ADD ax, [count]
 
-[total] = ax                 -- explicit bracket destination
-total = ax                   -- bare name destination (auto-wrapped)
+[total] = ax                 -- explicit bracket destination → MOV [total], ax
+total = ax                   -- bare name destination        → MOV [total], ax
+
+[counter]++                  -- explicit → INC [counter]
+counter++                    -- bare     → INC [counter]
 ```
 
-The `+` and `-` characters inside square brackets (e.g. `[buffer + bx]`) are
-treated as address arithmetic, not expression operators.
+**When are brackets required?**
+
+English-phrase instructions (`move`, `compare`, `push`, `pop`, `add`, `subtract`,
+etc.) do **not** auto-wrap variable names.  You must write the brackets
+yourself to dereference the variable's value:
+
+```sasm
+var total word = 0
+
+move [total] to ax            -- correct: MOV ax, [total]  (loads the value)
+compare ax with [total]       -- correct: CMP ax, [total]  (compares value)
+push [total]                  -- correct: PUSH [total]      (pushes value)
+```
+
+Without brackets in these instructions the bare name is passed through as a
+raw address/label, which is almost never what you want.
+
+**Rule of thumb**
+
+| Context | Bare `result` | `[result]` | Recommendation |
+|---------|---------------|------------|----------------|
+| Expression assignment (`result = ax`, `ax = result + 5`) | Auto-wrapped to `[result]` | Memory dereference | Either form works — bare name is shorter |
+| Standalone `++` / `--` (`result++`, `--result`) | Auto-wrapped to `[result]` | Memory dereference | Either form works |
+| English-phrase instruction (`move`, `compare`, `push`, …) | Raw label/address (not dereferenced) | Memory dereference | **Always use `[result]`** |
+| Inside brackets with arithmetic (`[buf + si]`) | N/A | Address arithmetic | Use brackets for indexed addressing |
+
+**Summary:** prefer the shorter bare name in expression assignments, but always
+use explicit `[brackets]` in English-phrase instructions.
+
+> **Note:** the `+` and `-` characters inside square brackets
+> (e.g. `[buffer + bx]`) are treated as address arithmetic, not expression
+> operators.
 
 **What happens to the bits shifted off?**  The last bit shifted out is placed
 into the **Carry Flag (CF)**.  For `<<` (SHL) the most-significant bit that

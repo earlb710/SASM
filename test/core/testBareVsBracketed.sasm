@@ -1,0 +1,77 @@
+-- testBareVsBracketed.sasm
+-- Project : Test-projects
+--
+-- Demonstrates that bare variable names and bracketed variable names
+-- produce identical output in expression assignments and standalone
+-- ++/-- operations.
+
+section .text
+global _start
+
+(* -----------------------------------------------------------------
+   Data section: variables used to show bare vs. bracketed behaviour.
+   ----------------------------------------------------------------- *)
+var total   as word = 0
+var count   as word = 10
+var result  as word = 0
+
+(* -----------------------------------------------------------------
+   test_expression_auto_wrap — bare names in expression assignments
+   are auto-wrapped in brackets, producing the same assembly as
+   explicit [brackets].
+   ----------------------------------------------------------------- *)
+proc test_expression_auto_wrap {
+    -- simple assignment: bare name vs explicit brackets
+    ax = total                       -- MOV ax, [total]
+    ax = [total]                     -- MOV ax, [total]  (same)
+
+    -- arithmetic: bare names vs explicit brackets
+    ax = total + count               -- MOV ax, [total] / ADD ax, [count]
+    ax = [total] + [count]           -- MOV ax, [total] / ADD ax, [count]
+
+    -- variable as destination
+    result = ax                      -- MOV [result], ax
+    [result] = ax                    -- MOV [result], ax  (same)
+
+    return
+}
+
+(* -----------------------------------------------------------------
+   test_inc_dec_auto_wrap — bare names in standalone ++/-- are also
+   auto-wrapped in brackets.
+   ----------------------------------------------------------------- *)
+proc test_inc_dec_auto_wrap {
+    result++                          -- INC [result]
+    [result]++                        -- INC [result]  (same)
+
+    --result                          -- DEC [result]
+    --[result]                        -- DEC [result]  (same)
+
+    return
+}
+
+(* -----------------------------------------------------------------
+   test_phrase_requires_brackets — English-phrase instructions do NOT
+   auto-wrap; explicit brackets are required for memory access.
+   ----------------------------------------------------------------- *)
+proc test_phrase_requires_brackets {
+    move [total] to ax                -- MOV ax, [total]  (correct)
+    compare ax with [count]           -- CMP ax, [count]  (correct)
+    push [result]                     -- PUSH [result]    (correct)
+    pop [result]                      -- POP [result]     (correct)
+
+    return
+}
+
+(* -----------------------------------------------------------------
+   _start — entry point
+   ----------------------------------------------------------------- *)
+_start:
+    call test_expression_auto_wrap
+    call test_inc_dec_auto_wrap
+    call test_phrase_requires_brackets
+
+    -- Exit (Linux syscall: sys_exit)
+    move 0 to bl
+    move 1 to ax
+    syscall 0x80
