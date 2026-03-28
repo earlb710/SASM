@@ -71,11 +71,11 @@ The DLL-specific additions are highlighted below.
 │     ├─ Standard fields                           │
 │     ├─ Windows-specific fields                   │
 │     │    ImageBase = 0x10000000 / 0x180000000    │  ◄─ DLL default
-│     └─ Data Directory array (16 × 8 bytes)       │
+│     └─ Data Directory array (16 * 8 bytes)       │
 │          [0] Export Table  ← RVA + Size          │  ◄─ DLL-specific
 │          [5] Base Relocation Table  ← RVA + Size │  ◄─ strongly recommended
 ├──────────────────────────────────────────────────┤
-│  Section Table  (N × 40 bytes)                   │
+│  Section Table  (N * 40 bytes)                   │
 ├──────────────────────────────────────────────────┤
 │  .text    — exported function code               │
 │  .data    — initialized data                     │
@@ -179,7 +179,7 @@ A single 40-byte structure (there is only one export directory per DLL).
 
 ## Export Address Table (EAT)
 
-An array of `NumberOfFunctions` × 4-byte RVAs.  Each entry is the **RVA of the exported
+An array of `NumberOfFunctions` * 4-byte RVAs.  Each entry is the **RVA of the exported
 function or data**.
 
 | Entry | Size | Value |
@@ -197,7 +197,7 @@ form `"OtherDll.FunctionName"` (see [Forwarded Exports](#forwarded-exports)).
 
 ## Export Name Pointer Table
 
-An array of `NumberOfNames` × 4-byte RVAs, each pointing to a null-terminated **ASCII function
+An array of `NumberOfNames` * 4-byte RVAs, each pointing to a null-terminated **ASCII function
 name**.  This array **must be sorted lexically** (case-sensitive, byte-value order) to allow the
 loader to perform a binary search.
 
@@ -211,7 +211,7 @@ loader to perform a binary search.
 
 ## Export Ordinal Table
 
-An array of `NumberOfNames` × 2-byte ordinal values, parallel to the Export Name Pointer Table.
+An array of `NumberOfNames` * 2-byte ordinal values, parallel to the Export Name Pointer Table.
 Entry `OrdinalTable[i]` is the **index into the EAT** for the function named by `NamePtr[i]`.
 
 | Entry | Size | Value |
@@ -336,7 +336,7 @@ _DllMain@12:
     ; [esp+8]  = fdwReason
     ; [esp+12] = lpvReserved
     mov   eax, 1            ; return TRUE (success)
-    ret   12                ; stdcall: callee cleans 3 × 4 = 12 bytes
+    ret   12                ; stdcall: callee cleans 3 * 4 = 12 bytes
 ```
 
 If the DLL has no initialization to perform, `AddressOfEntryPoint` can be set to `0` and the
@@ -482,14 +482,14 @@ DLL-specific structures sit at:
 | PE signature | `0x0080` (`e_lfanew`) | 4 bytes |
 | COFF File Header | `0x0084` | 20 bytes |
 | Optional Header | `0x0098` | 224 (PE32) or 240 (PE32+) bytes |
-| Data Directories | inside Optional Header | 16 × 8 = 128 bytes |
-| Section Table | `0x0178` (PE32) or `0x0188` (PE32+) | `N × 40` bytes |
+| Data Directories | inside Optional Header | 16 * 8 = 128 bytes |
+| Section Table | `0x0178` (PE32) or `0x0188` (PE32+) | `N * 40` bytes |
 | `.text` section | aligned to `FileAlignment` | variable |
 | `.edata` section (Export Directory) | aligned to `FileAlignment` | variable |
 | Export Directory Table | start of `.edata` | 40 bytes |
-| Export Address Table | follows Export Directory | `NumberOfFunctions × 4` bytes |
-| Export Name Pointer Table | follows EAT | `NumberOfNames × 4` bytes |
-| Export Ordinal Table | follows Name Pointers | `NumberOfNames × 2` bytes |
+| Export Address Table | follows Export Directory | `NumberOfFunctions * 4` bytes |
+| Export Name Pointer Table | follows EAT | `NumberOfNames * 4` bytes |
+| Export Ordinal Table | follows Name Pointers | `NumberOfNames * 2` bytes |
 | DLL name + function name strings | follows Ordinal Table | variable |
 | `.reloc` section | aligned to `FileAlignment` | variable |
 

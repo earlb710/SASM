@@ -39,7 +39,7 @@
    Part 1: 64-bit global static variables and data arrays
 
    'var <name> as qword' at module level emits a DQ label.
-   'data <name> as qword[N]' emits N × DQ 0 entries.
+   'data <name> as qword[N]' emits N * DQ 0 entries.
 
    Assembly equivalents:
      tick_count:   DQ 0
@@ -49,7 +49,7 @@
 
 var tick_count  as qword = 0          // DQ 0
 var byte_total  as qword              // DQ 0  (zero-initialized)
-data timestamps as qword[4]           // 4 × DQ 0 (zero-initialized)
+data timestamps as qword[4]           // 4 * DQ 0 (zero-initialized)
 
 (* Mixed type globals — all are fine in the same source file. *)
 var flag        as byte  = 0          // DB 0
@@ -117,7 +117,7 @@ call add64                            // rax = 3,000,000,000
      SUB RSP, 16  (rounds 8-byte qword up to next 16-byte boundary)
    //------------------------------------------------------------- *)
 
-(* Compute (a × b) + c using a local qword to hold the product.
+(* Compute (a * b) + c using a local qword to hold the product.
    in  rdi as a, in rsi as b, in rdx as c
    out rax as result
    NOTE: 'signed multiply by rsi' clobbers rdx (high half of product),
@@ -128,7 +128,7 @@ proc fused_mul_add ( in rdi as a, in rsi as b, in rdx as c ) {
 
     move rdx to saved_c               // save c before multiply clobbers rdx
     move rdi to rax                   // rax = a
-    signed multiply by rsi            // rdx:rax = a × b (signed)-- rdx is now high half
+    signed multiply by rsi            // rdx:rax = a * b (signed)-- rdx is now high half
     move rax to product               // save low 64 bits of product
     add  saved_c to product           // product += c  (using saved copy)
     move product to rax               // return result in rax
@@ -153,10 +153,10 @@ call fused_mul_add                    // rax = 7*6 + 100 = 142
      [rbp-24]  buf[1]
      [rbp-32]  buf[0]  (lowest element — base address)
 
-   Access: qword [buf + rbx]  where rbx = element_index × 8
+   Access: qword [buf + rbx]  where rbx = element_index * 8
    //------------------------------------------------------------- *)
 
-(* Fill a 4-element local qword array with 0, 8, 16, 24 (index × 8).
+(* Fill a 4-element local qword array with 0, 8, 16, 24 (index * 8).
    Returns the sum of all elements in rax.                          *)
 proc fill_qword_array {
     var buf as qword[4]
@@ -164,7 +164,7 @@ proc fill_qword_array {
     move 0  to rbx                    // rbx = byte index
     move 0  to rcx                    // rcx = element counter
     repeat {
-        move rbx to qword [buf + rbx] // buf[i] = i × 8
+        move rbx to qword [buf + rbx] // buf[i] = i * 8
         add 8   to rbx                // next qword (byte offset += 8)
         increment rcx
         compare rcx with 4
@@ -271,7 +271,7 @@ call linux_exit_clean
    in  rcx as a, in rdx as b, out rax as product *)
 proc win64_mul ( in rcx as a, in rdx as b, out rax as product ) {
     move rcx to rax
-    signed multiply by rdx            // rdx:rax = a × b (64-bit result in rax)
+    signed multiply by rdx            // rdx:rax = a * b (64-bit result in rax)
 }
 
 // Windows x64 caller pattern:

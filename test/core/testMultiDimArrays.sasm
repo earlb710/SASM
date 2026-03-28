@@ -11,18 +11,18 @@ global _start
 (* //---------------------------------------------------------------
    Static multi-dimensional arrays (data segment).
    //--------------------------------------------------------------- *)
-data screen as byte[25][80]              // 25 rows × 80 cols = 2000 bytes
-data grid   as word[4][4]                // 4×4 = 16 words
+data screen as byte[25][80]              // 25 rows * 80 cols = 2000 bytes
+data grid   as word[4][4]                // 4*4 = 16 words
 
 (* //---------------------------------------------------------------
    Var-declared multi-dimensional arrays (same TIMES output).
    //--------------------------------------------------------------- *)
-var matrix  as byte[3][4]                // 3×4 = 12 bytes,  zero-initialized
-var table2d as word[5][10]               // 5×10 = 50 words, zero-initialized
-var cube    as dword[2][3][4]            // 2×3×4 = 24 dwords, zero-initialized
-var initMat as byte[3][4] = 0xFF        // 3×4 = 12 bytes, each set to 0xFF
-var signMat as word[2][3] signed         // 2×3 = 6 words, signed, zero-initialized
-var signInit as word[2][3] signed = -1   // 2×3 = 6 words, signed, each set to -1
+var matrix  as byte[3][4]                // 3*4 = 12 bytes,  zero-initialized
+var table2d as word[5][10]               // 5*10 = 50 words, zero-initialized
+var cube    as dword[2][3][4]            // 2*3*4 = 24 dwords, zero-initialized
+var initMat as byte[3][4] = 0xFF        // 3*4 = 12 bytes, each set to 0xFF
+var signMat as word[2][3] signed         // 2*3 = 6 words, signed, zero-initialized
+var signInit as word[2][3] signed = -1   // 2*3 = 6 words, signed, each set to -1
 
 (* //---------------------------------------------------------------
    1D arrays should still work as before.
@@ -38,12 +38,12 @@ var counter as word
 var flag    as byte = 1
 
 (* //---------------------------------------------------------------
-   fill_matrix — fills 'matrix' (3×4 = 12 bytes) with the value in al.
+   fill_matrix — fills 'matrix' (3*4 = 12 bytes) with the value in al.
    Demonstrates accessing a multi-dimensional array as flat memory.
    //--------------------------------------------------------------- *)
 proc fill_matrix {
     move 0 to bx                          // bx = byte index
-    move 12 to cx                         // cx = total element count (3×4)
+    move 12 to cx                         // cx = total element count (3*4)
     repeat cx times {
         move al to byte [matrix + bx]     // matrix[bx] = al
         increment bx
@@ -53,7 +53,7 @@ proc fill_matrix {
 
 (* //---------------------------------------------------------------
    _start — entry point
-   Fill the 3×4 matrix with 0x42, then read an element to verify.
+   Fill the 3*4 matrix with 0x42, then read an element to verify.
    //--------------------------------------------------------------- *)
 _start:
     move 0x42 to al                       // fill value

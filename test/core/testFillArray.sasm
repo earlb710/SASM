@@ -53,7 +53,7 @@ proc sum_array {
 (* //---------------------------------------------------------------
    _start — entry point
    Fill the array with 0xAA, then sum to verify.
-   Expected sum: 10 × 0xAA = 10 × 170 = 1700 (0x06A4).
+   Expected sum: 10 * 0xAA = 10 * 170 = 1700 (0x06A4).
    //--------------------------------------------------------------- *)
 _start:
     move 0xAA to al                   // fill value

@@ -162,9 +162,9 @@ data  item_buf   as word[8]             // array:  storage for up to 8 items
 
 proc store_item {
     // Store ax into item_buf[item_count], then increment item_count.
-    // Register si = byte offset (item_count × 2).
+    // Register si = byte offset (item_count * 2).
     move item_count to si
-    add si to si                        // si = item_count × 2
+    add si to si                        // si = item_count * 2
     move ax to word [item_buf + si]     // item_buf[item_count] = ax
     increment item_count                // item_count++
 }

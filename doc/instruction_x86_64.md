@@ -113,15 +113,15 @@ The assembler encodes the label as a 32-bit signed displacement from the end of 
 |-------------|----------|-------------|-------------|-------|
 | `CDQE` | — | Sign-extend `EAX` → `RAX`. 64-bit rename of `CWDE`. | `extend double to quad` | x86-64 only |
 | `CQO` | — | Sign-extend `RAX` → `RDX:RAX`. 64-bit rename of `CDQ`. | `extend quad to double quad` | x86-64 only; use before `IDIV` |
-| `IMUL` (3-operand) | dst, src, imm | `dst = src × imm` (truncated to 64 bits). Available in 16/32-bit too, but 64-bit dst is new. | `signed multiply <src> by <imm> to <dst>` | ✅ |
-| `MUL` / `IMUL` (64-bit) | src64 | Unsigned/signed: `RDX:RAX = RAX × src64`. | `multiply by <src64>` / `signed multiply by <src64>` | ✅ |
+| `IMUL` (3-operand) | dst, src, imm | `dst = src * imm` (truncated to 64 bits). Available in 16/32-bit too, but 64-bit dst is new. | `signed multiply <src> by <imm> to <dst>` | ✅ |
+| `MUL` / `IMUL` (64-bit) | src64 | Unsigned/signed: `RDX:RAX = RAX * src64`. | `multiply by <src64>` / `signed multiply by <src64>` | ✅ |
 | `DIV` / `IDIV` (64-bit) | src64 | `RAX = RDX:RAX ÷ src64`; `RDX = remainder`. | `divide by <src64>` / `signed divide by <src64>` | ✅ |
 | `INC` / `DEC` (64-bit) | dst64 | 64-bit increment/decrement. Note: in 64-bit mode `INC r64` is a true INC (no REX prefix clash with 32-bit single-byte encodings). | `increment <dst>` / `decrement <dst>` | ✅ |
 | `POPCNT` | dst, src | Count the number of set bits (population count) in `src`; store result in `dst`. | *(no SASM phrase — use raw mnemonic)* | ✅ POPCNT feature flag |
 | `LZCNT` | dst, src | Count leading zero bits in `src`; store in `dst`. If `src = 0`, result is operand size (64 for 64-bit). | *(no SASM phrase)* | ✅ LZCNT feature flag |
 | `TZCNT` | dst, src | Count trailing zero bits in `src`; store in `dst`. | *(no SASM phrase)* | ✅ BMI1 feature flag |
 | `ADCX` / `ADOX` | dst, src | Add with carry (ADCX uses CF; ADOX uses OF). Designed for multi-precision addition pipelines. | *(no SASM phrase)* | ✅ ADX feature flag |
-| `MULX` | dst_hi, dst_lo, src | Unsigned multiply `RDX × src` → `dst_hi:dst_lo`, without modifying flags. | *(no SASM phrase)* | ✅ BMI2 feature flag |
+| `MULX` | dst_hi, dst_lo, src | Unsigned multiply `RDX * src` → `dst_hi:dst_lo`, without modifying flags. | *(no SASM phrase)* | ✅ BMI2 feature flag |
 
 ---
 
@@ -307,7 +307,7 @@ Note: `RSI` and `RDI` are **callee-saved** on Windows (unlike System V where the
 
 #### Shadow Space (Home Space)
 
-The caller must allocate **32 bytes** of stack space (4 × 8 bytes) before any `CALL`, even if the callee takes fewer than four arguments. This space is owned by the callee for spilling register arguments during debugging.
+The caller must allocate **32 bytes** of stack space (4 * 8 bytes) before any `CALL`, even if the callee takes fewer than four arguments. This space is owned by the callee for spilling register arguments during debugging.
 
 ```asm
     SUB  RSP, 32        ; allocate shadow space
