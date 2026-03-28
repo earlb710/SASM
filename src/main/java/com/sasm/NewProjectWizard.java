@@ -260,9 +260,109 @@ public class NewProjectWizard extends JDialog {
             throw new java.io.IOException(
                     "Cannot create core directory: " + coreDir.getAbsolutePath());
         }
+        // Create the lib/ subdirectory for standard/shared library files
+        java.io.File libDir = new java.io.File(dir, "lib");
+        if (!libDir.exists() && !libDir.mkdirs()) {
+            throw new java.io.IOException(
+                    "Cannot create lib directory: " + libDir.getAbsolutePath());
+        }
+        // Copy standard library files from the system library into the
+        // new project's lib/ directory so they are immediately available.
+        copySystemLibraries(libDir);
+
         java.io.File out = new java.io.File(dir, name + ".json");
         JsonLoader.saveProjectFile(pf, out);
         return out;
+    }
+
+    // ── system library helpers ────────────────────────────────────────────────
+
+    /**
+     * Copies all {@code .sasm} files from every OS subdirectory under
+     * {@code system/lib/} into the project's {@code lib/} directory.
+     * Variant-specific subdirectories (e.g. {@code system/lib/linux/console/})
+     * are also scanned and their files are copied.
+     *
+     * <p>The system library directory is located using the same strategy as
+     * {@link JsonLoader}: first relative to the current working directory,
+     * then relative to the running JAR file.</p>
+     *
+     * <p>If the system library directory cannot be found, no files are
+     * copied and no error is raised — the project simply starts with an
+     * empty {@code lib/} directory.</p>
+     */
+    private static void copySystemLibraries(java.io.File destLibDir) {
+        java.io.File sysLib = resolveSystemLibDir();
+        if (sysLib == null || !sysLib.isDirectory()) return;
+
+        java.io.File[] osDirs = sysLib.listFiles(java.io.File::isDirectory);
+        if (osDirs == null) return;
+
+        for (java.io.File osDir : osDirs) {
+            // Copy .sasm files directly under the OS directory
+            copySasmFiles(osDir, destLibDir);
+
+            // Copy .sasm files from variant subdirectories (e.g. console/)
+            java.io.File[] variantDirs = osDir.listFiles(java.io.File::isDirectory);
+            if (variantDirs == null) continue;
+            for (java.io.File variantDir : variantDirs) {
+                copySasmFiles(variantDir, destLibDir);
+            }
+        }
+    }
+
+    /**
+     * Copies all {@code .sasm} files from {@code srcDir} into {@code destDir},
+     * skipping any file whose name already exists in the destination.
+     */
+    private static void copySasmFiles(java.io.File srcDir, java.io.File destDir) {
+        java.io.File[] sasmFiles = srcDir.listFiles(
+                (d, n) -> n.endsWith(".sasm"));
+        if (sasmFiles == null) return;
+
+        for (java.io.File src : sasmFiles) {
+            java.io.File dest = new java.io.File(destDir, src.getName());
+            if (!dest.exists()) {
+                try {
+                    java.nio.file.Files.copy(src.toPath(), dest.toPath());
+                } catch (java.io.IOException ex) {
+                    System.err.println("Warning: could not copy system library "
+                            + src.getName() + ": " + ex.getMessage());
+                }
+            }
+        }
+    }
+
+    /**
+     * Locates the {@code system/lib/} directory using the same search
+     * strategy as the JSON loader:
+     * <ol>
+     *   <li>{@code <cwd>/system/lib/}</li>
+     *   <li>{@code <jar-dir>/../../system/lib/} (Maven target/ layout)</li>
+     * </ol>
+     *
+     * @return the directory, or {@code null} if it cannot be found
+     */
+    private static java.io.File resolveSystemLibDir() {
+        // 1. Try cwd/system/lib/
+        java.io.File candidate = new java.io.File("system/lib");
+        if (candidate.isDirectory()) return candidate;
+
+        // 2. Try <jar-dir>/../../system/lib/
+        try {
+            java.io.File jarDir = new java.io.File(
+                    NewProjectWizard.class.getProtectionDomain()
+                            .getCodeSource()
+                            .getLocation()
+                            .toURI()).getParentFile();
+            java.io.File fromJar = new java.io.File(jarDir,
+                    "../../system/lib").getCanonicalFile();
+            if (fromJar.isDirectory()) return fromJar;
+        } catch (Exception ignored) {
+            // fall through
+        }
+
+        return null;
     }
 
     private void showError(String msg) {

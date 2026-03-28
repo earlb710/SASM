@@ -1,0 +1,71 @@
+// std_io.sasm
+// Linux Console I/O Library — standard library for console output.
+//
+// This is a variant-specific library for Linux console (terminal)
+// programs.  It provides routines for writing characters and strings
+// to stdout using the Linux int 0x80 system-call ABI.
+//
+// Usage:
+//     #REF lib/std_io.sasm io
+//     call @io.print_char
+//     call @io.print_string
+
+#COMPAT Linux x86 (i386, int 0x80 ABI)
+
+section .text
+
+// ── print_char ──────────────────────────────────────────────────
+// Writes the character in AL to stdout (Linux sys_write).
+//
+// Input:  AL = character to print
+// Clobbers: AX, BX, CX, DX
+//
+// Example:
+//   move 'A' to al
+//   call @io.print_char
+proc print_char ( in al as char ) {
+    // store char on stack
+    push ax
+    move sp to cx           // cx = pointer to char on stack
+    move 4 to ax            // sys_write
+    move 1 to bx            // fd = stdout
+    move 1 to dx            // length = 1
+    interrupt 0x80
+    pop ax
+    return
+}
+
+// ── print_string ────────────────────────────────────────────────
+// Writes a null-terminated string to stdout (Linux sys_write).
+//
+// Input:
+//   ECX = pointer to null-terminated string
+//
+// Output:
+//   EAX = number of bytes written (or negative on error)
+//
+// Clobbers: EAX, EBX, ECX, EDX
+//
+// Example:
+//   move msg to ecx
+//   call @io.print_string
+proc print_string ( in ecx as str_ptr, out eax as bytes_written ) {
+    push ecx                // save start pointer
+
+    // count string length
+    move ecx to edx         // edx = scan pointer
+.ps_len:
+    compare byte [edx], 0
+    jump if equal .ps_done
+    increment edx
+    jump .ps_len
+.ps_done:
+    subtract ecx from edx   // edx = length
+
+    // sys_write(stdout, buf, len)
+    move 4 to eax            // sys_write
+    move 1 to ebx            // fd = stdout
+    pop ecx                  // ecx = buffer pointer
+    interrupt 0x80
+    return
+}

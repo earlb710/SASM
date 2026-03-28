@@ -1,19 +1,19 @@
--- Example 16 — File Imports
--- Demonstrates the SASM file-import mechanism:
---   #REF <file> <alias>      — import a file under an alias
---   @alias.symbol             — reference a symbol from the imported file
---
--- The #REF directive translates to a NASM %include directive.
--- Each @alias.symbol reference is resolved to a flat alias_symbol label.
---
--- #REF directives should appear at the top of the file, before
--- section directives and code.
+// Example 16 — File Imports
+// Demonstrates the SASM file-import mechanism:
+//   #REF <file> <alias>      — import a file under an alias
+//   @alias.symbol             — reference a symbol from the imported file
+//
+// The #REF directive translates to a NASM %include directive.
+// Each @alias.symbol reference is resolved to a flat alias_symbol label.
+//
+// #REF directives should appear at the top of the file, before
+// section directives and code.
 
--- ── import external files ──────────────────────────────────────────────
+// ── import external files ──────────────────────────────────────────────
 #REF math_utils.asm math
 #REF io_helpers.asm io
 
--- ── program ────────────────────────────────────────────────────────────
+// ── program ────────────────────────────────────────────────────────────
 section .data
 var result as word = 0
 
@@ -21,19 +21,19 @@ section .text
 global _start
 
 _start:
-    -- Load a value from the imported math library
+    // Load a value from the imported math library
     move @math.initial_value to ax
 
-    -- Call a procedure defined in the math library
-    call @math.double_it          -- ax = ax * 2
+    // Call a procedure defined in the math library
+    call @math.double_it          // ax = ax * 2
 
-    -- Store result via an imported I/O buffer symbol
+    // Store result via an imported I/O buffer symbol
     move ax to @io.output_word
 
-    -- Call an imported print routine
+    // Call an imported print routine
     call @io.print_word
 
-    -- Exit (Linux x86-64 syscall)
+    // Exit (Linux x86-64 syscall)
     move 60 to rax
     move 0  to rdi
     syscall

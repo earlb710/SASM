@@ -1,60 +1,60 @@
--- Example 09 — Named Blocks with Register Parameters
--- Demonstrates the SASM 'block name { }' syntax and register-based
--- parameter passing via 'proc'.
---
--- KEY RULE: both 'block' and 'proc' are CALL-ONLY named code regions.
---   * 'block name { }' — lightweight, no parameter declarations.
---   * 'proc name ( ... )' — full parameter contract.
--- Neither can be entered by fall-through or by 'goto'.
---
--- New block syntax:
---   block <name> {
---       <body>
---   }
--- The closing '}' emits an implicit RET.
--- Use 'return' for early exits within the body.
--- 'goto' may be used freely for internal branching inside the block.
---
--- Register-parameter proc syntax:
---   proc <name> ( in <reg> as <alias>, ..., out <reg> as <alias> ) {
---       <body>
---       return
---   }
+// Example 09 — Named Blocks with Register Parameters
+// Demonstrates the SASM 'block name { }' syntax and register-based
+// parameter passing via 'proc'.
+//
+// KEY RULE: both 'block' and 'proc' are CALL-ONLY named code regions.
+//   * 'block name { }' — lightweight, no parameter declarations.
+//   * 'proc name ( ... )' — full parameter contract.
+// Neither can be entered by fall-through or by 'goto'.
+//
+// New block syntax:
+//   block <name> {
+//       <body>
+//   }
+// The closing '}' emits an implicit RET.
+// Use 'return' for early exits within the body.
+// 'goto' may be used freely for internal branching inside the block.
+//
+// Register-parameter proc syntax:
+//   proc <name> ( in <reg> as <alias>, ..., out <reg> as <alias> ) {
+//       <body>
+//       return
+//   }
 
-(* ---------------------------------------------------------------
+(* //-------------------------------------------------------------
    Part 1: named block — validate_range
    Verify that ax is in [bx, cx].
    Entered exclusively via 'call validate_range'.
    Internal branching with 'goto' is allowed inside the block body.
-   --------------------------------------------------------------- *)
+   //------------------------------------------------------------- *)
 
 block validate_range {
     compare ax with bx
-    goto fail if below         -- internal goto — jumps to local label
+    goto fail if below         // internal goto — jumps to local label
     compare ax with cx
     goto fail if above
-    return                     -- in-range: return to caller
+    return                     // in-range: return to caller
 fail:
-    move 0xFFFF to ax          -- sentinel: out of range
-}                              -- implicit RET
+    move 0xFFFF to ax          // sentinel: out of range
+}                              // implicit RET
 
--- Caller — set up registers, then call the block by name:
-move 0   to bx               -- lower bound
-move 100 to cx               -- upper bound
-move 42  to ax               -- value to check
-call validate_range          -- ax unchanged (42 is in [0, 100])
+// Caller — set up registers, then call the block by name:
+move 0   to bx               // lower bound
+move 100 to cx               // upper bound
+move 42  to ax               // value to check
+call validate_range          // ax unchanged (42 is in [0, 100])
 
-move 200 to ax               -- out-of-range value
-call validate_range          -- ax = 0xFFFF after return
+move 200 to ax               // out-of-range value
+call validate_range          // ax = 0xFFFF after return
 
 
-(* ---------------------------------------------------------------
+(* //-------------------------------------------------------------
    Part 2: proc with register-based parameters — clamp_byte
    in  ax as value   — the 16-bit value to clamp
    out ax as result  — clamped result in [0, 255]
    Using aliases instead of raw register names makes the parameter
    contract explicit in the source and is checked by the assembler.
-   --------------------------------------------------------------- *)
+   //------------------------------------------------------------- *)
 
 proc clamp_byte ( in ax as value, out ax as result ) {
     compare value with 0
@@ -69,6 +69,6 @@ proc clamp_byte ( in ax as value, out ax as result ) {
     return
 }
 
--- Caller:
-move 300 to ax          -- value = 300
-call clamp_byte         -- result → ax (= 255)
+// Caller:
+move 300 to ax          // value = 300
+call clamp_byte         // result → ax (= 255)

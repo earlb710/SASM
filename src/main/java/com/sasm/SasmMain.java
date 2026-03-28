@@ -249,7 +249,8 @@ public class SasmMain {
                 if (sel.isFile()) {
                     filePopup.show(fileListComp, e.getX(), e.getY());
                 } else if (sel.isDirectory()) {
-                    boolean isVariant = !"core".equals(sel.getName());
+                    boolean isVariant = !"core".equals(sel.getName())
+                            && !"lib".equals(sel.getName());
                     ctxBuild.setEnabled(isVariant);
                     ctxRenameVariant.setEnabled(isVariant);
                     ctxDeleteVariant.setEnabled(isVariant);
@@ -741,7 +742,7 @@ public class SasmMain {
         String dirName = idePanel.getSelectedDirectoryName();
         if (dirName == null) return;
 
-        if ("core".equals(dirName)) {
+        if ("core".equals(dirName) || "lib".equals(dirName)) {
             promptCoreProperties();
         } else {
             promptVariantProperties(dirName);
@@ -851,7 +852,7 @@ public class SasmMain {
     /** Placeholder for building a variant (assembling its SASM files). */
     private static void promptBuildVariant() {
         String dirName = idePanel.getSelectedDirectoryName();
-        if (dirName == null || "core".equals(dirName)) return;
+        if (dirName == null || "core".equals(dirName) || "lib".equals(dirName)) return;
         statusBar.setText(" Build: " + dirName + " — (not yet implemented)");
     }
 
@@ -859,7 +860,7 @@ public class SasmMain {
     private static void promptRenameVariant() {
         if (currentProject == null) return;
         String dirName = idePanel.getSelectedDirectoryName();
-        if (dirName == null || "core".equals(dirName)) return;
+        if (dirName == null || "core".equals(dirName) || "lib".equals(dirName)) return;
 
         // Find the matching VariantEntry
         List<ProjectFile.VariantEntry> variants = currentProject.getVariants();
@@ -957,7 +958,7 @@ public class SasmMain {
     private static void promptDeleteVariant() {
         if (currentProject == null) return;
         String dirName = idePanel.getSelectedDirectoryName();
-        if (dirName == null || "core".equals(dirName)) return;
+        if (dirName == null || "core".equals(dirName) || "lib".equals(dirName)) return;
 
         JDialog dlg = new JDialog(mainFrame, "Delete Variant", true);
         dlg.setLayout(new BorderLayout(8, 8));

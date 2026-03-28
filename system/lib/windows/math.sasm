@@ -1,0 +1,489 @@
+// math.sasm
+// Math Library — Integer and floating-point math routines.
+//
+// Platform-independent math routines using integer and x87 FPU
+// instructions.  Does not depend on any operating system calls.
+//
+// Usage:
+//     #REF lib/math.sasm math
+//
+// Integer routines:
+//     call @math.square          // EAX = EAX × EAX (unsigned)
+//     call @math.sqrt_int        // EAX = integer √EAX
+//     call @math.max             // EAX = max(EAX, EBX) signed
+//     call @math.min             // EAX = min(EAX, EBX) signed
+//     call @math.max_array       // EAX = max of dword array (ESI=ptr, ECX=count)
+//     call @math.min_array       // EAX = min of dword array (ESI=ptr, ECX=count)
+//
+// Float/double routines (x87 FPU stack):
+//     call @math.square_float    // ST(0) = ST(0) × ST(0)
+//     call @math.sqrt_float      // ST(0) = √ST(0)
+//     call @math.sin_float       // ST(0) = sin(ST(0))  (radians)
+//     call @math.cos_float       // ST(0) = cos(ST(0))  (radians)
+//     call @math.max_float       // ST(0) = max(ST(0), ST(1)); pops ST(1)  (works with doubles too)
+//     call @math.min_float       // ST(0) = min(ST(0), ST(1)); pops ST(1)  (works with doubles too)
+//     call @math.max_array_float // ST(0) = max of float array (ESI=ptr, ECX=count)
+//     call @math.min_array_float // ST(0) = min of float array (ESI=ptr, ECX=count)
+//     call @math.max_array_double // ST(0) = max of double array (ESI=ptr, ECX=count)
+//     call @math.min_array_double // ST(0) = min of double array (ESI=ptr, ECX=count)
+
+#COMPAT Windows x86 (Win32)
+
+section .text
+
+// ═══════════════════════════════════════════════════════════════
+//  Integer routines
+// ═══════════════════════════════════════════════════════════════
+
+// ── square ──────────────────────────────────────────────────────
+// Computes the unsigned integer square of EAX.
+//
+// Input:  EAX = value to square (unsigned 32-bit)
+// Output: EAX = low 32 bits of value × value
+//         EDX = high 32 bits of value × value
+// Clobbers: EDX
+//
+// Example:
+//   move 7 to eax
+//   call @math.square      // eax = 49, edx = 0
+proc square ( in eax as value, out eax as result ) {
+    multiply by eax            // MUL EAX → EDX:EAX = EAX × EAX
+    return
+}
+
+// ── sqrt_int ────────────────────────────────────────────────────
+// Computes the integer square root of EAX using the x87 FPU.
+// The result is the nearest integer to sqrt(EAX).  For perfect
+// squares the result is exact.
+//
+// Input:  EAX = value (unsigned 32-bit; must be <= 2^31 - 1 for
+//                FILD to interpret correctly as signed positive)
+// Output: EAX = nearest integer to sqrt(value)
+// Clobbers: x87 FPU stack (one push/pop cycle)
+//
+// Example:
+//   move 49 to eax
+//   call @math.sqrt_int    // eax = 7
+proc sqrt_int ( in eax as value, out eax as result ) {
+    push ebp
+    move esp to ebp
+    esp = esp - 4        // local: [ebp-4] = temp dword
+
+    move eax to dword [ebp-4]  // store input
+    fild dword [ebp-4]         // push integer onto FPU stack
+    fsqrt                       // ST(0) = sqrt(ST(0))
+    fistp dword [ebp-4]        // pop and store as nearest integer
+    move dword [ebp-4] to eax  // return result in EAX
+
+    move ebp to esp
+    pop ebp
+    return
+}
+
+// ── max ─────────────────────────────────────────────────────────
+// Returns the larger of two signed integers.
+//
+// Input:  EAX = first value (signed 32-bit)
+//         EBX = second value (signed 32-bit)
+// Output: EAX = max(EAX, EBX)
+// Clobbers: none
+//
+// Example:
+//   move 10 to eax
+//   move 20 to ebx
+//   call @math.max         // eax = 20
+proc max ( in eax as first, in ebx as second, out eax as result ) {
+    compare eax with ebx
+    goto .max_done if greater or equal
+    move ebx to eax
+.max_done:
+    return
+}
+
+// ── min ─────────────────────────────────────────────────────────
+// Returns the smaller of two signed integers.
+//
+// Input:  EAX = first value (signed 32-bit)
+//         EBX = second value (signed 32-bit)
+// Output: EAX = min(EAX, EBX)
+// Clobbers: none
+//
+// Example:
+//   move 10 to eax
+//   move 20 to ebx
+//   call @math.min         // eax = 10
+proc min ( in eax as first, in ebx as second, out eax as result ) {
+    compare eax with ebx
+    goto .min_done if less or equal
+    move ebx to eax
+.min_done:
+    return
+}
+
+// ── max_array ───────────────────────────────────────────────────
+// Finds the maximum value in a signed dword array.
+//
+// Input:  ESI = pointer to first element (dword array)
+//         ECX = number of elements (must be >= 1)
+// Output: EAX = maximum signed value in the array
+// Clobbers: ECX, ESI
+//
+// Example:
+//   move arr to esi
+//   move 5 to ecx
+//   call @math.max_array   // eax = max element
+proc max_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
+    move dword [esi] to eax    // start with first element
+    esi = esi + 4
+    ecx = ecx - 1
+.max_array_loop:
+    compare ecx with 0
+    goto .max_array_done if equal
+    compare eax with dword [esi]
+    goto .max_array_skip if greater or equal
+    move dword [esi] to eax
+.max_array_skip:
+    esi = esi + 4
+    ecx = ecx - 1
+    goto .max_array_loop
+.max_array_done:
+    return
+}
+
+// ── min_array ───────────────────────────────────────────────────
+// Finds the minimum value in a signed dword array.
+//
+// Input:  ESI = pointer to first element (dword array)
+//         ECX = number of elements (must be >= 1)
+// Output: EAX = minimum signed value in the array
+// Clobbers: ECX, ESI
+//
+// Example:
+//   move arr to esi
+//   move 5 to ecx
+//   call @math.min_array   // eax = min element
+proc min_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
+    move dword [esi] to eax    // start with first element
+    esi = esi + 4
+    ecx = ecx - 1
+.min_array_loop:
+    compare ecx with 0
+    goto .min_array_done if equal
+    compare eax with dword [esi]
+    goto .min_array_skip if less or equal
+    move dword [esi] to eax
+.min_array_skip:
+    esi = esi + 4
+    ecx = ecx - 1
+    goto .min_array_loop
+.min_array_done:
+    return
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Float routines (x87 FPU stack-based)
+// ═══════════════════════════════════════════════════════════════
+
+// ── square_float ────────────────────────────────────────────────
+// Computes the floating-point square of ST(0).
+//
+// Input:  ST(0) = value to square (IEEE 754 single or double)
+// Output: ST(0) = value × value
+// Clobbers: none (result replaces input on FPU stack)
+//
+// Example (float):
+//   fld dword [my_float]
+//   call @math.square_float   // ST(0) = my_float²
+//   fstp dword [result]
+//
+// Example (double):
+//   fld qword [my_double]
+//   call @math.square_float   // ST(0) = my_double²
+//   fstp qword [dresult]
+// overload: proc square_float ( in double value, out double result )
+proc square_float ( in float value, out float result ) {
+    fmul st0, st0              // ST(0) = ST(0) × ST(0)
+    return
+}
+
+// ── sqrt_float ──────────────────────────────────────────────────
+// Computes the floating-point square root of ST(0).
+//
+// Input:  ST(0) = value (must be >= 0)
+// Output: ST(0) = √value
+// Clobbers: none (result replaces input on FPU stack)
+//
+// Example (float):
+//   fld dword [my_float]
+//   call @math.sqrt_float     // ST(0) = √my_float
+//   fstp dword [result]
+//
+// Example (double):
+//   fld qword [my_double]
+//   call @math.sqrt_float     // ST(0) = √my_double
+//   fstp qword [dresult]
+// overload: proc sqrt_float ( in double value, out double result )
+proc sqrt_float ( in float value, out float result ) {
+    fsqrt                       // ST(0) = √ST(0)
+    return
+}
+
+// ── sin_float ─────────────────────────────────────────────────
+// Computes the sine of ST(0).
+//
+// Input:  ST(0) = angle in radians (IEEE 754 single or double)
+// Output: ST(0) = sin(angle)
+// Clobbers: none (result replaces input on FPU stack)
+//
+// Example (float):
+//   fld dword [my_angle]
+//   call @math.sin_float      // ST(0) = sin(my_angle)
+//   fstp dword [result]
+//
+// Example (double):
+//   fld qword [my_dangle]
+//   call @math.sin_float      // ST(0) = sin(my_dangle)
+//   fstp qword [dresult]
+// overload: proc sin_float ( in double angle, out double result )
+proc sin_float ( in float angle, out float result ) {
+    fsin                        // ST(0) = sin(ST(0))
+    return
+}
+
+// ── cos_float ─────────────────────────────────────────────────
+// Computes the cosine of ST(0).
+//
+// Input:  ST(0) = angle in radians (IEEE 754 single or double)
+// Output: ST(0) = cos(angle)
+// Clobbers: none (result replaces input on FPU stack)
+//
+// Example (float):
+//   fld dword [my_angle]
+//   call @math.cos_float      // ST(0) = cos(my_angle)
+//   fstp dword [result]
+//
+// Example (double):
+//   fld qword [my_dangle]
+//   call @math.cos_float      // ST(0) = cos(my_dangle)
+//   fstp qword [dresult]
+// overload: proc cos_float ( in double angle, out double result )
+proc cos_float ( in float angle, out float result ) {
+    fcos                        // ST(0) = cos(ST(0))
+    return
+}
+
+// ── max_float ───────────────────────────────────────────────────
+// Returns the larger of two floats (or doubles) on the FPU stack.
+// Since the x87 FPU uses 80-bit extended precision internally, this
+// routine works identically for single-precision and double-precision
+// values.  The caller controls precision via FLD dword / FLD qword.
+//
+// Input:  ST(0) = first value, ST(1) = second value
+// Output: ST(0) = max(first, second)  (one value popped)
+// Clobbers: x87 FPU stack (net pop of one entry)
+//
+// Example (float):
+//   fld dword [val_a]         // push a
+//   fld dword [val_b]         // push b  (ST(0)=b, ST(1)=a)
+//   call @math.max_float      // ST(0) = max(b, a)
+//   fstp dword [result]
+//
+// Example (double):
+//   fld qword [dval_a]        // push a (double)
+//   fld qword [dval_b]        // push b (double)
+//   call @math.max_float      // ST(0) = max(b, a)
+//   fstp qword [dresult]
+// overload: proc max_float ( in double first, in double second, out double result )
+proc max_float ( in float first, in float second, out float result ) {
+    fcom st1                    // compare ST(0) to ST(1)
+    fstsw ax                    // store FPU status word in AX
+    sahf                        // load status flags from AH
+    jae .max_float_keep_st0     // if ST(0) >= ST(1), keep ST(0)
+    fstp st0                    // discard ST(0); ST(1) becomes ST(0)
+    return
+.max_float_keep_st0:
+    fstp st1                    // copy ST(0) over ST(1) and pop
+    return
+}
+
+// ── min_float ───────────────────────────────────────────────────
+// Returns the smaller of two floats (or doubles) on the FPU stack.
+// Since the x87 FPU uses 80-bit extended precision internally, this
+// routine works identically for single-precision and double-precision
+// values.  The caller controls precision via FLD dword / FLD qword.
+//
+// Input:  ST(0) = first value, ST(1) = second value
+// Output: ST(0) = min(first, second)  (one value popped)
+// Clobbers: x87 FPU stack (net pop of one entry)
+//
+// Example (float):
+//   fld dword [val_a]         // push a
+//   fld dword [val_b]         // push b  (ST(0)=b, ST(1)=a)
+//   call @math.min_float      // ST(0) = min(b, a)
+//   fstp dword [result]
+//
+// Example (double):
+//   fld qword [dval_a]        // push a (double)
+//   fld qword [dval_b]        // push b (double)
+//   call @math.min_float      // ST(0) = min(b, a)
+//   fstp qword [dresult]
+// overload: proc min_float ( in double first, in double second, out double result )
+proc min_float ( in float first, in float second, out float result ) {
+    fcom st1                    // compare ST(0) to ST(1)
+    fstsw ax                    // store FPU status word in AX
+    sahf                        // load status flags from AH
+    jbe .min_float_keep_st0     // if ST(0) <= ST(1), keep ST(0)
+    fstp st0                    // discard ST(0); ST(1) becomes ST(0)
+    return
+.min_float_keep_st0:
+    fstp st1                    // copy ST(0) over ST(1) and pop
+    return
+}
+
+// ── max_array_float ─────────────────────────────────────────────
+// Finds the maximum value in a float (dword) array.
+//
+// Input:  ESI = pointer to first element (float array)
+//         ECX = number of elements (must be >= 1)
+// Output: ST(0) = maximum float value in the array
+// Clobbers: ECX, ESI, x87 FPU stack (one entry pushed)
+//
+// Example:
+//   move float_arr to esi
+//   move 4 to ecx
+//   call @math.max_array_float  // ST(0) = max element
+//   fstp dword [result]
+proc max_array_float ( in esi as array_ptr, in ecx as count ) {
+    fld dword [esi]             // ST(0) = first element
+    esi = esi + 4
+    ecx = ecx - 1
+.max_af_loop:
+    compare ecx with 0
+    goto .max_af_done if equal
+    fld dword [esi]             // ST(0) = next element, ST(1) = current max
+    fcom st1                    // compare ST(0) to ST(1)
+    fstsw ax
+    sahf
+    jae .max_af_new             // if new >= max, keep new
+    fstp st0                    // discard new; keep old max
+    goto .max_af_next
+.max_af_new:
+    fstp st1                    // replace old max with new
+.max_af_next:
+    esi = esi + 4
+    ecx = ecx - 1
+    goto .max_af_loop
+.max_af_done:
+    return
+}
+
+// ── min_array_float ─────────────────────────────────────────────
+// Finds the minimum value in a float (dword) array.
+//
+// Input:  ESI = pointer to first element (float array)
+//         ECX = number of elements (must be >= 1)
+// Output: ST(0) = minimum float value in the array
+// Clobbers: ECX, ESI, x87 FPU stack (one entry pushed)
+//
+// Example:
+//   move float_arr to esi
+//   move 4 to ecx
+//   call @math.min_array_float  // ST(0) = min element
+//   fstp dword [result]
+proc min_array_float ( in esi as array_ptr, in ecx as count ) {
+    fld dword [esi]             // ST(0) = first element
+    esi = esi + 4
+    ecx = ecx - 1
+.min_af_loop:
+    compare ecx with 0
+    goto .min_af_done if equal
+    fld dword [esi]             // ST(0) = next element, ST(1) = current min
+    fcom st1                    // compare ST(0) to ST(1)
+    fstsw ax
+    sahf
+    jbe .min_af_new             // if new <= min, keep new
+    fstp st0                    // discard new; keep old min
+    goto .min_af_next
+.min_af_new:
+    fstp st1                    // replace old min with new
+.min_af_next:
+    esi = esi + 4
+    ecx = ecx - 1
+    goto .min_af_loop
+.min_af_done:
+    return
+}
+
+// ── max_array_double ──────────────────────────────────────────────
+// Finds the maximum value in a double (qword) array.
+//
+// Input:  ESI = pointer to first element (double array)
+//         ECX = number of elements (must be >= 1)
+// Output: ST(0) = maximum double value in the array
+// Clobbers: ECX, ESI, x87 FPU stack (one entry pushed)
+//
+// Example:
+//   move double_arr to esi
+//   move 4 to ecx
+//   call @math.max_array_double  // ST(0) = max element
+//   fstp qword [result]
+proc max_array_double ( in esi as array_ptr, in ecx as count ) {
+    fld qword [esi]             // ST(0) = first element
+    esi = esi + 8
+    ecx = ecx - 1
+.max_ad_loop:
+    compare ecx with 0
+    goto .max_ad_done if equal
+    fld qword [esi]             // ST(0) = next element, ST(1) = current max
+    fcom st1                    // compare ST(0) to ST(1)
+    fstsw ax
+    sahf
+    jae .max_ad_new             // if new >= max, keep new
+    fstp st0                    // discard new; keep old max
+    goto .max_ad_next
+.max_ad_new:
+    fstp st1                    // replace old max with new
+.max_ad_next:
+    esi = esi + 8
+    ecx = ecx - 1
+    goto .max_ad_loop
+.max_ad_done:
+    return
+}
+
+// ── min_array_double ──────────────────────────────────────────────
+// Finds the minimum value in a double (qword) array.
+//
+// Input:  ESI = pointer to first element (double array)
+//         ECX = number of elements (must be >= 1)
+// Output: ST(0) = minimum double value in the array
+// Clobbers: ECX, ESI, x87 FPU stack (one entry pushed)
+//
+// Example:
+//   move double_arr to esi
+//   move 4 to ecx
+//   call @math.min_array_double  // ST(0) = min element
+//   fstp qword [result]
+proc min_array_double ( in esi as array_ptr, in ecx as count ) {
+    fld qword [esi]             // ST(0) = first element
+    esi = esi + 8
+    ecx = ecx - 1
+.min_ad_loop:
+    compare ecx with 0
+    goto .min_ad_done if equal
+    fld qword [esi]             // ST(0) = next element, ST(1) = current min
+    fcom st1                    // compare ST(0) to ST(1)
+    fstsw ax
+    sahf
+    jbe .min_ad_new             // if new <= min, keep new
+    fstp st0                    // discard new; keep old min
+    goto .min_ad_next
+.min_ad_new:
+    fstp st1                    // replace old min with new
+.min_ad_next:
+    esi = esi + 8
+    ecx = ecx - 1
+    goto .min_ad_loop
+.min_ad_done:
+    return
+}

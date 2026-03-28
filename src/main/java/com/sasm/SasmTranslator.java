@@ -1,7 +1,9 @@
 package com.sasm;
 
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -33,6 +35,45 @@ public class SasmTranslator {
     private final Map<String, String> aliasMap = new HashMap<>();
 
     /**
+     * Set to {@code true} once the first non-blank, non-comment,
+     * non-directive line is encountered during translation.
+     * Used to enforce that all {@code #} directives appear before code.
+     */
+    private boolean seenCode = false;
+
+    /** 1-based source line number, updated during the second translation pass. */
+    private int currentLine = 0;
+
+    /** {@code true} while inside a multi-line {@code (* ... *)} block comment. */
+    private boolean inBlockComment = false;
+
+    // ── inline proc support ──────────────────────────────────────────────────
+    /**
+     * Maps inline procedure names to their collected SASM body lines.
+     * Populated when an {@code inline proc name (...) \{} declaration is
+     * encountered; the body lines are stored until the closing brace.
+     * When a {@code call} targets an inline proc, the stored body is
+     * translated and emitted in place of the CALL instruction.
+     */
+    private final Map<String, List<String>> inlineProcs = new HashMap<>();
+
+    /** Name of the inline proc currently being collected, or {@code null}. */
+    private String collectingInlineName = null;
+
+    /** Accumulates SASM body lines for the inline proc being collected. */
+    private List<String> collectingInlineBody = null;
+
+    /** Tracks brace nesting depth inside an inline proc body. */
+    private int inlineBraceDepth = 0;
+
+    /**
+     * Collects error messages produced during translation.
+     * Populated when source violates ordering rules (e.g. a {@code #REF}
+     * or {@code #COMPAT} directive appears after code).
+     */
+    private final List<String> errors = new ArrayList<>();
+
+    /**
      * Tracks variable names declared with {@code var} and whether each is
      * signed.  Bare names in expression assignments are automatically
      * wrapped in brackets, and signedness is used to select the correct
@@ -43,9 +84,98 @@ public class SasmTranslator {
      */
     private final Map<String, Boolean> declaredVars = new HashMap<>();
 
+    /**
+     * Holds the step code, loop label, and end label for a {@code for} loop.
+     * Pushed onto {@link #blockStack} when a {@code for (...) \{} line is
+     * translated; popped when the matching {@code \}} is encountered.
+     */
+    private static class ForContext {
+        final String stepCode;
+        final String loopLabel;
+        final String endLabel;
+        ForContext(String stepCode, String loopLabel, String endLabel) {
+            this.stepCode  = stepCode;
+            this.loopLabel = loopLabel;
+            this.endLabel  = endLabel;
+        }
+    }
+
+    /**
+     * Holds context for an {@code if}/{@code else if}/{@code else} block.
+     * <ul>
+     *   <li>{@code skipLabel} — the label to jump to when this block's
+     *       condition is false (e.g. the start of the next {@code else if}
+     *       or {@code else}).  {@code null} for an {@code else} block.</li>
+     *   <li>{@code endLabel} — the label at the very end of the entire
+     *       if/else chain, used for the unconditional jump that skips
+     *       subsequent alternatives after executing one block.
+     *       {@code null} for a standalone {@code if} (no {@code else}).</li>
+     * </ul>
+     */
+    private static class IfContext {
+        final String skipLabel;
+        String endLabel;        // assigned lazily when an else-if or else is seen
+        IfContext(String skipLabel, String endLabel) {
+            this.skipLabel = skipLabel;
+            this.endLabel  = endLabel;
+        }
+    }
+
+    /**
+     * Holds context for the outer {@code switch (operand) \{} block.
+     * Pushed when the {@code switch} header is parsed; popped when the
+     * matching outer {@code \}} is encountered, emitting the end label.
+     */
+    private static class SwitchContext {
+        final String operand;   // CMP target, e.g. "ax" or "[myVar]"
+        final String endLabel;  // label at the very end of the switch
+        SwitchContext(String operand, String endLabel) {
+            this.operand  = operand;
+            this.endLabel = endLabel;
+        }
+    }
+
+    /**
+     * Holds context for a single {@code value : \{} case block inside a
+     * switch.  The closing {@code \}} emits a {@code JMP} to the shared
+     * end label, then defines the skip label so the next case (or the
+     * switch end) begins here.
+     */
+    private static class SwitchCaseContext {
+        final String skipLabel; // null for 'default' case
+        final String endLabel;  // shared end-of-switch label
+        SwitchCaseContext(String skipLabel, String endLabel) {
+            this.skipLabel = skipLabel;
+            this.endLabel  = endLabel;
+        }
+    }
+
+    /**
+     * Block-nesting stack used to pair block openings with their closing
+     * {@code \}}.
+     * <ul>
+     *   <li>{@code null} — a block that needs no special closing code
+     *       ({@code while}, {@code repeat}, {@code atomic}, etc.).</li>
+     *   <li>{@link ForContext} — a {@code for} block whose closing brace
+     *       must emit the step instruction, a jump back, and the end
+     *       label.</li>
+     *   <li>{@link IfContext} — an {@code if}/{@code else if}/{@code else}
+     *       block whose closing brace must emit skip/end labels.</li>
+     *   <li>{@link SwitchContext} — the outer {@code switch} block whose
+     *       closing brace emits the end-of-switch label.</li>
+     *   <li>{@link SwitchCaseContext} — a single {@code value : \{} case
+     *       inside a switch.</li>
+     * </ul>
+     */
+    private final Deque<Object> blockStack = new LinkedList<>();
+
     /** Pattern for {@code #REF <file> <alias>} import directives. */
     private static final Pattern REF_DIRECTIVE = Pattern.compile(
             "#REF\\s+(\\S+)\\s+(\\S+)");
+
+    /** Pattern for {@code #COMPAT <description>} OS-compatibility declarations. */
+    private static final Pattern COMPAT_DIRECTIVE = Pattern.compile(
+            "#COMPAT\\s+(.+)");
 
     /**
      * Pattern for {@code @alias.symbol} qualified references.
@@ -55,14 +185,14 @@ public class SasmTranslator {
     private static final Pattern ALIAS_REF = Pattern.compile(
             "@(\\w+)\\.(\\w+)");
 
-    /** Common base for var declarations: {@code var <name> [as] <type>[count] [signed|unsigned]}. */
+    /** Common base for var declarations: {@code var <name> [as] <type>[d1][d2]... [signed|unsigned]}. */
     private static final String VAR_BASE =
-            "var\\s+(\\w+)\\s+(?:as\\s+)?(byte|word|dword|qword)(?:\\[(\\d+)\\])?(?:\\s+(signed|unsigned))?";
+            "var\\s+(\\w+)\\s+(?:as\\s+)?(byte|word|dword|qword|float|double)((?:\\[\\d+\\])+)?(?:\\s+(signed|unsigned))?";
 
-    /** var with initialization: {@code var <name> [as] <type>[count] [signed|unsigned] = <value>}. */
+    /** var with initialization: {@code var <name> [as] <type>[d1][d2]... [signed|unsigned] = <value>}. */
     private static final Pattern VAR_INIT = Pattern.compile(VAR_BASE + "\\s*=\\s*(.+)");
 
-    /** var without initialization: {@code var <name> [as] <type>[count] [signed|unsigned]}. */
+    /** var without initialization: {@code var <name> [as] <type>[d1][d2]... [signed|unsigned]}. */
     private static final Pattern VAR_DECL = Pattern.compile(VAR_BASE);
 
     /**
@@ -82,6 +212,14 @@ public class SasmTranslator {
         return lastLineMap;
     }
 
+    /**
+     * Returns the list of error messages produced by the most recent
+     * {@link #translate} call.  An empty list means no errors were found.
+     */
+    public List<String> getErrors() {
+        return errors;
+    }
+
     /** Translates a complete SASM source text into NASM assembly. */
     public String translate(String sasmSource) {
         if (sasmSource == null || sasmSource.isEmpty()) {
@@ -91,6 +229,15 @@ public class SasmTranslator {
         labelSeq = 0;
         aliasMap.clear();
         declaredVars.clear();
+        blockStack.clear();
+        inlineProcs.clear();
+        collectingInlineName = null;
+        collectingInlineBody = null;
+        inlineBraceDepth = 0;
+        seenCode = false;
+        inBlockComment = false;
+        currentLine = 0;
+        errors.clear();
 
         // ── first pass: collect #REF alias mappings ──────────────────────────
         String[] lines = sasmSource.split("\\r?\\n", -1);
@@ -106,6 +253,7 @@ public class SasmTranslator {
         StringBuilder out = new StringBuilder(sasmSource.length());
         for (int i = 0; i < lines.length; i++) {
             if (i > 0) out.append('\n');
+            currentLine = i + 1;
             String translated = translateLine(lines[i]);
             out.append(translated);
             // Count how many output lines this source line produced
@@ -136,31 +284,52 @@ public class SasmTranslator {
         String trimmed = line.trim();
         String leading = leadingWhitespace(line);
 
-        // ── #REF import directives ───────────────────────────────────────────
+        // ── # directives (must appear before any code) ─────────────────────────
         Matcher refM = REF_DIRECTIVE.matcher(trimmed);
         if (refM.matches()) {
+            if (seenCode) {
+                errors.add("line " + currentLine
+                        + ": #REF directive must appear before any code");
+            }
             String file  = refM.group(1);
             String alias = refM.group(2);
             return "%include \"" + file + "\"  ; alias: " + alias;
         }
 
+        Matcher compatM = COMPAT_DIRECTIVE.matcher(trimmed);
+        if (compatM.matches()) {
+            if (seenCode) {
+                errors.add("line " + currentLine
+                        + ": #COMPAT directive must appear before any code");
+            }
+            return "; COMPAT: " + compatM.group(1);
+        }
+
         // ── comments (no alias resolution inside pure comments) ──────────────
-        // "-- text" is a line comment, but "--ax" / "--[var]" is a prefix
-        // decrement (the operand starts immediately after the dashes).
-        if (trimmed.startsWith("--")
-                && (trimmed.length() <= 2
-                    || (!Character.isLetter(trimmed.charAt(2))
-                        && trimmed.charAt(2) != '['))) {              // line comment
+        if (trimmed.startsWith("//")) {                               // line comment
             return leading + "; " + trimmed.substring(2).stripLeading();
         }
-        if (trimmed.startsWith("(*")) return toAsmComment(trimmed); // block comment open
-        if (trimmed.endsWith("*)"))   return toAsmComment(trimmed); // block comment close/single
+        if (trimmed.startsWith("(*")) {                               // block comment open
+            if (!trimmed.endsWith("*)"))                               // multi-line
+                inBlockComment = true;
+            return toAsmComment(trimmed);
+        }
+        if (trimmed.endsWith("*)")) {                                  // block comment close
+            inBlockComment = false;
+            return toAsmComment(trimmed);
+        }
+        if (inBlockComment) {                                          // block comment middle
+            return toAsmComment(trimmed);
+        }
+
+        // Any non-blank, non-comment, non-directive line counts as code.
+        seenCode = true;
 
         // ── resolve @alias.symbol references ─────────────────────────────────
         line = resolveAliasRefs(line);
         trimmed = line.trim();
 
-        // Split off any trailing inline comment (-- in SASM → ; in NASM)
+        // Split off any trailing inline comment (// in SASM → ; in NASM)
         String code = trimmed;
         String comment = "";
         int commentIdx = indexOfComment(trimmed);
@@ -168,6 +337,41 @@ public class SasmTranslator {
             code    = trimmed.substring(0, commentIdx).trim();
             String commentBody = trimmed.substring(commentIdx + 2).stripLeading();
             comment = "  ; " + commentBody;
+        }
+
+        // ── normalize operand brackets: ( ) → [ ] ──────────────────────────
+        // Allow parentheses as an alternative to square brackets for memory
+        // operands.  Control-flow constructs (if, else if, while, for, switch),
+        // proc declarations, and data declarations use parentheses for their
+        // own syntax (e.g. __float32__(3.0) macros) and must not be normalised.
+        if (!code.startsWith("proc ") && !code.startsWith("inline ")
+                && !code.startsWith("var ")
+                && !code.startsWith("data ") && !isControlFlowLine(code)) {
+            code = code.replace('(', '[').replace(')', ']');
+        }
+
+        // ── inline proc body collection ─────────────────────────────────────
+        // When an inline proc declaration has been seen, subsequent lines are
+        // stored (not translated) until the matching closing brace.
+        if (collectingInlineName != null) {
+            if (code.equals("}")) {
+                if (inlineBraceDepth > 0) {
+                    inlineBraceDepth--;
+                    collectingInlineBody.add(code);
+                    return "";
+                }
+                // End of inline proc body
+                inlineProcs.put(collectingInlineName,
+                        new ArrayList<>(collectingInlineBody));
+                collectingInlineName = null;
+                collectingInlineBody = null;
+                return "";
+            }
+            if (code.endsWith("{")) {
+                inlineBraceDepth++;
+            }
+            collectingInlineBody.add(code);
+            return "";
         }
 
         String asm = tryTranslateCode(code);
@@ -186,8 +390,10 @@ public class SasmTranslator {
             }
             return leading + asm + comment;
         }
-        // Passthrough — already ASM or unrecognised
-        return line;
+        // Passthrough — already ASM or unrecognised.
+        // Return the normalised code (with comment) so parentheses used
+        // as memory-operand brackets are converted even for raw NASM lines.
+        return leading + code + comment;
     }
 
     // ── translation engine ───────────────────────────────────────────────────
@@ -210,7 +416,43 @@ public class SasmTranslator {
         if (code.endsWith(":") && !code.contains(" ")) return code;
 
         // ── structural keywords ──────────────────────────────────────────────
-        if (code.equals("{") || code.equals("}")) return null; // passthrough braces
+        if (code.equals("{")) return null; // standalone opening brace — passthrough
+        if (code.equals("}")) {
+            if (!blockStack.isEmpty()) {
+                Object ctx = blockStack.pop();
+                if (ctx instanceof ForContext fc) {
+                    return fc.stepCode + "\n    JMP " + fc.loopLabel
+                            + "\n" + fc.endLabel + ":";
+                }
+                if (ctx instanceof IfContext ic) {
+                    if (ic.endLabel != null) {
+                        if (ic.skipLabel != null) {
+                            // Last else-if in chain (no following else):
+                            // emit both the skip label and the end label.
+                            return ic.skipLabel + ":\n" + ic.endLabel + ":";
+                        }
+                        // Else block → emit end-of-chain label only.
+                        return ic.endLabel + ":";
+                    }
+                    // Standalone if (no else) → emit the skip label.
+                    return ic.skipLabel + ":";
+                }
+                if (ctx instanceof SwitchCaseContext sc) {
+                    // Closing a case block inside a switch.
+                    if (sc.skipLabel != null) {
+                        return "    JMP " + sc.endLabel + "\n" + sc.skipLabel + ":";
+                    }
+                    // Default case — no skip label, no jump needed.
+                    return "";
+                }
+                if (ctx instanceof SwitchContext sw) {
+                    // Closing the outer switch block.
+                    return sw.endLabel + ":";
+                }
+            }
+            return ""; // while / repeat / atomic / proc / block — consume brace
+        }
+        if (code.startsWith("inline "))  return translateInlineProc(code);
         if (code.startsWith("proc "))   return translateProc(code);
         if (code.startsWith("block "))  return translateBlock(code);
         if (code.equals("return"))      return "    RET";
@@ -265,8 +507,10 @@ public class SasmTranslator {
 
         // ── conditional / loop structures ────────────────────────────────────
         if ((r = tryIf(code))            != null) return r;
+        if ((r = trySwitch(code))        != null) return r;
         if ((r = tryRepeat(code))        != null) return r;
         if ((r = tryWhile(code))         != null) return r;
+        if ((r = tryFor(code))           != null) return r;
         if ((r = tryAtomic(code))        != null) return r;
 
         // ── miscellaneous flags / extensions ─────────────────────────────────
@@ -493,12 +737,61 @@ public class SasmTranslator {
     }
 
     private static final Pattern COMPARE = Pattern.compile(
-            "compare\\s+(.+?)\\s+with\\s+(.+)", Pattern.CASE_INSENSITIVE);
+            "(?:compare|comp)\\s+(.+?)\\s+with\\s+(.+)", Pattern.CASE_INSENSITIVE);
+
+    /** Matches C-style comparison operators: {@code ==}, {@code !=},
+     *  {@code <=}, {@code >=}, {@code <}, {@code >}.
+     *  Negative lookaheads on {@code <} and {@code >} prevent matching
+     *  shift operators ({@code <<}, {@code >>}). */
+    private static final Pattern C_CMP = Pattern.compile(
+            "(.+?)\\s*(==|!=|<=|>=|<(?![<=])|>(?![>=]))\\s*(.+)");
 
     private String tryCompare(String code) {
         Matcher m = COMPARE.matcher(code);
         if (m.matches()) return "    CMP " + m.group(1) + ", " + m.group(2);
+        // Standalone C-style comparison (not inside control structures)
+        if (!code.contains("{") && !code.contains("}")
+                && !code.contains("<<") && !code.contains(">>")) {
+            m = C_CMP.matcher(code);
+            if (m.matches()) return "    CMP " + m.group(1).trim() + ", " + m.group(3).trim();
+        }
         return null;
+    }
+
+    /**
+     * Tries to parse a parenthesised inline comparison from a condition
+     * string.  If the condition matches a C-style comparison operator
+     * ({@code ==}, {@code !=}, {@code <}, {@code <=}, {@code >},
+     * {@code >=}), returns a two-element array:
+     * <ol>
+     *   <li>the CMP instruction (e.g.&nbsp;{@code "    CMP cx, 10"})</li>
+     *   <li>the condition word (e.g.&nbsp;{@code "equal"}, {@code "less"})</li>
+     * </ol>
+     * Returns {@code null} if the condition does not match.
+     */
+    private String[] parseInlineCompare(String cond) {
+        if (!cond.startsWith("(") || !cond.endsWith(")")) return null;
+        String inner = cond.substring(1, cond.length() - 1).trim();
+        Matcher m = C_CMP.matcher(inner);
+        if (!m.matches()) return null;
+        String op1 = wrapIfVar(m.group(1).trim());
+        String op2 = wrapIfVar(m.group(3).trim());
+        String condWord = operatorToCondition(m.group(2));
+        if (condWord == null) return null;
+        return new String[]{"    CMP " + op1 + ", " + op2, condWord};
+    }
+
+    /** Maps a C-style comparison operator to a SASM condition word. */
+    private static String operatorToCondition(String op) {
+        return switch (op) {
+            case "==" -> "equal";
+            case "!=" -> "not equal";
+            case "<"  -> "less";
+            case "<=" -> "less or equal";
+            case ">"  -> "greater";
+            case ">=" -> "greater or equal";
+            default   -> null;
+        };
     }
 
     private String tryExtend(String code) {
@@ -692,8 +985,13 @@ public class SasmTranslator {
     }
 
     private String tryCall(String code) {
-        if (code.startsWith("call "))
-            return "    CALL " + code.substring(5).trim();
+        if (code.startsWith("call ")) {
+            String target = code.substring(5).trim();
+            if (inlineProcs.containsKey(target)) {
+                return expandInline(target);
+            }
+            return "    CALL " + target;
+        }
         return null;
     }
 
@@ -764,49 +1062,202 @@ public class SasmTranslator {
     // ══════════════════════════════════════════════════════════════════════════
 
     private String tryIf(String code) {
-        // if <condition> {   →   J<opposite> .else_N
+        // ── if <condition> { ─────────────────────────────────────────────
         Matcher m = Pattern.compile("if\\s+(.+?)\\s*\\{").matcher(code);
         if (m.matches()) {
             String cond = m.group(1).trim();
-            String lbl = ".L" + (labelSeq++);
+            String skipLbl = ".L" + (labelSeq++);
+            // endLabel starts as null; assigned lazily if an else-if/else follows.
+            blockStack.push(new IfContext(skipLbl, null));
+
+            // C-style inline comparison: if (op1 == op2) {
+            String[] ic = parseInlineCompare(cond);
+            if (ic != null) {
+                String inv = conditionToJump(invertCondition(ic[1]));
+                return ic[0] + "\n    " + inv + " " + skipLbl + "   ; if " + cond;
+            }
             String inv = conditionToJump(invertCondition(cond));
-            return "    " + inv + " " + lbl + "   ; if " + cond;
+            return "    " + inv + " " + skipLbl + "   ; if " + cond;
         }
+
+        // ── } else if <condition> { ──────────────────────────────────────
         if (code.startsWith("} else if ")) {
+            IfContext prev = popIfContext();
+            if (prev == null) return null;
+
+            // Lazily create the shared end-of-chain label.
+            String endLbl = prev.endLabel;
+            if (endLbl == null) {
+                endLbl = ".Lend" + (labelSeq++);
+                prev.endLabel = endLbl;      // retroactively set on prev
+            }
+
             String rest = code.substring(10).trim();
             Matcher m2 = Pattern.compile("(.+?)\\s*\\{").matcher(rest);
             if (m2.matches()) {
                 String cond = m2.group(1).trim();
-                String lbl = ".L" + (labelSeq++);
+                String skipLbl = ".L" + (labelSeq++);
+                blockStack.push(new IfContext(skipLbl, endLbl));
+
+                // C-style inline comparison: } else if (op1 != op2) {
+                String[] ic = parseInlineCompare(cond);
+                if (ic != null) {
+                    String inv = conditionToJump(invertCondition(ic[1]));
+                    return "    JMP " + endLbl + "\n"
+                            + prev.skipLabel + ":\n"
+                            + ic[0] + "\n    " + inv + " " + skipLbl
+                            + "   ; else if " + cond;
+                }
                 String inv = conditionToJump(invertCondition(cond));
-                return "    " + inv + " " + lbl + "   ; else if " + cond;
+                return "    JMP " + endLbl + "\n"
+                        + prev.skipLabel + ":\n"
+                        + "    " + inv + " " + skipLbl
+                        + "   ; else if " + cond;
             }
         }
+
+        // ── } else { ────────────────────────────────────────────────────
         if (code.equals("} else {")) {
-            return "    ; else";
+            IfContext prev = popIfContext();
+            if (prev == null) return null;
+
+            String endLbl = prev.endLabel;
+            if (endLbl == null) {
+                endLbl = ".Lend" + (labelSeq++);
+                prev.endLabel = endLbl;
+            }
+            blockStack.push(new IfContext(null, endLbl));
+            return "    JMP " + endLbl + "\n" + prev.skipLabel + ":";
+        }
+
+        return null;
+    }
+
+    /**
+     * Pops the top of the {@link #blockStack} and returns it as an
+     * {@link IfContext}, or {@code null} if the stack is empty or the
+     * top entry is not an {@code IfContext}.
+     */
+    private IfContext popIfContext() {
+        if (blockStack.isEmpty()) return null;
+        Object top = blockStack.pop();
+        return (top instanceof IfContext ic) ? ic : null;
+    }
+
+    /**
+     * Translates a {@code switch} statement or a case label inside a switch.
+     *
+     * <p>Supported forms:
+     * <ul>
+     *   <li>{@code switch (operand) \{} — opens the switch block</li>
+     *   <li>{@code value : \{} — opens a case block (value is a literal)</li>
+     *   <li>{@code default : \{} — opens the default case block</li>
+     * </ul>
+     *
+     * <p>Generated assembly for the opening:
+     * <pre>
+     *     ; switch operand
+     * </pre>
+     * Each case emits:
+     * <pre>
+     *     CMP operand, value
+     *     JNE .LcaseN        ; skip if no match
+     * </pre>
+     * Case closing {@code \}} emits:
+     * <pre>
+     *     JMP .LswendM       ; skip remaining cases
+     * .LcaseN:
+     * </pre>
+     * The outer closing {@code \}} emits:
+     * <pre>
+     * .LswendM:
+     * </pre>
+     */
+    private String trySwitch(String code) {
+        // ── switch (operand) { ───────────────────────────────────────────
+        Matcher m = Pattern.compile("switch\\s*\\((.+?)\\)\\s*\\{").matcher(code);
+        if (m.matches()) {
+            String operand = wrapIfVar(m.group(1).trim());
+            String endLbl = ".Lswend" + (labelSeq++);
+            blockStack.push(new SwitchContext(operand, endLbl));
+            return "    ; switch " + operand;
+        }
+
+        // ── value : { (case label inside switch) ─────────────────────────
+        Matcher mc = Pattern.compile("(.+?)\\s*:\\s*\\{").matcher(code);
+        if (mc.matches()) {
+            String value = mc.group(1).trim();
+            // Find the enclosing SwitchContext on the stack.
+            SwitchContext sw = findSwitchContext();
+            if (sw == null) return null;
+
+            if (value.equals("default")) {
+                blockStack.push(new SwitchCaseContext(null, sw.endLabel));
+                return "    ; default";
+            }
+
+            String skipLbl = ".Lcase" + (labelSeq++);
+            blockStack.push(new SwitchCaseContext(skipLbl, sw.endLabel));
+            return "    CMP " + sw.operand + ", " + value + "\n"
+                    + "    JNE " + skipLbl + "   ; case " + value;
+        }
+
+        return null;
+    }
+
+    /**
+     * Searches the {@link #blockStack} for the nearest enclosing
+     * {@link SwitchContext} without removing it.
+     */
+    private SwitchContext findSwitchContext() {
+        for (Object o : blockStack) {
+            if (o instanceof SwitchContext sw) return sw;
         }
         return null;
     }
 
     private String tryRepeat(String code) {
-        // repeat cx times {
-        if (code.equals("repeat cx times {") || code.equals("repeat cx times{")) {
+        // repeat <operand> times {
+        Matcher m = Pattern.compile("repeat\\s+(\\S+)\\s+times\\s*\\{").matcher(code);
+        if (m.matches()) {
+            blockStack.push(null);
+            String operand = m.group(1).trim();
             String lbl = ".loop" + (labelSeq++);
-            return lbl + ":   ; repeat cx times";
+            if (operand.equalsIgnoreCase("cx")) {
+                return lbl + ":   ; repeat cx times";
+            }
+            // Load the operand into cx before the loop
+            String src = wrapIfVar(operand);
+            return "    MOV CX, " + src + "\n" + lbl + ":   ; repeat " + operand + " times";
         }
-        // repeat cx times while equal {
-        if (code.startsWith("repeat cx times while ")) {
+        // repeat <operand> times while <condition> {
+        m = Pattern.compile("repeat\\s+(\\S+)\\s+times\\s+while\\s+(.+?)\\s*\\{").matcher(code);
+        if (m.matches()) {
+            blockStack.push(null);
+            String operand = m.group(1).trim();
             String lbl = ".loop" + (labelSeq++);
-            return lbl + ":   ; " + code;
+            if (operand.equalsIgnoreCase("cx")) {
+                return lbl + ":   ; " + code;
+            }
+            String src = wrapIfVar(operand);
+            return "    MOV CX, " + src + "\n" + lbl + ":   ; " + code;
         }
         // repeat { … } until <condition>
         if (code.equals("repeat {")) {
+            blockStack.push(null);
             String lbl = ".loop" + (labelSeq++);
             return lbl + ":   ; repeat";
         }
-        Matcher m = Pattern.compile("\\}\\s+until\\s+(.+)").matcher(code);
+        m = Pattern.compile("\\}\\s+until\\s+(.+)").matcher(code);
         if (m.matches()) {
+            if (!blockStack.isEmpty()) blockStack.pop();
             String cond = m.group(1).trim();
+            // C-style inline comparison: } until (op1 == op2)
+            String[] ic = parseInlineCompare(cond);
+            if (ic != null) {
+                String jmp = conditionToJump(invertCondition(ic[1]));
+                return ic[0] + "\n    " + jmp + " .loop   ; until " + cond;
+            }
             String jmp = conditionToJump(invertCondition(cond));
             return "    " + jmp + " .loop   ; until " + cond;
         }
@@ -816,16 +1267,113 @@ public class SasmTranslator {
     private String tryWhile(String code) {
         Matcher m = Pattern.compile("while\\s+(.+?)\\s*\\{").matcher(code);
         if (m.matches()) {
+            blockStack.push(null);
             String cond = m.group(1).trim();
             String lbl = ".while" + (labelSeq++);
+            // C-style inline comparison: while (op1 != op2) {
+            String[] ic = parseInlineCompare(cond);
+            if (ic != null) {
+                return ic[0] + "\n" + lbl + ":   ; while " + ic[1];
+            }
             return lbl + ":   ; while " + cond;
         }
         return null;
     }
 
     private String tryAtomic(String code) {
-        if (code.equals("atomic {")) return "    ; atomic {  (LOCK prefix)";
+        if (code.equals("atomic {")) {
+            blockStack.push(null);
+            return "    ; atomic {  (LOCK prefix)";
+        }
         return null;
+    }
+
+    /**
+     * Translates a C-style {@code for} loop header.
+     *
+     * <p>Syntax: {@code for (init; condition; step) \{}
+     *
+     * <p>The <em>init</em> and <em>step</em> parts are each translated
+     * through the normal SASM engine ({@link #tryTranslateCode}).
+     * The <em>condition</em> must be a C-style comparison using one of
+     * {@code <}, {@code <=}, {@code >}, {@code >=}, {@code ==}, or
+     * {@code !=}.
+     *
+     * <p>The generated assembly for the opening is:
+     * <pre>
+     *     &lt;init&gt;
+     * .forN:
+     *     CMP op1, op2
+     *     J&lt;inverted&gt; .endforM
+     * </pre>
+     * The matching closing {@code \}} emits:
+     * <pre>
+     *     &lt;step&gt;
+     *     JMP .forN
+     * .endforM:
+     * </pre>
+     */
+    private String tryFor(String code) {
+        Matcher m = Pattern.compile("for\\s*\\((.+)\\)\\s*\\{").matcher(code);
+        if (!m.matches()) return null;
+
+        String inner = m.group(1);
+        String[] parts = splitForParts(inner);
+        if (parts == null) return null;
+
+        String initPart = parts[0].trim();
+        String condPart = parts[1].trim();
+        String stepPart = parts[2].trim();
+
+        // ── translate init ───────────────────────────────────────────────
+        String initAsm = tryTranslateCode(initPart);
+        if (initAsm == null) return null;
+
+        // ── parse condition (C-style comparison) ─────────────────────────
+        Matcher cm = C_CMP.matcher(condPart);
+        if (!cm.matches()) return null;
+        String op1 = wrapIfVar(cm.group(1).trim());
+        String op2 = wrapIfVar(cm.group(3).trim());
+        String condWord = operatorToCondition(cm.group(2));
+        if (condWord == null) return null;
+        String exitJmp = conditionToJump(invertCondition(condWord));
+
+        // ── translate step ───────────────────────────────────────────────
+        String stepAsm = tryTranslateCode(stepPart);
+        if (stepAsm == null) return null;
+
+        // ── generate labels & push context ───────────────────────────────
+        String loopLabel = ".for" + (labelSeq++);
+        String endLabel  = ".endfor" + (labelSeq++);
+        blockStack.push(new ForContext(stepAsm, loopLabel, endLabel));
+
+        // ── emit opening code ────────────────────────────────────────────
+        return initAsm + "\n"
+                + loopLabel + ":\n"
+                + "    CMP " + op1 + ", " + op2 + "\n"
+                + "    " + exitJmp + " " + endLabel;
+    }
+
+    /**
+     * Splits the interior of a {@code for (...)} header into three parts
+     * on semicolons, respecting bracket nesting.  Returns a 3-element
+     * array or {@code null} if not exactly three parts are found.
+     */
+    private static String[] splitForParts(String inner) {
+        List<String> parts = new ArrayList<>();
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < inner.length(); i++) {
+            char c = inner.charAt(i);
+            if (c == '(' || c == '[') depth++;
+            else if (c == ')' || c == ']') depth--;
+            else if (c == ';' && depth == 0) {
+                parts.add(inner.substring(start, i));
+                start = i + 1;
+            }
+        }
+        parts.add(inner.substring(start));
+        return parts.size() == 3 ? parts.toArray(new String[0]) : null;
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -833,51 +1381,54 @@ public class SasmTranslator {
     // ══════════════════════════════════════════════════════════════════════════
 
     private String translateData(String code) {
-        // data <name> as <type>[<count>]
+        // data <name> as <type>[d1][d2]...
         Matcher m = Pattern.compile(
-                "data\\s+(\\w+)\\s+as\\s+(byte|word|dword|qword)\\[(\\d+)\\]")
+                "data\\s+(\\w+)\\s+as\\s+(byte|word|dword|qword|float|double)((?:\\[\\d+\\])+)")
                 .matcher(code);
         if (m.matches()) {
             String name = m.group(1);
             String dir  = sizeDirective(m.group(2));
-            String count = m.group(3);
+            int count = parseTotalCount(m.group(3));
             return name + ": TIMES " + count + " " + dir + " 0";
         }
         // data <name> as <type> = <values>
-        m = Pattern.compile("data\\s+(\\w+)\\s+as\\s+(byte|word|dword|qword)\\s*=\\s*(.+)")
+        m = Pattern.compile("data\\s+(\\w+)\\s+as\\s+(byte|word|dword|qword|float|double)\\s*=\\s*(.+)")
                 .matcher(code);
         if (m.matches()) {
             String name = m.group(1);
             String dir  = sizeDirective(m.group(2));
-            return name + ": " + dir + " " + m.group(3).trim();
+            String value = expandStringLiterals(m.group(3).trim());
+            return name + ": " + dir + " " + value;
         }
         return null;
     }
 
     private String translateVar(String code) {
-        // var <name> [as] <type>[<count>] [signed|unsigned] = <value>
+        // var <name> [as] <type>[d1][d2]... [signed|unsigned] = <value>
         Matcher m = VAR_INIT.matcher(code);
         if (m.matches()) {
             String name  = m.group(1);
-            String count = m.group(3);          // nullable — array element count
+            String dims  = m.group(3);          // nullable — dimension brackets
             boolean signed = "signed".equals(m.group(4));
             declaredVars.put(name, signed);
             String dir   = sizeDirective(m.group(2));
-            String value = m.group(5).trim();
-            if (count != null) {
+            String value = expandStringLiterals(m.group(5).trim());
+            if (dims != null) {
+                int count = parseTotalCount(dims);
                 return name + ": TIMES " + count + " " + dir + " " + value;
             }
             return name + ": " + dir + " " + value;
         }
-        // var <name> [as] <type>[<count>] [signed|unsigned]
+        // var <name> [as] <type>[d1][d2]... [signed|unsigned]
         m = VAR_DECL.matcher(code);
         if (m.matches()) {
             String name  = m.group(1);
-            String count = m.group(3);          // nullable — array element count
+            String dims  = m.group(3);          // nullable — dimension brackets
             boolean signed = "signed".equals(m.group(4));
             declaredVars.put(name, signed);
             String dir   = sizeDirective(m.group(2));
-            if (count != null) {
+            if (dims != null) {
+                int count = parseTotalCount(dims);
                 return name + ": TIMES " + count + " " + dir + " 0";
             }
             return name + ": " + dir + " 0";
@@ -886,16 +1437,77 @@ public class SasmTranslator {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  Structural Keywords (proc, block)
+    //  Structural Keywords (proc, block, inline proc)
     // ══════════════════════════════════════════════════════════════════════════
 
-    private String translateProc(String code) {
-        // proc <name> uses stack ( ... ) {
-        // proc <name> ( ... ) {
-        // proc <name> {
-        Matcher m = Pattern.compile("proc\\s+(\\w+).*\\{").matcher(code);
+    /**
+     * Handles an {@code inline proc name (...) \{} declaration.
+     * Instead of emitting a label, the translator enters collection mode:
+     * subsequent lines are stored in {@link #collectingInlineBody} until
+     * the matching closing brace.  The body can later be expanded at each
+     * call site via {@link #expandInline(String)}.
+     */
+    private String translateInlineProc(String code) {
+        Matcher m = Pattern.compile(
+                "inline\\s+proc\\s+(\\w+)\\s*(.*)\\{").matcher(code);
         if (m.find()) {
-            return m.group(1) + ":";
+            String name   = m.group(1);
+            String params = m.group(2).trim();
+            collectingInlineName = name;
+            collectingInlineBody = new ArrayList<>();
+            inlineBraceDepth = 0;
+            // Emit the parameter list as a NASM comment for documentation
+            if (!params.isEmpty()) {
+                return "; inline proc " + name + " " + params;
+            }
+            return "; inline proc " + name;
+        }
+        return null;
+    }
+
+    /**
+     * Expands an inline proc by translating its stored body lines and
+     * concatenating the NASM output.  {@code return} statements are
+     * suppressed (no {@code RET} emitted) so the inlined code flows
+     * into the code that follows the call site.
+     */
+    private String expandInline(String name) {
+        List<String> body = inlineProcs.get(name);
+        StringBuilder sb = new StringBuilder();
+        sb.append("; -- inline " + name + " --");
+        for (String bodyLine : body) {
+            if (bodyLine.equals("return")) continue;
+            String asm = tryTranslateCode(bodyLine);
+            if (asm == null) {
+                // Unrecognised line — pass through (raw ASM)
+                asm = "    " + bodyLine;
+            }
+            if (!asm.isEmpty()) {
+                sb.append('\n').append(asm);
+            }
+        }
+        return sb.toString();
+    }
+
+    private String translateProc(String code) {
+        // Supported parameter styles (parameter overloading):
+        //   proc <name> {                                              (no params)
+        //   proc <name> ( in <reg> as <alias>, out <reg> as <alias> ) {  (register params)
+        //   proc <name> ( in <type> <name>, out <type> <name> ) {      (typed params)
+        //   proc <name> uses stack ( <p1>, <p2>, ... ) {               (stack params)
+        //
+        // All forms generate the same NASM label.  When a parameter list
+        // is present the translator emits it as a NASM comment so the
+        // contract is visible in the generated assembly.
+        Matcher m = Pattern.compile("proc\\s+(\\w+)\\s*(.*)\\{").matcher(code);
+        if (m.find()) {
+            blockStack.push(null);
+            String name   = m.group(1);
+            String params = m.group(2).trim();
+            if (!params.isEmpty()) {
+                return "; proc " + name + " " + params + "\n" + name + ":";
+            }
+            return name + ":";
         }
         m = Pattern.compile("proc\\s+(\\w+)").matcher(code);
         if (m.find()) {
@@ -907,6 +1519,7 @@ public class SasmTranslator {
     private String translateBlock(String code) {
         Matcher m = Pattern.compile("block\\s+(\\w+).*\\{").matcher(code);
         if (m.find()) {
+            blockStack.push(null);
             return m.group(1) + ":";
         }
         m = Pattern.compile("block\\s+(\\w+)").matcher(code);
@@ -951,7 +1564,8 @@ public class SasmTranslator {
      * <p>Supported operators (binary, outside square brackets):
      * {@code +}, {@code -}, {@code *}, {@code div} (unsigned division),
      * {@code sdiv} (signed division), {@code <<}, {@code >>},
-     * {@code &&} (bitwise AND), {@code ||} (bitwise OR).
+     * {@code &&} (bitwise AND), {@code ||} (bitwise OR),
+     * {@code ^^} (bitwise XOR).
      * Multiple operators are supported and evaluated left-to-right
      * (e.g. {@code ax = bx + 3 + dx * 2}).</p>
      *
@@ -979,7 +1593,7 @@ public class SasmTranslator {
 
         // Tokenize the RHS into operands and operators
         List<String> operands = new ArrayList<>();
-        List<Integer> operators = new ArrayList<>(); // '+', '-', '*', 'd' (div), 'S' (sdiv), 'L' (<<), 'R' (>>), 'A' (&& bitwise AND), 'O' (|| bitwise OR); unary '!' handled separately
+        List<Integer> operators = new ArrayList<>(); // '+', '-', '*', '%' (mod), 'd' (div), 'S' (sdiv), 'm' (mod keyword), 'M' (smod keyword), 'L' (<<), 'R' (>>), 'A' (&& bitwise AND), 'O' (|| bitwise OR), 'X' (^^ bitwise XOR); unary '!' handled separately
         splitExprTokens(rhs, operands, operators);
 
         // ── Detect inline ++/-- on operands (pre/post-increment/decrement) ──
@@ -1092,16 +1706,25 @@ public class SasmTranslator {
                 case 'O' -> sameAsDst
                         ? "    OR " + dst + ", " + op2
                         : "    MOV " + dst + ", " + op1 + "\n    OR " + dst + ", " + op2;
+                case 'X' -> sameAsDst
+                        ? "    XOR " + dst + ", " + op2
+                        : "    MOV " + dst + ", " + op1 + "\n    XOR " + dst + ", " + op2;
                 case 'd' -> buildDiv(dst, op1, op2,
                         isSignedVar(op1) || isSignedVar(op2));
                 case 'S' -> buildDiv(dst, op1, op2, true);
+                case '%' -> buildMod(dst, op1, op2,
+                        isSignedVar(op1) || isSignedVar(op2));
+                case 'm' -> buildMod(dst, op1, op2,
+                        isSignedVar(op1) || isSignedVar(op2));
+                case 'M' -> buildMod(dst, op1, op2, true);
                 default  -> null;
             };
         }
 
         // Multiple operators: emit left-to-right instruction sequence.
         for (int opKind : operators) {
-            if (opKind == 'd' || opKind == 'S') return null;
+            if (opKind == 'd' || opKind == 'S' || opKind == '%'
+                    || opKind == 'm' || opKind == 'M') return null;
         }
 
         boolean firstSigned = isSignedVar(operands.get(0));
@@ -1128,6 +1751,7 @@ public class SasmTranslator {
                               .append(dst).append(", ").append(operand);
                 case 'A' -> sb.append("    AND ").append(dst).append(", ").append(operand);
                 case 'O' -> sb.append("    OR ").append(dst).append(", ").append(operand);
+                case 'X' -> sb.append("    XOR ").append(dst).append(", ").append(operand);
                 default  -> { /* skip */ }
             }
         }
@@ -1179,6 +1803,42 @@ public class SasmTranslator {
         sb.append(signed ? "    IDIV " : "    DIV ").append(op2);
         if (!dst.equalsIgnoreCase(quot)) {
             sb.append('\n').append("    MOV ").append(dst).append(", ").append(quot);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Builds the NASM instruction sequence for a modulo expression
+     * {@code dst = op1 % op2} (or {@code mod}/{@code smod}).
+     *
+     * <p>Works like {@link #buildDiv} but moves the <em>remainder</em>
+     * (from the high register: AH/DX/EDX/RDX) into the destination
+     * instead of the quotient.</p>
+     */
+    private static String buildMod(String dst, String op1, String op2,
+                                   boolean signed) {
+        String[] pair = divRegisters(dst, op1);
+        String quot = pair[0]; // AL / AX / EAX / RAX  (quotient register)
+        String high = pair[1]; // AH / DX / EDX / RDX  (remainder register)
+
+        StringBuilder sb = new StringBuilder();
+        if (!op1.equalsIgnoreCase(quot)) {
+            sb.append("    MOV ").append(quot).append(", ").append(op1).append('\n');
+        }
+        if (signed) {
+            String ext = signExtendInsn(high);
+            if (ext != null) {
+                sb.append("    ").append(ext).append('\n');
+            }
+        } else {
+            if (high != null) {
+                sb.append("    XOR ").append(high).append(", ").append(high).append('\n');
+            }
+        }
+        sb.append(signed ? "    IDIV " : "    DIV ").append(op2);
+        // Remainder is in the high register — move it to dst if needed
+        if (high != null && !dst.equalsIgnoreCase(high)) {
+            sb.append('\n').append("    MOV ").append(dst).append(", ").append(high);
         }
         return sb.toString();
     }
@@ -1244,9 +1904,9 @@ public class SasmTranslator {
      * Splits an expression RHS into operands and operators.
      *
      * <p>Scans the string left to right at bracket depth&nbsp;0,
-     * splitting on {@code +}, {@code -}, {@code *}, {@code <<},
-     * {@code >>}, {@code &&}, {@code ||}, and the keywords {@code div}
-     * and {@code sdiv}.
+     * splitting on {@code +}, {@code -}, {@code *}, {@code %},
+     * {@code <<}, {@code >>}, {@code &&}, {@code ||}, and the keywords
+     * {@code div}, {@code sdiv}, {@code mod}, and {@code smod}.
      * Operators inside square brackets or quotes are ignored.
      * A leading {@code -} (unary minus) is treated as part of the
      * first operand, not as a binary operator.</p>
@@ -1254,11 +1914,13 @@ public class SasmTranslator {
      * @param rhs       the right-hand side of the expression
      * @param operands  (out) list of operand strings, trimmed
      * @param operators (out) list of operator kinds: {@code '+'}, {@code '-'},
-     *                  {@code '*'}, {@code 'L'} (for {@code <<}),
+     *                  {@code '*'}, {@code '%'}, {@code 'L'} (for {@code <<}),
      *                  {@code 'R'} (for {@code >>}), {@code 'A'}
      *                  (for {@code &&}), {@code 'O'} (for {@code ||}),
-     *                  {@code 'd'} (for {@code div}), or
-     *                  {@code 'S'} (for {@code sdiv})
+     *                  {@code 'X'} (for {@code ^^}),
+     *                  {@code 'd'} (for {@code div}), {@code 'S'}
+     *                  (for {@code sdiv}), {@code 'm'} (for {@code mod}),
+     *                  or {@code 'M'} (for {@code smod})
      */
     private static void splitExprTokens(String rhs,
                                          List<String> operands,
@@ -1275,10 +1937,10 @@ public class SasmTranslator {
             if (c == ']') { depth--; continue; }
             if (depth != 0) continue;
 
-            // Two-character operators: << >> && ||
+            // Two-character operators: << >> && || ^^
             // i > 0 is a fast-path guard; the !before.isEmpty() check below
             // is the real safeguard against treating a leading token as an operator.
-            if ((c == '<' || c == '>' || c == '&' || c == '|') && i + 1 < rhs.length()
+            if ((c == '<' || c == '>' || c == '&' || c == '|' || c == '^') && i + 1 < rhs.length()
                     && rhs.charAt(i + 1) == c && i > 0) {
                 String before = rhs.substring(start, i).trim();
                 if (!before.isEmpty()) {
@@ -1288,6 +1950,7 @@ public class SasmTranslator {
                         case '>' -> (int) 'R';
                         case '&' -> (int) 'A';
                         case '|' -> (int) 'O';
+                        case '^' -> (int) 'X';
                         default  -> (int) c;
                     });
                     start = i + 2;
@@ -1305,7 +1968,7 @@ public class SasmTranslator {
             // Single-character operators
             // i > 0 allows a leading '-' (unary minus) to be treated as part
             // of the first operand rather than as a binary subtraction operator.
-            if ((c == '+' || c == '-' || c == '*') && i > 0) {
+            if ((c == '+' || c == '-' || c == '*' || c == '%') && i > 0) {
                 String before = rhs.substring(start, i).trim();
                 if (!before.isEmpty()) {
                     operands.add(before);
@@ -1343,6 +2006,40 @@ public class SasmTranslator {
                     if (!before.isEmpty()) {
                         operands.add(before);
                         operators.add((int) 'd');
+                        start = i + 3;
+                        continue;
+                    }
+                }
+            }
+            // 'smod' keyword with word boundaries (signed modulo)
+            if (c == 's' && i > 0 && i + 3 < rhs.length()
+                    && rhs.charAt(i + 1) == 'm' && rhs.charAt(i + 2) == 'o'
+                    && rhs.charAt(i + 3) == 'd') {
+                boolean wBefore = !isIdentChar(rhs.charAt(i - 1));
+                boolean wAfter  = i + 4 >= rhs.length()
+                        || !isIdentChar(rhs.charAt(i + 4));
+                if (wBefore && wAfter) {
+                    String before = rhs.substring(start, i).trim();
+                    if (!before.isEmpty()) {
+                        operands.add(before);
+                        operators.add((int) 'M');  // 'M' for signed mod
+                        start = i + 4;
+                        continue;
+                    }
+                }
+            }
+            // 'mod' keyword with word boundaries
+            if (c == 'm' && i + 2 < rhs.length()
+                    && rhs.charAt(i + 1) == 'o' && rhs.charAt(i + 2) == 'd'
+                    && i > 0) {
+                boolean wBefore = !isIdentChar(rhs.charAt(i - 1));
+                boolean wAfter  = i + 3 >= rhs.length()
+                        || !isIdentChar(rhs.charAt(i + 3));
+                if (wBefore && wAfter) {
+                    String before = rhs.substring(start, i).trim();
+                    if (!before.isEmpty()) {
+                        operands.add(before);
+                        operators.add((int) 'm');  // 'm' for unsigned mod
                         start = i + 3;
                         continue;
                     }
@@ -1442,6 +2139,21 @@ public class SasmTranslator {
     // ══════════════════════════════════════════════════════════════════════════
 
     /**
+     * Returns {@code true} if the line is a control-flow construct that
+     * uses parentheses for its own syntax (e.g. {@code if (...)},
+     * {@code while (...)}, {@code for (...)}, {@code switch (...)}).
+     * Such lines must not have their parentheses normalised to brackets.
+     */
+    private static boolean isControlFlowLine(String code) {
+        return code.startsWith("if ")
+                || code.startsWith("} else if ")
+                || code.startsWith("else if ")
+                || code.startsWith("while ")
+                || code.startsWith("for ")
+                || code.startsWith("switch ");
+    }
+
+    /**
      * Resolves {@code @alias.symbol} references in a line.
      *
      * <p>Each occurrence of {@code @alias.symbol} is replaced with
@@ -1477,12 +2189,79 @@ public class SasmTranslator {
     /** Returns the NASM data directive for a SASM type keyword. */
     private static String sizeDirective(String type) {
         return switch (type.toLowerCase()) {
-            case "byte"  -> "DB";
-            case "word"  -> "DW";
-            case "dword" -> "DD";
-            case "qword" -> "DQ";
-            default      -> "DB";
+            case "byte"   -> "DB";
+            case "word"   -> "DW";
+            case "dword"  -> "DD";
+            case "qword"  -> "DQ";
+            case "float"  -> "DD";
+            case "double" -> "DQ";
+            default       -> "DB";
         };
+    }
+
+    /** Pattern matching a double-quoted string literal, including escape sequences. */
+    private static final Pattern STRING_LITERAL = Pattern.compile("\"((?:[^\"\\\\]|\\\\.)*)\"");
+
+    /**
+     * Expands double-quoted string literals in a value expression to individual
+     * single-quoted character bytes separated by commas.  For example,
+     * {@code "abc"} becomes {@code 'a','b','c'} and {@code "hi", 0} becomes
+     * {@code 'h','i', 0}.  Recognised escape sequences:
+     * {@code \n} (10), {@code \t} (9), {@code \r} (13), {@code \0} (0),
+     * {@code \\} (backslash), {@code \"} (double-quote).
+     * Non-string parts of the expression are kept unchanged.
+     */
+    static String expandStringLiterals(String value) {
+        if (!value.contains("\"")) return value;
+
+        StringBuilder result = new StringBuilder();
+        Matcher m = STRING_LITERAL.matcher(value);
+        int lastEnd = 0;
+        while (m.find()) {
+            result.append(value, lastEnd, m.start());
+            String content = m.group(1);
+            StringBuilder expanded = new StringBuilder();
+            for (int i = 0; i < content.length(); i++) {
+                if (expanded.length() > 0) expanded.append(',');
+                if (content.charAt(i) == '\\' && i + 1 < content.length()) {
+                    char next = content.charAt(i + 1);
+                    switch (next) {
+                        case 'n':  expanded.append("10"); break;
+                        case 't':  expanded.append("9");  break;
+                        case 'r':  expanded.append("13"); break;
+                        case '0':  expanded.append("0");  break;
+                        case '\\': expanded.append("'\\\\'"); break;
+                        case '"':  expanded.append("'\"'"); break;
+                        default:   expanded.append("'").append(next).append("'"); break;
+                    }
+                    i++;
+                } else {
+                    expanded.append("'").append(content.charAt(i)).append("'");
+                }
+            }
+            result.append(expanded);
+            lastEnd = m.end();
+        }
+        result.append(value, lastEnd, value.length());
+        return result.toString();
+    }
+
+    /**
+     * Parses a dimension string such as {@code [3][4]} or {@code [10]} and
+     * returns the product of all dimensions (total element count).
+     *
+     * @throws ArithmeticException if the product overflows {@code int}.
+     */
+    private static int parseTotalCount(String dims) {
+        long total = 1;
+        Matcher m = Pattern.compile("\\[(\\d+)\\]").matcher(dims);
+        while (m.find()) {
+            total = Math.multiplyExact(total, Long.parseLong(m.group(1)));
+            if (total > Integer.MAX_VALUE) {
+                throw new ArithmeticException("array size overflow");
+            }
+        }
+        return (int) total;
     }
 
     /** Converts a SASM block comment to an ASM comment. */
@@ -1501,7 +2280,7 @@ public class SasmTranslator {
     }
 
     /**
-     * Returns the index of the first {@code --} sequence that starts a comment
+     * Returns the index of the first {@code //} sequence that starts a comment
      * (not inside square brackets or quotes), or -1 if none.
      */
     private static int indexOfComment(String line) {
@@ -1513,19 +2292,8 @@ public class SasmTranslator {
             if (!inQuote) {
                 if (c == '[') depth++;
                 else if (c == ']') depth--;
-                else if (c == '-' && depth == 0
-                        && i + 1 < line.length() && line.charAt(i + 1) == '-'
-                        // Require whitespace before "--" so that postfix
-                        // decrements like "ax--" are not mistaken for
-                        // inline comments.  Position 0 is handled by the
-                        // line-comment check in translateLine().
-                        && i > 0 && Character.isWhitespace(line.charAt(i - 1))
-                        // Require that "--" is NOT immediately followed by a
-                        // letter or '[', which would indicate a prefix
-                        // decrement (e.g. "ax + --bx").
-                        && (i + 2 >= line.length()
-                            || (!Character.isLetter(line.charAt(i + 2))
-                                && line.charAt(i + 2) != '['))) {
+                else if (c == '/' && depth == 0
+                        && i + 1 < line.length() && line.charAt(i + 1) == '/') {
                     return i;
                 }
             }

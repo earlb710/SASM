@@ -1,0 +1,78 @@
+// testKeyboardInput.sasm
+// Project : Test-projects
+//
+// Demonstrates the keyboard input library (lib/kbd_input.sasm).
+// This test shows how to import and use the kbd library to:
+//   1. Read a single character from stdin
+//   2. Read a line of input from stdin into a buffer
+//
+// Target: 32-bit Linux ELF executable.
+//
+// Build with:
+//   nasm -f elf32 testKeyboardInput.asm -o testKeyboardInput.o
+//   ld -m elf_i386 testKeyboardInput.o -o testKeyboardInput
+//
+// NOTE: This file tests SASM-to-NASM translation only.
+//       Running the executable requires Linux with int 0x80 support.
+
+#REF lib/kbd_input.sasm kbd
+#REF lib/std_io.sasm io
+
+section .data
+
+var prompt_char as byte[18]
+data prompt_char_bytes as byte = "Type a char: ", 0
+var prompt_line as byte[22]
+data prompt_line_bytes as byte = "Type a line: ", 0
+var newline as byte[2]
+data newline_bytes as byte = 10, 0
+var echo_prefix as byte[12]
+data echo_prefix_bytes as byte = "You typed: ", 0
+var input_buf as byte[80]
+
+section .text
+global _start
+
+_start:
+    // ── Step 1: prompt and read a single character ──────────────
+    move prompt_char_bytes to ecx
+    call @io.print_string
+
+    call @kbd.read_char
+    // al = character typed
+
+    // Echo the character back
+    push eax                           // save character
+    move echo_prefix_bytes to ecx
+    call @io.print_string
+    pop eax                            // restore character
+    call @io.print_char                // print the character
+    move newline_bytes to ecx
+    call @io.print_string
+
+    // ── Step 2: prompt and read a line ──────────────────────────
+    move prompt_line_bytes to ecx
+    call @io.print_string
+
+    push 80                            // max bytes
+    push input_buf                     // buffer pointer
+    call @kbd.read_line
+    esp = esp + 8                      // clean args
+    // eax = number of bytes read
+
+    // Echo the line back
+    push eax                           // save byte count
+    move echo_prefix_bytes to ecx
+    call @io.print_string
+    pop edx                            // edx = byte count
+
+    // sys_write(stdout, input_buf, byte_count)
+    move 4 to eax                      // sys_write
+    move 1 to ebx                      // fd = stdout
+    move input_buf to ecx              // buffer
+    interrupt 0x80
+
+    // ── Exit ────────────────────────────────────────────────────
+    move 1 to eax                      // sys_exit
+    move 0 to ebx                      // exit code 0
+    interrupt 0x80

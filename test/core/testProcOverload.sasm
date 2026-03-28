@@ -1,0 +1,89 @@
+// testProcOverload.sasm
+// Project : Test-projects
+//
+// Demonstrates parameter overloading — the proc declaration accepting
+// both register-based parameters and typed (data-type) parameters.
+//
+// All four parameter styles are exercised:
+//   1. No params             — proc name {
+//   2. Register params       — proc name ( in reg as alias, out reg as alias ) {
+//   3. Typed params          — proc name ( in type name, out type name ) {
+//   4. Stack params          — proc name uses stack ( p1, p2, ... ) {
+//
+// Target: 32-bit Linux ELF executable (uses int 0x80 for exit).
+//
+// Build (after SASM translation):
+//   nasm -f elf32 testProcOverload.asm -o testProcOverload.o
+//   ld -m elf_i386 testProcOverload.o -o testProcOverload
+//
+// NOTE: This file tests SASM-to-NASM translation only.
+
+section .data
+
+var result_bare  as dword = 0
+var result_reg   as dword = 0
+var result_typed as dword = 0
+var result_stack as dword = 0
+
+section .text
+global _start
+
+_start:
+
+// ── Test 1: proc with no params ─────────────────────────────
+move 7 to eax
+call double_bare
+move eax to dword [result_bare]
+
+// ── Test 2: proc with register params ───────────────────────
+move 5 to eax
+call double_reg
+move eax to dword [result_reg]
+
+// ── Test 3: proc with typed params (parameter overloading) ──
+move 3 to eax
+call double_typed
+move eax to dword [result_typed]
+
+// ── Test 4: proc with stack params ──────────────────────────
+push 4
+call double_stack
+esp = esp + 4
+move eax to dword [result_stack]
+
+// ── exit ─────────────────────────────────────────────────────
+move 1 to eax
+move 0 to ebx
+interrupt 0x80
+
+// ══════════════════════════════════════════════════════════════
+//  Proc definitions using each parameter style
+// ══════════════════════════════════════════════════════════════
+
+// Style 1: No parameters — bare proc
+proc double_bare {
+    eax = eax + eax
+    return
+}
+
+// Style 2: Register parameters
+proc double_reg ( in eax as value, out eax as result ) {
+    eax = eax + eax
+    return
+}
+
+// Style 3: Typed parameters (parameter overloading)
+proc double_typed ( in dword value, out dword result ) {
+    eax = eax + eax
+    return
+}
+
+// Style 4: Stack parameters
+proc double_stack uses stack ( value ) {
+    push ebp
+    move esp to ebp
+    move [ebp+8] to eax
+    eax = eax + eax
+    pop ebp
+    return
+}

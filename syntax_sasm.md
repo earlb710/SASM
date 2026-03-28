@@ -22,7 +22,8 @@
 14. [Processor Control](#processor-control)
 15. [x86-64 Considerations](#x86-64-64-bit-considerations)
 16. [File Imports](#file-imports)
-17. [Full Examples](#full-examples)
+17. [OS Compatibility Declarations](#os-compatibility-declarations)
+18. [Full Examples](#full-examples)
 
 > **See also:** [`doc/instruction_8086.md`](doc/instruction_8086.md) — comprehensive Intel 8086 instruction set reference with status, operands, and compatibility notes.  
 > **See also:** [`doc/instruction_x86_64.md`](doc/instruction_x86_64.md) — x86-64 (64-bit) instruction set reference: new registers, new instructions, and removed instructions.
@@ -40,7 +41,7 @@
 | Immediate (binary) | `0b` prefix | `0b1010` |
 | Character literal | single quotes | `'A'`, `'\n'` |
 | Label definition | `label:` | Follows the same rules as ASM labels |
-| Line comment | `--` | Everything after `--` on a line is ignored |
+| Line comment | `//` | Everything after `//` on a line is ignored |
 | Block comment | `(* ... *)` | Can span multiple lines |
 
 ---
@@ -108,18 +109,18 @@ Writing a 32-bit sub-register (e.g., `eax`, `r8d`) **zero-extends** the result i
 Memory operands use square brackets with an optional size qualifier.
 
 ```sasm
-[bx]                  -- byte/word at address in bx
-byte [bx]             -- force 8-bit access
-word [bx]             -- force 16-bit access
-dword [ebx]           -- force 32-bit access
-qword [rbx]           -- force 64-bit access (x86-64 only)
-[bx + si]             -- base + index
-[bx + si + 4]         -- base + index + displacement
-[ds:bx]               -- explicit segment override
-[bp + 6]              -- stack-relative (local variable or parameter)
-[rbx + rcx*8]         -- scaled-index (SIB) — x86-64 / 32-bit; scale can be 1, 2, 4, or 8
-[rbx + rcx*8 + 16]    -- scaled-index with displacement
-[rip + 0]             -- RIP-relative: address = address of next instruction + displacement
+[bx]                  // byte/word at address in bx
+byte [bx]             // force 8-bit access
+word [bx]             // force 16-bit access
+dword [ebx]           // force 32-bit access
+qword [rbx]           // force 64-bit access (x86-64 only)
+[bx + si]             // base + index
+[bx + si + 4]         // base + index + displacement
+[ds:bx]               // explicit segment override
+[bp + 6]              // stack-relative (local variable or parameter)
+[rbx + rcx*8]         // scaled-index (SIB) — x86-64 / 32-bit; scale can be 1, 2, 4, or 8
+[rbx + rcx*8 + 16]    // scaled-index with displacement
+[rip + 0]             // RIP-relative: address = address of next instruction + displacement
 ```
 
 **Size qualifiers:**
@@ -144,6 +145,16 @@ proc <name> {
     <body>
 }
 ```
+
+An `inline` variant expands the body at each call site (no `CALL`/`RET` overhead):
+
+```sasm
+inline proc <name> {
+    <body>
+}
+```
+
+See [Inline Procedures](#inline-procedures) for details.
 
 ### Named Blocks
 
@@ -179,6 +190,128 @@ if <condition> {
 
 `<condition>` is a condition word or phrase corresponding to the flag state (see [Control Transfer](#control-transfer)).
 
+**C-style inline comparison:** wrap the condition in parentheses with `==`, `!=`, `<`, `<=`, `>`, or `>=` to emit a `CMP` automatically:
+
+```sasm
+if (ax == 0) {         // emits CMP ax, 0 then JNE (skip if not equal)
+    move 1 to bx
+}
+
+if (cx != 5) {         // emits CMP cx, 5 then JE (skip if equal)
+    move 2 to bx
+}
+
+if (bx > 10) {         // emits CMP bx, 10 then JLE (skip if less or equal)
+    move 3 to bx
+}
+```
+
+**if / else if / else chains** work exactly like C:
+
+```sasm
+var cond as word = 0
+if (cond == 1) {
+    move 1 to ax
+} else if (cond == 3) {
+    move 3 to ax
+} else {
+    move 0 to ax
+}
+```
+
+The generated assembly uses conditional and unconditional jumps to
+implement the chain:
+
+```asm
+    CMP [cond], 1
+    JNE .L0           ; skip if cond ≠ 1
+    MOV ax, 1
+    JMP .Lend1        ; done — skip remaining branches
+.L0:
+    CMP [cond], 3
+    JNE .L2           ; skip if cond ≠ 3
+    MOV ax, 3
+    JMP .Lend1        ; done — skip remaining branches
+.L2:
+    MOV ax, 0         ; else (fallthrough)
+.Lend1:
+```
+
+Any number of `} else if` clauses may be chained, and the final
+`} else {` clause is optional.  Condition-word syntax and C-style
+comparisons may be freely mixed in the same chain.
+
+### Switch / Case Blocks
+
+```sasm
+switch (operand) {
+    value1 : {
+        <body1>
+    }
+    value2 : {
+        <body2>
+    }
+    default : {
+        <default-body>
+    }
+}
+```
+
+`operand` is a register, memory reference, or declared variable name
+(auto-bracketed).  Each `value : {` arm compares the operand against
+the literal value and executes the body if they match.  The optional
+`default : {` arm runs when no preceding case matched.
+
+**Example:**
+
+```sasm
+var choice as word = 0
+switch (choice) {
+    10 : {
+        move 1 to ax
+    }
+    20 : {
+        move 2 to ax
+    }
+    default : {
+        move 0 to ax
+    }
+}
+```
+
+The generated assembly uses a chain of `CMP`/`JNE` pairs:
+
+```asm
+    CMP [choice], 10
+    JNE .Lcase1       ; skip if choice ≠ 10
+    MOV ax, 1
+    JMP .Lswend0      ; done — skip remaining cases
+.Lcase1:
+    CMP [choice], 20
+    JNE .Lcase2       ; skip if choice ≠ 20
+    MOV ax, 2
+    JMP .Lswend0
+.Lcase2:
+    MOV ax, 0         ; default (fallthrough)
+.Lswend0:
+```
+
+The `default` case is optional.  If omitted, unmatched values simply
+fall through to the code after the switch.
+
+Bracket-style operands are also supported for explicit memory
+references:
+
+```sasm
+switch ([myVar]) {
+    0xFF : { move 1 to ax }
+    0x00 : { move 2 to ax }
+}
+```
+
+Switch blocks nest correctly inside `if`, `for`, `while`, and other
+block structures.
+
 ### Count Loops
 
 ```sasm
@@ -188,6 +321,22 @@ repeat cx times {
 ```
 
 Decrements `cx` each iteration; exits when `cx` reaches zero.
+
+The operand does not have to be `cx` — any register, literal, or declared
+variable name may be used.  Non-`cx` operands are loaded into `cx` with
+`MOV CX, <operand>` before the loop begins:
+
+```sasm
+var count as word = 10
+
+repeat count times {        // MOV CX, [count]  then LOOP
+    <body>
+}
+
+repeat 5 times {            // MOV CX, 5        then LOOP
+    <body>
+}
+```
 
 ### Conditional Count Loops
 
@@ -201,6 +350,14 @@ repeat cx times while not equal {
 }
 ```
 
+As with plain count loops, any register, literal, or variable may replace `cx`:
+
+```sasm
+repeat count times while equal {
+    <body>
+}
+```
+
 ### Generic While Loop
 
 ```sasm
@@ -210,6 +367,41 @@ while <condition> {
 ```
 
 Re-evaluates `<condition>` at the top of each iteration.
+If the condition is false on the first test, the body is never executed.
+
+**Example — `while not equal`:**
+
+```sasm
+move 0 to bx                   // index = 0
+compare bx with 10             // set flags before entering the loop
+while not equal {               // loop while bx ≠ 10 (ZF = 0)
+    increment bx               // do work …
+    compare bx with 10         // re-set flags for the next iteration
+}
+```
+
+*How it works:*
+
+1. A `compare` (or any flag-setting instruction) must precede the `while`.
+2. `while not equal {` emits a label (`.while_N:`) and checks the Zero Flag.
+   As long as ZF = 0 (values were *not* equal), execution continues into the body.
+3. The closing `}` jumps back to the `.while_N` label, where the condition
+   is re-checked using the flags set by the last instruction in the body.
+4. When ZF = 1 (the values are now equal), the loop exits.
+
+Any condition word may be used: `while equal`, `while above`, `while less or equal`, etc.
+See the full list under [Condition Words](#condition-words).
+
+**C-style inline comparison:** wrap the condition in parentheses with `==`, `!=`, `<`, `<=`, `>`, or `>=` to emit a `CMP` automatically:
+
+```sasm
+while (bx != 10) {             // emits CMP bx, 10 then label
+    increment bx
+    bx != 10                   // re-set flags for the while check
+}
+```
+
+The parenthesized form `while (op1 != op2)` emits the initial `CMP` and sets the condition to `not equal`.  You must still re-set flags at the end of the loop body (with `compare`, `comp`, `==`, `!=`, `<`, `<=`, `>`, or `>=`).
 
 ### Repeat-Until Loop
 
@@ -220,6 +412,70 @@ repeat {
 ```
 
 Evaluates `<condition>` at the bottom; always executes the body at least once.
+
+**C-style inline comparison:**
+
+```sasm
+repeat {
+    increment bx
+} until (bx == 10)             // emits CMP bx, 10 then JNE .loop
+```
+
+### C-Style For Loop
+
+```sasm
+for (init; condition; step) {
+    <body>
+}
+```
+
+A structured loop that combines initialization, condition checking, and stepping into one header.  The generated assembly is:
+
+```nasm
+    <init>                ; translated SASM init statement
+.forN:
+    CMP op1, op2          ; from the condition
+    J<inverted> .endforM  ; exit when condition is false
+    ; ... body ...
+    <step>                ; translated SASM step statement
+    JMP .forN             ; back to condition
+.endforM:
+```
+
+The **init** and **step** parts are each translated through the normal SASM engine, so they can be any valid single-line SASM statement (assignments, increments, etc.).
+
+The **condition** must be a C-style comparison using `<`, `<=`, `>`, `>=`, `==`, or `!=`.  Declared variable names are auto-wrapped in brackets.
+
+**Examples:**
+
+```sasm
+var i as word
+var limit as word = 10
+
+// Count from 0 to limit-1
+for (i=0; i<limit; i++) {
+    move 0xAA to byte [buffer + i]
+}
+
+// Countdown from 9 to 0
+for (i=9; i>=0; i--) {
+    move i to al
+}
+
+// Bracket-style operands
+for ([i]=0; [i]<10; [i]++) {
+    move 0xBB to byte [buffer + i]
+}
+
+// Nested if inside for
+for (i=0; i<limit; i++) {
+    if (i == 5) {
+        move 0xFF to byte [buffer + i]
+    }
+}
+```
+
+Nesting works correctly: `if`, `while`, and `repeat` blocks inside a `for` loop are tracked separately, so their closing `}` does not interfere with the `for` loop's closing `}`.
 
 ### Atomic Block
 
@@ -263,12 +519,12 @@ block validate_range {
     goto fail if below
     compare ax with cx
     goto fail if above
-    return                      -- in-range: return to caller
+    return                      // in-range: return to caller
 fail:
-    move 0xFFFF to ax           -- sentinel: out of range
-}                               -- implicit RET
+    move 0xFFFF to ax           // sentinel: out of range
+}                               // implicit RET
 
--- Caller:
+// Caller:
 call validate_range
 ```
 
@@ -331,8 +587,8 @@ proc clamp_byte ( in ax as value, out ax as result ) {
 **Caller:**
 
 ```sasm
-move 300 to ax          -- value = 300
-call clamp_byte         -- result → ax (= 255)
+move 300 to ax          // value = 300
+call clamp_byte         // result → ax (= 255)
 ```
 
 **Recommended register roles for 8086:**
@@ -391,7 +647,7 @@ proc print_substring uses stack ( src_ptr, offset, length ) {
     move length to cx
     clear direction
     repeat cx times {
-        load string byte     -- al = [ds:si], si++
+        load string byte     // al = [ds:si], si++
         call emit_char
     }
     return
@@ -401,26 +657,138 @@ proc print_substring uses stack ( src_ptr, offset, length ) {
 **Caller:**
 
 ```sasm
-push 5                  -- length  (last arg pushed first on stack)
-push 3                  -- offset
-push si                 -- src_ptr
+push 5                  // length  (last arg pushed first on stack)
+push 3                  // offset
+push si                 // src_ptr
 call print_substring
-add 6 to sp             -- caller pops 3 × 2-byte args
+add 6 to sp             // caller pops 3 × 2-byte args
 ```
+
+---
+
+#### 3. Typed Parameters (Parameter Overloading)
+
+The `proc` declaration supports **typed parameters** as an alternative to register-based or stack-based declarations.  Typed parameters specify a data type (`byte`, `word`, `dword`, `qword`, `float`, `double`) instead of a register name.  This is called *parameter overloading* because the same procedure can be declared with either register-based or typed parameters — the translator accepts both forms.
+
+**Syntax:**
+
+```sasm
+proc <name> ( in <type> <param>, ..., out <type> <param> ) {
+    <body>
+    return
+}
+```
+
+* `in <type> <param>` — declares an input parameter of the given type.
+* `out <type> <param>` — declares an output parameter of the given type.
+* `in out <type> <param>` — the parameter is both read on entry and written on exit.
+* Supported types: `byte`, `word`, `dword`, `qword`, `float`, `double`.
+* The parameter list is **documentary** — it is emitted as a NASM comment in the generated assembly.  The procedure body still uses raw register or memory operands.
+
+**Example — typed parameter form for sin_float:**
+
+```sasm
+proc sin_float ( in dword angle, out dword result ) {
+    fld dword [esp+4]          // load angle from stack / memory
+    fsin                       // ST(0) = sin(angle)
+    fstp dword [esp+8]         // store result
+    return
+}
+```
+
+This is equivalent to the bare form:
+
+```sasm
+proc sin_float {
+    fsin                       // ST(0) = sin(ST(0))
+    return
+}
+```
+
+Both forms generate the same NASM label (`sin_float:`).  The typed-parameter form is useful for **self-documenting library APIs** where the parameter types clarify the expected calling convention.
+
+**Parameter overloading summary:**
+
+A given procedure name may be declared with *any* of the three parameter styles:
+
+| Style | Signature example |
+|-------|-------------------|
+| No params | `proc sin_float {` |
+| Register params | `proc square ( in eax as value, out eax as result ) {` |
+| Typed params | `proc sin_float ( in dword angle, out dword result ) {` |
+| Stack params | `proc read_line uses stack ( buffer_ptr, max_bytes ) {` |
 
 ---
 
 #### Choosing a Convention
 
-| Criterion | Register params | Stack params |
-|-----------|----------------|--------------|
-| Number of arguments | ≤ 6 | Any number |
-| Speed | ✅ Fastest — no memory access for args | Slower — args in memory |
-| Interop with C | ❌ Non-standard | ✅ cdecl / stdcall compatible |
-| Recursive calls | ⚠️ Requires saving registers on stack | ✅ Each frame is independent |
-| Readability | ✅ Register roles are visible in signature | ✅ Named params in signature |
+| Criterion | Register params | Stack params | Typed params |
+|-----------|----------------|--------------|--------------|
+| Number of arguments | ≤ 6 | Any number | Any number |
+| Speed | ✅ Fastest — no memory access for args | Slower — args in memory | Depends on body |
+| Interop with C | ❌ Non-standard | ✅ cdecl / stdcall compatible | ✅ Documents C-compatible signatures |
+| Recursive calls | ⚠️ Requires saving registers on stack | ✅ Each frame is independent | Depends on body |
+| Readability | ✅ Register roles are visible in signature | ✅ Named params in signature | ✅ Types + names visible in signature |
+| Self-documenting | ⚠️ Must know register conventions | ✅ Named params | ✅ Typed + named params |
 
-For typical 8086 subroutines pass ≤ 4 values — **prefer register-based parameters**. For library procedures that may be called from C, or for procedures with many arguments — **prefer stack-based parameters**.
+For typical 8086 subroutines pass ≤ 4 values — **prefer register-based parameters**. For library procedures that may be called from C, or for procedures with many arguments — **prefer stack-based parameters**. For self-documenting library APIs where parameter types clarify the interface — **prefer typed parameters**.
+
+---
+
+### Inline Procedures
+
+The `inline` attribute on a `proc` declaration causes the procedure body to be **expanded at each call site** instead of generating a `CALL`/`RET` pair.  This eliminates the overhead of a function call for small, frequently-used utility routines.
+
+**Syntax:**
+
+```sasm
+inline proc <name> ( <params> ) {
+    <body>
+    return
+}
+```
+
+**Behaviour:**
+
+* The `inline proc` body is **not** emitted as a standalone label in the generated assembly.
+* When `call <name>` is encountered, the translator inserts the body directly at the call site.
+* `return` statements inside the inline body are **suppressed** (no `RET` emitted) — execution flows into the code after the call site.
+* The parameter list (if present) is emitted as a NASM comment for documentation.
+* Multiple calls to the same inline proc expand independently.
+
+**Example:**
+
+```sasm
+// Define a small inline helper
+inline proc double_eax ( in eax as value, out eax as result ) {
+    eax = eax + eax
+    return
+}
+
+// Use it — body is expanded here, no CALL overhead
+move 7 to eax
+call double_eax        // eax = 14 (expanded inline: ADD eax, eax)
+```
+
+*Equivalent NASM output (no label, no CALL, no RET):*
+
+```asm
+    MOV eax, 7
+    ; -- inline double_eax --
+    ADD eax, eax
+```
+
+**When to use:**
+
+| Criterion     | Regular `proc`        | `inline proc`          |
+|---------------|-----------------------|------------------------|
+| Body size     | Any                   | Small (1–5 lines)      |
+| Call frequency| Any                   | Frequent hot paths     |
+| Code size     | Single copy           | Duplicated at each site|
+| Call overhead | `CALL`/`RET` pair     | None                   |
+| Labels        | Emits label           | No label emitted       |
+
+**Note:** Inline procedures that contain local labels (e.g., `.done:`) should be called only once, or use unique label names, to avoid duplicate labels in the generated assembly.
 
 ---
 
@@ -444,7 +812,7 @@ data scores as byte[8]
    in  cx as length    — number of elements
    in  al as fill_val  — value to write                  *)
 proc fill_byte ( in si as arr_ptr, in cx as length, in al as fill_val ) {
-    move 0 to bx                        -- bx = byte index
+    move 0 to bx                        // bx = byte index
     repeat cx times {
         move fill_val to byte [arr_ptr + bx]
         increment bx
@@ -452,10 +820,10 @@ proc fill_byte ( in si as arr_ptr, in cx as length, in al as fill_val ) {
     return
 }
 
--- Caller — pass address of 'scores' in si:
-address of scores to si                 -- si = &scores[0]  (LEA SI, scores)
-move 8  to cx                           -- length = 8
-move 0  to al                           -- fill value = 0
+// Caller — pass address of 'scores' in si:
+address of scores to si                 // si = &scores[0]  (LEA SI, scores)
+move 8  to cx                           // length = 8
+move 0  to al                           // fill value = 0
 call fill_byte
 ```
 
@@ -477,10 +845,10 @@ proc process_local_buf {
     var buf as byte[16]
 
     (* Obtain the address of buf[0] and pass it to fill_byte. *)
-    address of buf to si                -- si = &buf[0]  (LEA SI, [BP-16])
+    address of buf to si                // si = &buf[0]  (LEA SI, [BP-16])
     move 16 to cx
     move 0xFF to al
-    call fill_byte                      -- fills buf[0..15] with 0xFF
+    call fill_byte                      // fills buf[0..15] with 0xFF
 }
 ```
 
@@ -523,13 +891,13 @@ proc sum_words uses stack ( arr_ptr, length ) {
     return
 }
 
--- Caller — push length first (rightmost), then address:
+// Caller — push length first (rightmost), then address:
 move 4 to cx
-push cx                                 -- length = 4
+push cx                                 // length = 4
 address of table to si
-push si                                 -- arr_ptr = &table[0]
-call sum_words                          -- ax = 10+20+30+40 = 100
-add 4 to sp                             -- caller cleans 2 × 2-byte args
+push si                                 // arr_ptr = &table[0]
+call sum_words                          // ax = 10+20+30+40 = 100
+add 4 to sp                             // caller cleans 2 × 2-byte args
 ```
 
 #### Returning an array pointer
@@ -542,15 +910,15 @@ data result_buf as byte[64]
 (* Return the address of the module-level result buffer.
    out si as buf_ptr — segment offset of result_buf[0]   *)
 proc get_result_buf ( out si as buf_ptr ) {
-    address of result_buf to buf_ptr    -- buf_ptr = &result_buf[0]
+    address of result_buf to buf_ptr    // buf_ptr = &result_buf[0]
     return
 }
 
--- Caller:
-call get_result_buf                     -- si = &result_buf[0]
+// Caller:
+call get_result_buf                     // si = &result_buf[0]
 move 8 to cx
 move 0 to al
-call fill_byte                          -- zero the first 8 bytes
+call fill_byte                          // zero the first 8 bytes
 ```
 
 #### Convention summary
@@ -579,7 +947,7 @@ A `var` declaration placed **inside** a `proc` or `block` body reserves a named,
 
 ```sasm
 proc <name> {
-    var <name> as <type>    -- one declaration per line, before any executable statement
+    var <name> as <type>    // one declaration per line, before any executable statement
     var <name> as <type>
     <body — refer to locals by name>
 }
@@ -677,7 +1045,7 @@ block checksum8 {
         add 2 to si
     }
     move sum to ax
-}                               -- implicit RET (with frame epilogue)
+}                               // implicit RET (with frame epilogue)
 ```
 
 ---
@@ -703,15 +1071,15 @@ A `var` declaration placed **outside** any `proc` or `block` body declares a **g
 **Syntax:**
 
 ```sasm
-var <name> as <type>               -- zero-initialized
-var <name> as <type> = <value>     -- initialized to a literal
+var <name> as <type>               // zero-initialized
+var <name> as <type> = <value>     // initialized to a literal
 ```
 
 The `as` keyword is optional — the following forms are equivalent:
 
 ```sasm
-var counter as word = 0            -- with "as"
-var counter word = 0               -- without "as"
+var counter as word = 0            // with "as"
+var counter word = 0               // without "as"
 ```
 
 An optional `signed` or `unsigned` modifier may follow the type.  The modifier
@@ -724,12 +1092,12 @@ assembly instructions generated for certain expression operators:
 | `div`    | `DIV` (zero-extend with `XOR`) | `IDIV` (sign-extend with `CWD`/`CDQ`/`CQO`) |
 | `>>`     | `SHR` (logical, zero-fill) | `SAR` (arithmetic, sign-preserving) |
 | `sdiv`   | — | Always emits `IDIV` (explicit signed division) |
-| `*`, `+`, `-`, `<<`, `&&`, `||`, `!` | Unchanged | Unchanged (same binary result) |
+| `*`, `+`, `-`, `<<`, `&&`, `||`, `^^`, `!` | Unchanged | Unchanged (same binary result) |
 
 ```sasm
-var value1 as word signed = -10    -- DW -10; operations use signed variants
-var value1 word signed = -10       -- same result, without "as"
-var flags  word unsigned = 0xFF    -- DW 0xFF; operations use unsigned variants
+var value1 as word signed = -10    // DW -10; operations use signed variants
+var value1 word signed = -10       // same result, without "as"
+var flags  word unsigned = 0xFF    // DW 0xFF; operations use unsigned variants
 ```
 
 **Supported types:**
@@ -740,14 +1108,18 @@ var flags  word unsigned = 0xFF    -- DW 0xFF; operations use unsigned variants
 | `word`       | 2 bytes | `DW` | `0` |
 | `dword`      | 4 bytes | `DD` | `0` |
 | `qword`      | 8 bytes | `DQ` | `0` (x86-64) |
+| `float`      | 4 bytes | `DD` | `0` (IEEE 754 single-precision) |
+| `double`     | 8 bytes | `DQ` | `0` (IEEE 754 double-precision) |
 
 **Zero-initialized scalars:**
 
 ```sasm
-var counter as word             -- counter: DW 0
-var flag    as byte             -- flag:    DB 0
-var total   as dword            -- total:   DD 0
-var big     as qword            -- big:     DQ 0  (x86-64)
+var counter as word             // counter: DW 0
+var flag    as byte             // flag:    DB 0
+var total   as dword            // total:   DD 0
+var big     as qword            // big:     DQ 0  (x86-64)
+var result  as float            // result:  DD 0  (single-precision)
+var accum   as double           // accum:   DQ 0  (double-precision)
 ```
 
 *Equivalent ASM:*
@@ -757,15 +1129,17 @@ counter: DW 0
 flag:    DB 0
 total:   DD 0
 big:     DQ 0
+result:  DD 0
+accum:   DQ 0
 ```
 
 **Initialized scalars:**
 
 ```sasm
-var max_count  as word  = 100         -- max_count:  DW 100
-var error_code as byte  = 0xFF        -- error_code: DB 0FFh
+var max_count  as word  = 100         // max_count:  DW 100
+var error_code as byte  = 0xFF        // error_code: DB 0FFh
 var base_addr  as dword = 0x00010000
-var huge_mask  as qword = 0xFFFFFFFF00000000   -- x86-64
+var huge_mask  as qword = 0xFFFFFFFF00000000   // x86-64
 ```
 
 *Equivalent ASM:*
@@ -782,21 +1156,21 @@ huge_mask:  DQ FFFFFFFF00000000h
 A global `var` name resolves directly to its data-segment address. Use it as a plain memory operand — no bracket arithmetic needed for scalars.
 
 ```sasm
--- Write to a global variable:
-move 42 to counter              -- MOV [counter], 42 — stores 42 into the word
-move 0  to flag                 -- MOV [flag], 0
+// Write to a global variable:
+move 42 to counter              // MOV [counter], 42 — stores 42 into the word
+move 0  to flag                 // MOV [flag], 0
 
--- Read from a global variable:
-move counter to ax              -- MOV AX, [counter]
-move flag    to al              -- MOV AL, [flag]
+// Read from a global variable:
+move counter to ax              // MOV AX, [counter]
+move flag    to al              // MOV AL, [flag]
 
--- Operate directly on a global variable:
-increment counter               -- INC [counter]
-counter++                       -- INC [counter]  (postfix form)
-++counter                       -- INC [counter]  (prefix form)
-inc counter                     -- INC [counter]  (short keyword)
-add 1 to counter                -- ADD [counter], 1
-compare counter with max_count  -- CMP [counter], [max_count]
+// Operate directly on a global variable:
+increment counter               // INC [counter]
+counter++                       // INC [counter]  (postfix form)
+++counter                       // INC [counter]  (prefix form)
+inc counter                     // INC [counter]  (short keyword)
+add 1 to counter                // ADD [counter], 1
+compare counter with max_count  // CMP [counter], [max_count]
 ```
 
 *Equivalent ASM:*
@@ -816,28 +1190,28 @@ CMP  [counter], [max_count]
 * Module-level `var` declarations must appear **outside** any `proc` or `block` body — they are emitted as data-segment labels.
 * A module-level `var` declaration may appear before or after the `proc`/`block` definitions that use it; the assembler resolves names in a single pass.
 * The same `var` keyword inside a `proc` or `block` body declares a **stack-local** variable instead (see [Local Variables](#local-variables)).
-* The `= <value>` initializer must be a single integer literal (decimal, `0x` hex, `0b` binary, or character literal). For multi-element initialized storage, use `data` (see [Static Data Arrays](#static-data-arrays) later in this section).
+* The `= <value>` initializer must be a single integer literal (decimal, `0x` hex, `0b` binary, or character literal), a double-quoted string literal (`"text"` — expanded to individual bytes), or a NASM floating-point macro (`__float32__()` / `__float64__()`) for `float` / `double` types. For multi-element initialized storage, use `data` (see [Static Data Arrays](#static-data-arrays) later in this section).
 * Global scalars are **not** automatically saved/restored across calls; if a `proc` modifies a global, document that side effect in the `proc`'s comment header.
 
 **Example — global counter used across two procs:**
 
 ```sasm
-var call_count as word = 0      -- module-level static: tracks invocations
+var call_count as word = 0      // module-level static: tracks invocations
 
 proc increment_and_get {
-    increment call_count        -- call_count++
-    move call_count to ax       -- return current count in ax
+    increment call_count        // call_count++
+    move call_count to ax       // return current count in ax
 }
 
 proc reset_count {
-    move 0 to call_count        -- call_count = 0
+    move 0 to call_count        // call_count = 0
 }
 
--- Main sequence:
-call increment_and_get          -- ax = 1
-call increment_and_get          -- ax = 2
-call reset_count                -- call_count = 0
-call increment_and_get          -- ax = 1
+// Main sequence:
+call increment_and_get          // ax = 1
+call increment_and_get          // ax = 2
+call reset_count                // call_count = 0
+call increment_and_get          // ax = 1
 ```
 
 *Equivalent ASM:*
@@ -864,9 +1238,14 @@ A `data` declaration reserves a named array in the data segment. It must appear 
 **Syntax:**
 
 ```sasm
-data <name> as <type>[<count>]                        -- zero-initialized array
-data <name> as <type> = <v1>, <v2>, ..., <vN>         -- initialized array (count inferred from list)
+data <name> as <type>[<count>]                        // zero-initialized 1-D array
+data <name> as <type>[<d1>][<d2>]...                  // zero-initialized multi-dimensional array
+data <name> as <type> = <v1>, <v2>, ..., <vN>         // initialized array (count inferred from list)
 ```
+
+Multiple bracket pairs declare a multi-dimensional array.  The total element
+count is the **product** of all dimensions; storage is laid out in row-major
+order (the last dimension varies fastest, as in C).
 
 **Supported types:**
 
@@ -876,13 +1255,15 @@ data <name> as <type> = <v1>, <v2>, ..., <vN>         -- initialized array (coun
 | `word`       | 2 bytes      | `DW`               |
 | `dword`      | 4 bytes      | `DD`               |
 | `qword`      | 8 bytes      | `DQ` (x86-64)      |
+| `float`      | 4 bytes      | `DD` (IEEE 754 single-precision) |
+| `double`     | 8 bytes      | `DQ` (IEEE 754 double-precision) |
 
 **Zero-initialized arrays** — element count is given in brackets; all elements start as zero:
 
 ```sasm
-data buf    as byte[64]        -- 64 bytes, all zero
-data table  as word[16]        -- 16 words, all zero
-data coords as dword[4]        -- 4 dwords, all zero
+data buf    as byte[64]        // 64 bytes, all zero
+data table  as word[16]        // 16 words, all zero
+data coords as dword[4]        // 4 dwords, all zero
 ```
 
 *Equivalent ASM (NASM):*
@@ -891,6 +1272,22 @@ data coords as dword[4]        -- 4 dwords, all zero
 buf:    TIMES 64 DB 0
 table:  TIMES 16 DW 0
 coords: TIMES  4 DD 0
+```
+
+**Multi-dimensional zero-initialized arrays:**
+
+```sasm
+data screen as byte[25][80]    // 25 rows × 80 cols = 2000 bytes, all zero
+data board  as byte[3][3]      // 3×3 = 9 bytes
+data cube   as dword[2][3][4]  // 2×3×4 = 24 dwords
+```
+
+*Equivalent ASM (NASM):*
+
+```asm
+screen: TIMES 2000 DB 0
+board:  TIMES    9 DB 0
+cube:   TIMES   24 DD 0
 ```
 
 **Initialized arrays** — element count is inferred from the comma-separated value list:
@@ -909,29 +1306,82 @@ lookup: DW 0000h, 00FFh, FF00h, FFFFh
 masks:  DD 000000FFh, 0000FF00h, 00FF0000h, FF000000h
 ```
 
+**String literals** — a double-quoted string in a `byte` declaration is expanded
+to individual character bytes, so `"abcde"` is equivalent to
+`'a','b','c','d','e'`.  Recognised escape sequences: `\n` (10), `\t` (9),
+`\r` (13), `\0` (0), `\\` (backslash), `\"` (double-quote).
+
+```sasm
+data greeting as byte = "Hello", 0           // null-terminated string
+data msg      as byte = "Error:\n", 0        // with newline escape
+var  tag      as byte = "OK"                 // local string
+```
+
+*Equivalent ASM:*
+
+```asm
+greeting: DB 'H','e','l','l','o', 0
+msg:      DB 'E','r','r','o','r',':',10, 0
+tag:      DB 'O','K'
+```
+
+**Floating-point arrays** — use NASM `__float32__()` / `__float64__()` macros for
+constant values:
+
+```sasm
+data weights as float  = __float32__(1.0), __float32__(0.5), __float32__(0.25)
+data precise as double = __float64__(3.14159265358979), __float64__(2.71828182845905)
+data zeroed  as float[8]                    // 8 × 4 bytes, all zero
+data grid    as double[3][3]                // 3×3 = 9 doubles, all zero
+```
+
+*Equivalent ASM:*
+
+```asm
+weights: DD __float32__(1.0), __float32__(0.5), __float32__(0.25)
+precise: DQ __float64__(3.14159265358979), __float64__(2.71828182845905)
+zeroed:  TIMES 8 DD 0
+grid:    TIMES 9 DQ 0
+```
+
+Float and double data can be loaded and manipulated using x87 FPU instructions
+(`fld`, `fadd`, `fstp`, etc.), which pass through to NASM verbatim:
+
+```sasm
+fld dword [weights]         // push weights[0] onto FPU stack
+fld dword [weights + 4]     // push weights[1]
+faddp                       // ST0 = weights[0] + weights[1]
+fstp dword [result]         // pop and store
+
+fld qword [precise]         // push precise[0] (double) onto FPU stack
+fstp qword [accum]          // pop and store as double
+```
+
 **Accessing static array elements:**
 
 Array names resolve to their data-segment address. Use the standard memory-reference syntax (see [Memory References](#memory-references)) with a byte-offset register to index into the array.
 
 ```sasm
--- byte array — bx holds the element index (= byte offset)
-move byte [primes + bx] to al        -- al = primes[bx]
-move 0x99 to byte [primes + bx]      -- primes[bx] = 0x99
+// byte array — bx holds the element index (= byte offset)
+move byte [primes + bx] to al        // al = primes[bx]
+move 0x99 to byte [primes + bx]      // primes[bx] = 0x99
 
--- word array — si holds the byte offset (element index × 2)
-move word [lookup + si] to ax        -- ax = lookup[si/2]
-move ax to word [lookup + si]        -- lookup[si/2] = ax
+// word array — si holds the byte offset (element index × 2)
+move word [lookup + si] to ax        // ax = lookup[si/2]
+move ax to word [lookup + si]        // lookup[si/2] = ax
 
--- dword array — ebx holds the byte offset (element index × 4)
-move dword [coords + ebx] to eax     -- eax = coords[ebx/4]
-move eax to dword [coords + ebx]     -- coords[ebx/4] = eax
+// dword array — ebx holds the byte offset (element index × 4)
+move dword [coords + ebx] to eax     // eax = coords[ebx/4]
+move eax to dword [coords + ebx]     // coords[ebx/4] = eax
 ```
 
 **Rules:**
 
 * `data` declarations must appear **outside** any `proc` or `block` body — they are segment-level directives emitted into the data segment.
 * An array may use either the bracketed count form (zero-initialized) or the `= <list>` form (initialized), but not both on the same line.
+* Multiple bracket pairs (e.g. `[3][4]`) declare a multi-dimensional array; the total element count is the product of all dimensions. Storage is a flat, contiguous block — the programmer computes byte offsets manually.
 * When indexing word arrays, the register holds a **byte offset** (`index × 2`); for dword arrays the register holds `index × 4`.
+* For a 2-D array with `COLS` columns, the byte offset of element `[row][col]` is `(row * COLS + col) * element_size`.
 
 ---
 
@@ -943,12 +1393,16 @@ A `var` declaration with a bracketed element count reserves a named, stack-alloc
 
 ```sasm
 proc <name> {
-    var <name> as byte[<count>]    -- <count> bytes reserved on the stack
-    var <name> as word[<count>]    -- 2 × <count> bytes reserved on the stack
-    var <name> as dword[<count>]   -- 4 × <count> bytes reserved on the stack
+    var <name> as byte[<count>]          // <count> bytes reserved on the stack
+    var <name> as word[<count>]          // 2 × <count> bytes reserved on the stack
+    var <name> as dword[<count>]         // 4 × <count> bytes reserved on the stack
+    var <name> as byte[<d1>][<d2>]...    // multi-dimensional (product of dims)
     <body>
 }
 ```
+
+Multiple bracket pairs declare a multi-dimensional local array; the total
+element count is the product of all dimensions, identical to `data` arrays.
 
 The same form works inside a `block { }`.
 
@@ -977,16 +1431,16 @@ The same form works inside a `block { }`.
 proc reverse_bytes {
     var tmp as byte[16]
 
-    move 0 to bx                        -- bx = write index into tmp
+    move 0 to bx                        // bx = write index into tmp
     repeat cx times {
-        load string byte                -- al = [ds:si], si++
-        move al to byte [tmp + bx]      -- tmp[bx] = al
+        load string byte                // al = [ds:si], si++
+        move al to byte [tmp + bx]      // tmp[bx] = al
         increment bx
     }
     repeat {
         decrement bx
         move byte [tmp + bx] to al
-        store string byte               -- [es:di] = al, di++
+        store string byte               // [es:di] = al, di++
         compare bx with 0
     } until equal
 }
@@ -1072,6 +1526,13 @@ reverse_bytes:
 | `signed divide by <src>` | `IDIV src` | Signed divide (same layout as `DIV`) |
 | `negate <dst>` | `NEG dst` | Two's complement: `dst = 0 - dst` |
 | `compare <op1> with <op2>` | `CMP op1, op2` | Set flags for `op1 - op2`; result discarded |
+| `comp <op1> with <op2>` | `CMP op1, op2` | Short form of `compare` |
+| `<op1> == <op2>` | `CMP op1, op2` | C-style comparison (sets flags) |
+| `<op1> != <op2>` | `CMP op1, op2` | C-style comparison (sets flags) |
+| `<op1> < <op2>` | `CMP op1, op2` | C-style comparison (sets flags) |
+| `<op1> <= <op2>` | `CMP op1, op2` | C-style comparison (sets flags) |
+| `<op1> > <op2>` | `CMP op1, op2` | C-style comparison (sets flags) |
+| `<op1> >= <op2>` | `CMP op1, op2` | C-style comparison (sets flags) |
 | `extend byte to word` | `CBW` | Sign-extend `al` → `ax` |
 | `extend word to double` | `CWD` | Sign-extend `ax` → `DX:AX` |
 | `extend double to quad` | `CDQE` | Sign-extend `eax` → `rax` (x86-64 only) |
@@ -1108,22 +1569,28 @@ either value may be negative.
 ### Expression Assignment Shorthand
 
 In addition to the English-phrase syntax above, SASM supports a compact
-**expression assignment** form using the operators `=`, `+`, `-`, `*`, `div`,
-`sdiv` (signed division), `<<` (left shift), `>>` (right shift),
-`&&` (bitwise AND), `||` (bitwise OR), and `!` (bitwise NOT):
+**expression assignment** form using the operators `=`, `+`, `-`, `*`, `%` (modulo),
+`div`, `sdiv` (signed division), `mod`, `smod` (signed modulo),
+`<<` (left shift), `>>` (right shift),
+`&&` (bitwise AND), `||` (bitwise OR), `^^` (bitwise XOR),
+and `!` (bitwise NOT):
 
 ```
-<dst> = <src>                -- simple assignment
-<dst> = <op1> + <op2>        -- addition
-<dst> = <op1> - <op2>        -- subtraction
-<dst> = <op1> * <op2>        -- multiplication (signed, IMUL)
-<dst> = <op1> div <op2>      -- division (auto: DIV or IDIV based on var signedness)
-<dst> = <op1> sdiv <op2>     -- explicit signed division (always IDIV)
-<dst> = <op1> << <op2>       -- logical left shift (SHL)
-<dst> = <op1> >> <op2>       -- right shift (auto: SHR or SAR based on var signedness)
-<dst> = <op1> && <op2>       -- bitwise AND
-<dst> = <op1> || <op2>       -- bitwise OR
-<dst> = !<src>               -- bitwise NOT (one's complement)
+<dst> = <src>                // simple assignment
+<dst> = <op1> + <op2>        // addition
+<dst> = <op1> - <op2>        // subtraction
+<dst> = <op1> * <op2>        // multiplication (signed, IMUL)
+<dst> = <op1> div <op2>      // division (auto: DIV or IDIV based on var signedness)
+<dst> = <op1> sdiv <op2>     // explicit signed division (always IDIV)
+<dst> = <op1> % <op2>        // modulo (auto: DIV or IDIV; remainder → dst)
+<dst> = <op1> mod <op2>      // modulo keyword form (same as %)
+<dst> = <op1> smod <op2>     // explicit signed modulo (always IDIV; remainder → dst)
+<dst> = <op1> << <op2>       // logical left shift (SHL)
+<dst> = <op1> >> <op2>       // right shift (auto: SHR or SAR based on var signedness)
+<dst> = <op1> && <op2>       // bitwise AND
+<dst> = <op1> || <op2>       // bitwise OR
+<dst> = <op1> ^^ <op2>       // bitwise XOR
+<dst> = !<src>               // bitwise NOT (one's complement)
 ```
 
 Multiple operators may be chained in a single expression.  Evaluation
@@ -1131,8 +1598,8 @@ proceeds **left to right** (no operator precedence), and each operator
 produces one assembly instruction:
 
 ```
-<dst> = <a> + <b> + <c>          -- three terms
-<dst> = <a> + <imm> - <b> * <imm2>  -- mixed operators and constants
+<dst> = <a> + <b> + <c>          // three terms
+<dst> = <a> + <imm> - <b> * <imm2>  // mixed operators and constants
 ```
 
 | SASM Expression | ASM Equivalent | Notes |
@@ -1148,6 +1615,11 @@ produces one assembly instruction:
 | `eax = ecx div ebx` | `MOV EAX, ecx` / `XOR EDX, EDX` / `DIV ebx` | 32-bit unsigned version |
 | `eax = sVal div ebx` | `MOV EAX, [sVal]` / `CDQ` / `IDIV ebx` | 32-bit signed version (sVal is signed) |
 | `rax = rcx div rbx` | `MOV RAX, rcx` / `XOR RDX, RDX` / `DIV rbx` | 64-bit unsigned version |
+| `ax = cx % bx` | `MOV AX, cx` / `XOR DX, DX` / `DIV bx` / `MOV ax, DX` | Unsigned modulo; remainder → ax |
+| `eax = ecx % ebx` | `MOV EAX, ecx` / `XOR EDX, EDX` / `DIV ebx` / `MOV eax, EDX` | 32-bit unsigned modulo |
+| `rax = rcx % rbx` | `MOV RAX, rcx` / `XOR RDX, RDX` / `DIV rbx` / `MOV rax, RDX` | 64-bit unsigned modulo |
+| `ax = cx mod bx` | `MOV AX, cx` / `XOR DX, DX` / `DIV bx` / `MOV ax, DX` | `mod` keyword (same as `%`) |
+| `ax = cx smod bx` | `MOV AX, cx` / `CWD` / `IDIV bx` / `MOV ax, DX` | Explicit signed modulo (always IDIV) |
 | `ax = bx + 3 + dx` | `MOV ax, bx` / `ADD ax, 3` / `ADD ax, dx` | Chained addition with immediate constant |
 | `ax = bx + 3 + dx * 2` | `MOV ax, bx` / `ADD ax, 3` / `ADD ax, dx` / `IMUL ax, 2` | Mixed operators, left-to-right |
 | `ax = ax + 3 + bx` | `ADD ax, 3` / `ADD ax, bx` | First operand matches `dst` — `MOV` elided |
@@ -1165,6 +1637,9 @@ produces one assembly instruction:
 | `ax = bx \|\| cx` | `MOV ax, bx` / `OR ax, cx` | Bitwise OR |
 | `ax = ax \|\| 0x80` | `OR ax, 0x80` | Optimized when `dst = op1` |
 | `rax = rbx \|\| rcx` | `MOV rax, rbx` / `OR rax, rcx` | 64-bit bitwise OR |
+| `ax = bx ^^ cx` | `MOV ax, bx` / `XOR ax, cx` | Bitwise XOR |
+| `ax = ax ^^ 0xFF` | `XOR ax, 0xFF` | Optimized when `dst = op1` |
+| `rax = rbx ^^ rcx` | `MOV rax, rbx` / `XOR rax, rcx` | 64-bit bitwise XOR |
 | `ax = !bx` | `MOV ax, bx` / `NOT ax` | Bitwise NOT (one's complement) |
 | `ax = !ax` | `NOT ax` | Optimized when `dst = src` |
 | `rax = !rbx` | `MOV rax, rbx` / `NOT rax` | 64-bit bitwise NOT |
@@ -1182,12 +1657,12 @@ Pre-increment (`++op`) emits `INC` **before** the expression;
 post-increment (`op++`) emits `INC` **after** the expression:
 
 ```sasm
-cx = ax * bx++          -- IMUL first, then INC bx (post-increment)
-cx = ax * ++bx          -- INC bx first, then IMUL (pre-increment)
-cx = ax + bx--          -- ADD first, then DEC bx
-cx = ax + --bx          -- DEC bx first, then ADD
-cx = bx++               -- MOV cx, bx; INC bx (copy, then increment)
-cx = ++bx               -- INC bx; MOV cx, bx (increment, then copy)
+cx = ax * bx++          // IMUL first, then INC bx (post-increment)
+cx = ax * ++bx          // INC bx first, then IMUL (pre-increment)
+cx = ax + bx--          // ADD first, then DEC bx
+cx = ax + --bx          // DEC bx first, then ADD
+cx = bx++               // MOV cx, bx; INC bx (copy, then increment)
+cx = ++bx               // INC bx; MOV cx, bx (increment, then copy)
 ```
 
 | SASM Expression | ASM Equivalent | Notes |
@@ -1209,12 +1684,12 @@ brackets:
 var total word = 0
 var count word = 10
 
--- The following pairs are equivalent:
-ax = [total] + [count]      -- explicit brackets
-ax = total + count           -- bare names (auto-wrapped)
+// The following pairs are equivalent:
+ax = [total] + [count]      // explicit brackets
+ax = total + count           // bare names (auto-wrapped)
 
-[total] = ax                 -- explicit bracket destination
-total = ax                   -- bare name destination (auto-wrapped)
+[total] = ax                 // explicit bracket destination
+total = ax                   // bare name destination (auto-wrapped)
 ```
 
 The `+` and `-` characters inside square brackets (e.g. `[buffer + bx]`) are
@@ -1400,8 +1875,10 @@ if equal {
 | SASM English Syntax | ASM Equivalent | Meaning |
 |---------------------|----------------|---------|
 | `repeat cx times { ... }` | `LOOP label` | Decrement `cx`; repeat body while `cx ≠ 0` |
+| `repeat <operand> times { ... }` | `MOV CX, <operand>` + `LOOP label` | Load `cx` from operand, then count-loop |
 | `repeat cx times while equal { ... }` | `LOOPE label` | Repeat while `cx ≠ 0` and `ZF = 1` |
 | `repeat cx times while not equal { ... }` | `LOOPNE label` | Repeat while `cx ≠ 0` and `ZF = 0` |
+| `repeat <operand> times while ... { ... }` | `MOV CX, <operand>` + `LOOP…` | Load `cx` from operand, then conditional count-loop |
 
 ---
 
@@ -1533,10 +2010,10 @@ proc add64 ( in rdi as a, in rsi as b, out rax as result ) {
     add  rsi to rax
 }
 
--- Caller:
-move 100 to rdi         -- a = 100
-move  42 to rsi         -- b = 42
-call add64              -- rax = 142
+// Caller:
+move 100 to rdi         // a = 100
+move  42 to rsi         // b = 42
+call add64              // rax = 142
 ```
 
 *Equivalent ASM:*
@@ -1571,12 +2048,12 @@ Microsoft's calling convention for 64-bit Windows uses different argument regist
 **Shadow space:** The caller must allocate **32 bytes** of stack space before any `call`, even if the callee takes fewer than four arguments. This space may be used by the callee to spill register arguments.
 
 ```sasm
--- Windows x64 caller pattern:
-subtract 32 from rsp        -- allocate shadow space
-move 10 to rcx              -- 1st arg
-move 20 to rdx              -- 2nd arg
+// Windows x64 caller pattern:
+subtract 32 from rsp        // allocate shadow space
+move 10 to rcx              // 1st arg
+move 20 to rdx              // 2nd arg
 call some_proc
-add 32 to rsp               -- reclaim shadow space
+add 32 to rsp               // reclaim shadow space
 ```
 
 ---
@@ -1589,13 +2066,13 @@ On Linux, system calls use `syscall` with arguments in `rax` (syscall number), `
 (* Write "hello\n" to stdout.
    syscall: write(fd=1, buf=msg, len=6)
    rax = 1 (sys_write), rdi = 1 (stdout), rsi = msg, rdx = 6 *)
-var msg as byte = 0     -- placeholder — real usage uses a data label
+var msg as byte = 0     // placeholder — real usage uses a data label
 
-move 1   to rax         -- syscall number: sys_write
-move 1   to rdi         -- fd = stdout
-address of msg to rsi   -- buf = &msg
-move 6   to rdx         -- len = 6
-syscall                 -- invoke kernel
+move 1   to rax         // syscall number: sys_write
+move 1   to rdi         // fd = stdout
+address of msg to rsi   // buf = &msg
+move 6   to rdx         // len = 6
+syscall                 // invoke kernel
 ```
 
 *Equivalent ASM:*
@@ -1631,18 +2108,18 @@ The following instructions are **not valid** in x86-64 long mode. Using them rai
 
 ```sasm
 (* 64-bit counters and a qword array. *)
-var tick_count as qword = 0           -- DQ 0
-data timestamps as qword[4]           -- 4 × 8 bytes, zero-initialized
+var tick_count as qword = 0           // DQ 0
+data timestamps as qword[4]           // 4 × 8 bytes, zero-initialized
 
 proc record_tick {
-    increment tick_count              -- INC QWORD [tick_count]
-    move tick_count to rax            -- rax = current tick
+    increment tick_count              // INC QWORD [tick_count]
+    move tick_count to rax            // rax = current tick
 }
 
--- Store tick into timestamps[0]:
-move 0 to rbx                         -- index 0 → byte offset 0
+// Store tick into timestamps[0]:
+move 0 to rbx                         // index 0 → byte offset 0
 move tick_count to rax
-move rax to qword [timestamps + rbx]  -- timestamps[0] = tick_count
+move rax to qword [timestamps + rbx]  // timestamps[0] = tick_count
 ```
 
 *Equivalent ASM:*
@@ -1656,6 +2133,68 @@ record_tick:
     MOV   RAX, [tick_count]
     RET
 ```
+
+---
+
+## Project Structure
+
+A SASM project lives in a **working directory** chosen when you create the
+project.  The IDE creates the following subdirectories automatically:
+
+```
+<project>/
+├── <project>.json        ← project metadata
+├── core/                 ← main source files (always present)
+├── lib/                  ← standard / shared library files (always present)
+└── <variant>/            ← variant-specific source files (user-created)
+```
+
+### core/
+
+The `core/` directory holds the project's main SASM source files.
+It is created automatically when a new project is made and cannot be
+renamed or deleted.  New files added via *File → Add New SASM File*
+default to `core/` unless another directory is selected.
+
+### lib/
+
+The `lib/` directory is the **standard library** folder.  It is created
+alongside `core/` for every new project and is intended for reusable
+library files that are shared across all variants of the project.
+
+* Files in `lib/` can be referenced from `core/` or variant files using
+  the `#REF` directive:
+  ```sasm
+  #REF lib/std_io.sasm io
+  call @io.print_char
+  ```
+* **Included standard libraries:**
+  - `std_io.sasm` — Linux console I/O (`print_char` via `int 0x80`)
+  - `io.sasm` — Windows file I/O (`open_file_read`, `create_file_write`,
+    `read_file`, `write_file`, `close_file`, `write_stdout` via
+    kernel32 Win32 API).
+    Compatible with all 32-bit Windows versions from Windows 95 / NT 3.1
+    onward, and all 64-bit Windows versions via WoW64.
+  - `math.sasm` — Integer and floating-point math routines (`square`,
+    `sqrt_int`, `max`, `min`, `max_array`, `min_array`, `square_float`,
+    `sqrt_float`, `sin_float`, `cos_float`, `max_float`, `min_float`,
+    `max_array_float`, `min_array_float`, `max_array_double`,
+    `min_array_double`).
+    Platform-independent; uses x87 FPU for float/double and square root
+    operations.  `max_float` and `min_float` work with both single- and
+    double-precision values since the x87 FPU uses 80-bit extended
+    precision internally.
+* Users can add additional library files to `lib/` for project-specific
+  shared code.
+* Like `core/`, the `lib/` directory cannot be renamed or deleted through
+  the IDE.
+
+### Variant directories
+
+Variant directories are created via *File → Add Variant* and represent
+different target-platform configurations (e.g. Linux x86, Windows x64).
+Each variant has its own set of source files that can override or extend
+the shared code in `core/` and `lib/`.
 
 ---
 
@@ -1749,11 +2288,66 @@ _start:
 
 ### Rules
 
-* `#REF` directives should appear at the top of the source file, before `section` directives.
+* `#REF` directives **must** appear at the top of the source file, before any code or data (blank lines and comments are allowed before them).  The translator reports an error if a `#REF` appears after code.
 * Each alias must be unique within a file.
 * The imported file's symbols should use the `alias_` prefix naming convention so that `@alias.symbol` resolves correctly.
-* `@alias.symbol` references inside pure comments (`--` lines and `(* *)` blocks) are **not** resolved — they are preserved verbatim.
+* `@alias.symbol` references inside pure comments (`//` lines and `(* *)` blocks) are **not** resolved — they are preserved verbatim.
 * The `@` character is only special when followed by a known `alias.symbol` pattern; standalone `@` has no special meaning.
+
+---
+
+## OS Compatibility Declarations
+
+Library files can declare which operating systems they are compatible with using the `#COMPAT` directive.  This is especially useful for platform-specific libraries (e.g. Windows kernel32 wrappers, Linux `int 0x80` routines) so that users can see at a glance whether a library works on their target OS.
+
+### Syntax
+
+```sasm
+#COMPAT <description>
+```
+
+* `<description>` — free-form text describing the compatible OS or platform (e.g. `Windows 10, 11`, `Linux x86 (i386, int 0x80 ABI)`).
+* Multiple `#COMPAT` lines are allowed — one per OS family or group.
+* `#COMPAT` directives **must** appear at the top of the file, before any code or data (blank lines and comments are allowed before them).  The translator reports an error if a `#COMPAT` appears after code.
+
+### Translation
+
+The translator converts each `#COMPAT` line into a NASM comment:
+
+| SASM | NASM equivalent |
+|------|-----------------|
+| `#COMPAT Windows 10, 11` | `; COMPAT: Windows 10, 11` |
+| `#COMPAT Linux x86 (i386)` | `; COMPAT: Linux x86 (i386)` |
+
+`#COMPAT` is a **documentation-only** directive — it produces no executable code, just a comment in the assembled output.
+
+### Example
+
+```sasm
+// io.sasm — Windows File I/O Library
+
+#COMPAT Windows 95, 98, ME
+#COMPAT Windows NT 3.1, 3.51, 4.0
+#COMPAT Windows 2000, XP, Vista, 7, 8, 8.1, 10, 11
+#COMPAT Windows XP x64, Vista x64, 7 x64, 8 x64, 8.1 x64, 10 x64, 11 x64 (via WoW64)
+
+section .data
+    ...
+```
+
+*Equivalent NASM output:*
+
+```asm
+; io.sasm — Windows File I/O Library
+
+; COMPAT: Windows 95, 98, ME
+; COMPAT: Windows NT 3.1, 3.51, 4.0
+; COMPAT: Windows 2000, XP, Vista, 7, 8, 8.1, 10, 11
+; COMPAT: Windows XP x64, Vista x64, 7 x64, 8 x64, 8.1 x64, 10 x64, 11 x64 (via WoW64)
+
+section .data
+    ...
+```
 
 ---
 
@@ -1779,6 +2373,8 @@ Complete example source files live in the [`example/`](example/) directory. The 
 | [`example/14_global_static_vars.sasm`](example/14_global_static_vars.sasm) | Global static variables — module-level `var <name> as <type>` and `var <name> as <type> = <val>` |
 | [`example/15_x86_64.sasm`](example/15_x86_64.sasm) | x86-64 (64-bit) — `qword` data types, 64-bit registers, System V and Windows x64 calling conventions, Linux `syscall` |
 | [`example/16_file_imports.sasm`](example/16_file_imports.sasm) | File imports — `#REF <file> <alias>` directives and `@alias.symbol` qualified references |
+| [`example/17_multi_dim_arrays.sasm`](example/17_multi_dim_arrays.sasm) | Multi-dimensional arrays — `data <name> as <type>[d1][d2]...` with row-major indexing |
+| [`example/18_math_library.sasm`](example/18_math_library.sasm) | Math library — `#REF lib/math.sasm math` with `@math.square`, `@math.sqrt_int`, `@math.max`, `@math.min`, `@math.max_array`, `@math.min_array`, `@math.square_float`, `@math.sqrt_float`, `@math.sin_float`, `@math.cos_float`, `@math.max_float`, `@math.min_float`, `@math.max_array_float`, `@math.min_array_float`, `@math.max_array_double`, `@math.min_array_double` |
 
 ### Quick-reference snippets
 
@@ -1846,12 +2442,12 @@ block validate_range {
     goto fail if below
     compare ax with cx
     goto fail if above
-    return                      -- in-range
+    return                      // in-range
 fail:
-    move 0xFFFF to ax           -- sentinel: out of range
+    move 0xFFFF to ax           // sentinel: out of range
 }
 
--- Caller:
+// Caller:
 call validate_range
 ```
 
@@ -1880,9 +2476,9 @@ proc clamp_byte ( in ax as value, out ax as result ) {
     return
 }
 
--- Caller:
+// Caller:
 move 300 to ax
-call clamp_byte         -- result → ax (= 255)
+call clamp_byte         // result → ax (= 255)
 ```
 
 ---
@@ -1899,14 +2495,14 @@ proc print_substring uses stack ( src_ptr, offset, length ) {
     return
 }
 
--- Caller wrapper (block — call-only, closing } emits RET):
+// Caller wrapper (block — call-only, closing } emits RET):
 block call_print_substring {
     push 5 / push 3 / push si
     call print_substring
     add 6 to sp
 }
 
--- Invoke:
+// Invoke:
 call call_print_substring
 ```
 
@@ -1928,11 +2524,11 @@ proc min3 {
     move best to ax
 }
 
--- Caller:
+// Caller:
 move 7  to ax
 move 3  to bx
 move 12 to cx
-call min3               -- ax = 3
+call min3               // ax = 3
 ```
 
 ```sasm
@@ -1946,7 +2542,7 @@ block checksum8 {
         add 2 to si
     }
     move sum to ax
-}                       -- implicit RET (with frame epilogue)
+}                       // implicit RET (with frame epilogue)
 ```
 
 ---
@@ -1959,36 +2555,36 @@ block checksum8 {
 
 ```sasm
 (* Static arrays in the data segment. *)
-data scores  as byte[8]                     -- 8 zero-initialized bytes
-data weights as word  = 10, 20, 30, 40      -- 4 initialized words
+data scores  as byte[8]                     // 8 zero-initialized bytes
+data weights as word  = 10, 20, 30, 40      // 4 initialized words
 data offsets as dword = 0x00000000, 0x00001000, 0x00002000
 
 (* Read the third element (index 2) of the word array 'weights'.
    Word index 2 → byte offset 4 (index × 2). *)
 move 4 to si
-move word [weights + si] to ax              -- ax = 30
+move word [weights + si] to ax              // ax = 30
 
 (* Write 99 into scores[5]. byte index 5 → byte offset 5. *)
 move 5 to bx
-move 99 to byte [scores + bx]              -- scores[5] = 99
+move 99 to byte [scores + bx]              // scores[5] = 99
 ```
 
 ```sasm
 (* Local byte array inside a proc — build a lookup table on the stack. *)
 proc build_squares {
-    var sq as byte[8]               -- 8-byte local array
+    var sq as byte[8]               // 8-byte local array
 
     move 0 to bx
     move 0 to cx
     repeat {
         move cl to al
-        multiply by cl              -- ax = cl × cl
-        move al to byte [sq + bx]  -- sq[bx] = cl²
+        multiply by cl              // ax = cl × cl
+        move al to byte [sq + bx]  // sq[bx] = cl²
         increment bx
         increment cx
         compare cx with 8
     } until equal
-    -- sq[0..7] = 0, 1, 4, 9, 16, 25, 36, 49
+    // sq[0..7] = 0, 1, 4, 9, 16, 25, 36, 49
 }
 
 ---
@@ -2013,8 +2609,8 @@ proc fill_byte ( in si as arr_ptr, in cx as length, in al as fill_val ) {
     return
 }
 
--- Caller — pass address of static array 'scores':
-address of scores to si     -- si = &scores[0]  (LEA SI, scores)
+// Caller — pass address of static array 'scores':
+address of scores to si     // si = &scores[0]  (LEA SI, scores)
 move 8  to cx
 move 0  to al
 call fill_byte
@@ -2029,7 +2625,7 @@ proc get_result_buf ( out si as buf_ptr ) {
     return
 }
 
-call get_result_buf          -- si = &result_buf[0] on return
+call get_result_buf          // si = &result_buf[0] on return
 ```
 
 ---
@@ -2040,25 +2636,25 @@ call get_result_buf          -- si = &result_buf[0] on return
 
 ```sasm
 (* Module-level static scalars. *)
-var counter    as word             -- counter:    DW 0
-var flag       as byte = 1        -- flag:       DB 1
-var base_addr  as dword = 0x1000  -- base_addr:  DD 1000h
+var counter    as word             // counter:    DW 0
+var flag       as byte = 1        // flag:       DB 1
+var base_addr  as dword = 0x1000  // base_addr:  DD 1000h
 
 (* proc that reads and writes global variables. *)
 proc increment_and_get {
-    increment counter             -- counter++
-    move counter to ax            -- return current count in ax
+    increment counter             // counter++
+    move counter to ax            // return current count in ax
 }
 
 proc reset_count {
-    move 0 to counter             -- counter = 0
+    move 0 to counter             // counter = 0
 }
 
--- Caller:
-call increment_and_get            -- ax = 1
-call increment_and_get            -- ax = 2
-call reset_count                  -- counter = 0
-call increment_and_get            -- ax = 1
+// Caller:
+call increment_and_get            // ax = 1
+call increment_and_get            // ax = 2
+call reset_count                  // counter = 0
+call increment_and_get            // ax = 1
 ```
 
 *Equivalent ASM:*
@@ -2086,8 +2682,8 @@ Use 64-bit register names (`rax`, `rdi`, `rsi`, `r8`, …) and the `qword` size 
 
 ```sasm
 (* 64-bit global data. *)
-var tick_count  as qword = 0        -- DQ 0
-data timestamps as qword[4]         -- 4 qwords, zero-initialized
+var tick_count  as qword = 0        // DQ 0
+data timestamps as qword[4]         // 4 qwords, zero-initialized
 
 (* System V AMD64 ABI: add two 64-bit integers; return sum in rax.
    in rdi as a, in rsi as b, out rax as result *)
@@ -2104,14 +2700,14 @@ proc compute {
     add tick_count to rax
 }
 
--- System V AMD64 caller:
+// System V AMD64 caller:
 move 100 to rdi
 move  42 to rsi
-call add64                          -- rax = 142
+call add64                          // rax = 142
 
--- Linux syscall: exit(0)
-move 60 to rax                      -- syscall: sys_exit
-move  0 to rdi                      -- status = 0
+// Linux syscall: exit(0)
+move 60 to rax                      // syscall: sys_exit
+move  0 to rdi                      // status = 0
 syscall
 ```
 

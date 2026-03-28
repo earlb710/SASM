@@ -1,0 +1,177 @@
+// 18_math_library.sasm
+// Example 18 — Math Library (square, sqrt, trig, max, min, array variants)
+//
+// Demonstrates the math standard library.
+//
+// Integer routines:
+//   @math.square       — square EAX (unsigned): EDX:EAX = EAX × EAX
+//   @math.sqrt_int     — integer square root via x87 FPU: EAX = √EAX
+//   @math.max          — max of two signed integers: EAX = max(EAX, EBX)
+//   @math.min          — min of two signed integers: EAX = min(EAX, EBX)
+//   @math.max_array    — max of signed dword array: EAX = max(arr)
+//   @math.min_array    — min of signed dword array: EAX = min(arr)
+//
+// Float/double routines (x87 FPU stack):
+//   @math.square_float      — square ST(0): ST(0) = ST(0) × ST(0)
+//   @math.sqrt_float        — square root ST(0): ST(0) = √ST(0)
+//   @math.sin_float         — sine ST(0): ST(0) = sin(ST(0))  (radians; works with doubles too)
+//   @math.cos_float         — cosine ST(0): ST(0) = cos(ST(0))  (radians; works with doubles too)
+//   @math.max_float         — max of ST(0) and ST(1): ST(0) = max  (works with doubles too)
+//   @math.min_float         — min of ST(0) and ST(1): ST(0) = min  (works with doubles too)
+//   @math.max_array_float   — max of float array → ST(0)
+//   @math.min_array_float   — min of float array → ST(0)
+//   @math.max_array_double  — max of double array → ST(0)
+//   @math.min_array_double  — min of double array → ST(0)
+//
+// Target: 32-bit Linux ELF (int 0x80 for exit).
+//
+// Build (after SASM translation):
+//   nasm -f elf32 18_math_library.asm -o 18_math_library.o
+//   ld -m elf_i386 18_math_library.o -o 18_math_library
+
+#REF lib/math.sasm math
+
+section .data
+
+var input_val as dword = 0
+var squared   as dword = 0
+var root      as dword = 0
+var max_val   as dword = 0
+var min_val   as dword = 0
+var fval      as float = __float32__(5.0)
+var fsquared  as float
+var froot     as float
+var fmax_r    as float
+var fmin_r    as float
+var fa        as float = __float32__(4.0)
+var fb        as float = __float32__(9.5)
+
+data scores as dword = 85, 92, 78, 95, 88
+data temps  as float = __float32__(22.5), __float32__(18.0), __float32__(30.1), __float32__(25.7)
+
+// Double-precision variables and arrays
+var da        as double = __float64__(4.0)
+var db        as double = __float64__(9.5)
+var dmax_r    as double
+var dmin_r    as double
+
+data dtemps as double = __float64__(22.5), __float64__(18.0), __float64__(30.1), __float64__(25.7)
+
+// Trig test values
+var angle_pi2 as float = __float32__(1.5707963)
+var angle_0   as float = __float32__(0.0)
+var sin_r     as float
+var cos_r     as float
+
+section .text
+global _start
+
+_start:
+    // ── Integer: 12² = 144 ──────────────────────────────────────
+    move 12 to eax
+    call @math.square              // eax = 144
+    move eax to dword [squared]
+
+    // ── Integer: √144 = 12 ──────────────────────────────────────
+    call @math.sqrt_int            // eax = 12
+    move eax to dword [root]
+
+    // ── Integer round-trip: √(n²) = n ───────────────────────────
+    move 25 to eax
+    call @math.square              // eax = 625
+    call @math.sqrt_int            // eax = 25
+
+    // ── Integer: max(42, 17) = 42 ───────────────────────────────
+    move 42 to eax
+    move 17 to ebx
+    call @math.max                 // eax = 42
+    move eax to dword [max_val]
+
+    // ── Integer: min(42, 17) = 17 ───────────────────────────────
+    move 42 to eax
+    move 17 to ebx
+    call @math.min                 // eax = 17
+    move eax to dword [min_val]
+
+    // ── Integer: max of array [85,92,78,95,88] = 95 ─────────────
+    move scores to esi
+    move 5 to ecx
+    call @math.max_array           // eax = 95
+
+    // ── Integer: min of array [85,92,78,95,88] = 78 ─────────────
+    move scores to esi
+    move 5 to ecx
+    call @math.min_array           // eax = 78
+
+    // ── Float: 5.0² = 25.0 ─────────────────────────────────────
+    fld dword [fval]               // ST(0) = 5.0
+    call @math.square_float        // ST(0) = 25.0
+    fstp dword [fsquared]          // store result
+
+    // ── Float: √25.0 = 5.0 ─────────────────────────────────────
+    fld dword [fsquared]           // ST(0) = 25.0
+    call @math.sqrt_float          // ST(0) = 5.0
+    fstp dword [froot]             // store result
+
+    // ── Float: sin(π/2) ≈ 1.0 ────────────────────────────────
+    fld dword [angle_pi2]          // ST(0) = π/2
+    call @math.sin_float           // ST(0) = sin(π/2) ≈ 1.0
+    fstp dword [sin_r]
+
+    // ── Float: cos(0) = 1.0 ──────────────────────────────────
+    fld dword [angle_0]            // ST(0) = 0.0
+    call @math.cos_float           // ST(0) = cos(0) = 1.0
+    fstp dword [cos_r]
+
+    // ── Float: max(4.0, 9.5) = 9.5 ─────────────────────────────
+    fld dword [fa]                 // push 4.0
+    fld dword [fb]                 // push 9.5 (ST(0)=9.5, ST(1)=4.0)
+    call @math.max_float           // ST(0) = 9.5
+    fstp dword [fmax_r]
+
+    // ── Float: min(4.0, 9.5) = 4.0 ─────────────────────────────
+    fld dword [fa]                 // push 4.0
+    fld dword [fb]                 // push 9.5 (ST(0)=9.5, ST(1)=4.0)
+    call @math.min_float           // ST(0) = 4.0
+    fstp dword [fmin_r]
+
+    // ── Float: max of array [22.5,18.0,30.1,25.7] = 30.1 ───────
+    move temps to esi
+    move 4 to ecx
+    call @math.max_array_float     // ST(0) = 30.1
+    fstp dword [fmax_r]
+
+    // ── Float: min of array [22.5,18.0,30.1,25.7] = 18.0 ───────
+    move temps to esi
+    move 4 to ecx
+    call @math.min_array_float     // ST(0) = 18.0
+    fstp dword [fmin_r]
+
+    // ── Double: max(4.0, 9.5) = 9.5  (max_float works with doubles) ─
+    fld qword [da]                 // push 4.0 (double)
+    fld qword [db]                 // push 9.5 (double)  (ST(0)=9.5, ST(1)=4.0)
+    call @math.max_float           // ST(0) = 9.5
+    fstp qword [dmax_r]
+
+    // ── Double: min(4.0, 9.5) = 4.0  (min_float works with doubles) ─
+    fld qword [da]                 // push 4.0 (double)
+    fld qword [db]                 // push 9.5 (double)  (ST(0)=9.5, ST(1)=4.0)
+    call @math.min_float           // ST(0) = 4.0
+    fstp qword [dmin_r]
+
+    // ── Double: max of array [22.5,18.0,30.1,25.7] = 30.1 ──────
+    move dtemps to esi
+    move 4 to ecx
+    call @math.max_array_double    // ST(0) = 30.1
+    fstp qword [dmax_r]
+
+    // ── Double: min of array [22.5,18.0,30.1,25.7] = 18.0 ──────
+    move dtemps to esi
+    move 4 to ecx
+    call @math.min_array_double    // ST(0) = 18.0
+    fstp qword [dmin_r]
+
+    // ── Exit with the integer result as exit code ────────────────
+    move eax to ebx                // ebx = last result (exit code)
+    move 1 to eax                  // sys_exit
+    interrupt 0x80
