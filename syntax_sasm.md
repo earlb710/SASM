@@ -26,7 +26,8 @@
 18. [Full Examples](#full-examples)
 
 > **See also:** [`doc/instruction_8086.md`](doc/instruction_8086.md) — comprehensive Intel 8086 instruction set reference with status, operands, and compatibility notes.  
-> **See also:** [`doc/instruction_x86_64.md`](doc/instruction_x86_64.md) — x86-64 (64-bit) instruction set reference: new registers, new instructions, and removed instructions.
+> **See also:** [`doc/instruction_x86_64.md`](doc/instruction_x86_64.md) — x86-64 (64-bit) instruction set reference: new registers, new instructions, and removed instructions.  
+> **See also:** [`doc/standards.md`](doc/standards.md) — coding standards, short-form reference, ambiguity clarifications, and TODO list.
 
 ---
 
@@ -133,6 +134,110 @@ qword [rbx]           // force 64-bit access (x86-64 only)
 | `qword`   | 64-bit | x86-64 only; default in 64-bit mode for GP-register operands |
 
 **RIP-relative addressing** (x86-64): Using `[rip + offset]` generates a PC-relative memory reference. Assemblers and linkers typically encode global variable accesses as `[rip + symbol]` automatically in 64-bit code; in SASM you can name the variable directly and the compiler emits the appropriate RIP-relative encoding.
+
+### Variable Names vs. Bracketed References (Addresses vs. Values)
+
+A variable name used **without** brackets represents its **memory address**
+(pointer), while enclosing the name in square brackets dereferences the pointer
+and accesses the **value stored at that address**:
+
+| Syntax | Meaning | ASM Equivalent |
+|--------|---------|----------------|
+| `result` | The memory address (pointer) of `result` | `result` (label address) |
+| `[result]` | The value stored at address `result` | `[result]` (memory dereference) |
+
+**Rule:** `result` is always the pointer/memory address; `[result]` is always
+the value at that pointer. Brackets are **required** whenever you intend to
+**read or write** the value. Using a bare variable name without brackets in an
+expression assignment is a syntax error.
+
+```sasm
+data val1   as word = 5
+data val2   as word = 10
+data result as word = 0
+
+// CORRECT — brackets dereference each variable to its value:
+[result] = [val1] * [val2] + ax
+// Reads the value at val1, multiplies by the value at val2,
+// adds the contents of ax, and stores the result at the address 'result'.
+
+// ERROR — bare variable names are NOT allowed in expression assignments:
+// result = [val1] * [val2] + ax      ← syntax error: use [result] instead
+```
+
+To obtain a variable's **address** as a value (rather than the stored content), use
+the `address of` instruction (LEA):
+
+```sasm
+address of result to bx          // bx = memory address of 'result'  (LEA bx, [result])
+move word [bx] to ax             // ax = value stored at that address
+```
+
+### Accessing Arrays and Multi-Dimensional Arrays
+
+Array names, like all variable names, resolve to the **address** of the first
+element. Square brackets with a byte-offset register index into the array to
+read or write element values.
+
+**1-D arrays** — the register holds a **byte offset**, not an element index:
+
+| Element type | Element size | Byte offset formula |
+|--------------|-------------|---------------------|
+| `byte`       | 1 byte      | `offset = index` |
+| `word`       | 2 bytes     | `offset = index * 2` |
+| `dword`      | 4 bytes     | `offset = index * 4` |
+| `qword`      | 8 bytes     | `offset = index * 8` |
+
+```sasm
+data scores as byte[8]
+data table  as word[4]
+data coords as dword[4]
+
+// byte array — index equals byte offset
+move byte [scores + bx] to al           // al = scores[bx]
+
+// word array — byte offset = index * 2
+move 4 to si                            // si = 2 * 2 (element index 2)
+move word [table + si] to ax            // ax = table[2]
+
+// dword array — byte offset = index * 4
+move 8 to ebx                           // ebx = 2 * 4 (element index 2)
+move dword [coords + ebx] to eax        // eax = coords[2]
+```
+
+**Multi-dimensional arrays** are stored in **row-major** order (last dimension
+varies fastest, as in C). The programmer computes a flat byte offset:
+
+| Dimensions | Byte offset formula |
+|-----------|---------------------|
+| 2-D `[ROWS][COLS]` | `(row * COLS + col) * element_size` |
+| 3-D `[D1][D2][D3]` | `(i * D2 * D3 + j * D3 + k) * element_size` |
+
+```sasm
+data screen as byte[25][80]              // 25 rows * 80 cols
+
+// Access screen[12][40]:
+// byte offset = (12 * 80 + 40) * 1 = 1000
+move 1000 to bx
+move 0x41 to byte [screen + bx]          // screen[12][40] = 'A'
+move byte [screen + bx] to al            // al = screen[12][40]
+
+data matrix as dword[4][4]               // 4*4 dword matrix
+
+// Access matrix[2][3]:
+// byte offset = (2 * 4 + 3) * 4 = 44
+move 44 to ebx
+move dword [matrix + ebx] to eax         // eax = matrix[2][3]
+
+data cube as dword[2][3][4]              // 2*3*4 dword 3-D array
+
+// Access cube[1][2][3]:
+// byte offset = (1*3*4 + 2*4 + 3) * 4 = (12+8+3)*4 = 92
+move 92 to ebx
+move dword [cube + ebx] to eax           // eax = cube[1][2][3]
+```
+
+See [Static Data Arrays](#static-data-arrays) and [Local Array Variables](#local-array-variables) for full declaration syntax and stack layout details.
 
 ---
 
@@ -620,7 +725,7 @@ proc <name> uses stack ( <p1>, <p2>, ... ) {
 
 * Arguments are pushed **right-to-left** by the caller before `call`.
 * The SASM compiler emits a standard prologue (`PUSH BP` / `MOV BP, SP`) and resolves each parameter name to its `[bp+N]` address automatically.
-* The caller is responsible for restoring `sp` after the call (C convention): `add <2 × arg-count> to sp`.
+* The caller is responsible for restoring `sp` after the call (C convention): `add <2 * arg-count> to sp`.
 * If the callee should clean the stack instead, append the byte count to `return`: `return 6` (emits `RETN 6`).
 
 **Stack layout (16-bit near call, three parameters):**
@@ -661,7 +766,7 @@ push 5                  // length  (last arg pushed first on stack)
 push 3                  // offset
 push si                 // src_ptr
 call print_substring
-add 6 to sp             // caller pops 3 × 2-byte args
+add 6 to sp             // caller pops 3 * 2-byte args
 ```
 
 ---
@@ -897,7 +1002,7 @@ push cx                                 // length = 4
 address of table to si
 push si                                 // arr_ptr = &table[0]
 call sum_words                          // ax = 10+20+30+40 = 100
-add 4 to sp                             // caller cleans 2 × 2-byte args
+add 4 to sp                             // caller cleans 2 * 2-byte args
 ```
 
 #### Returning an array pointer
@@ -1277,9 +1382,9 @@ coords: TIMES  4 DD 0
 **Multi-dimensional zero-initialized arrays:**
 
 ```sasm
-data screen as byte[25][80]    // 25 rows × 80 cols = 2000 bytes, all zero
-data board  as byte[3][3]      // 3×3 = 9 bytes
-data cube   as dword[2][3][4]  // 2×3×4 = 24 dwords
+data screen as byte[25][80]    // 25 rows * 80 cols = 2000 bytes, all zero
+data board  as byte[3][3]      // 3*3 = 9 bytes
+data cube   as dword[2][3][4]  // 2*3*4 = 24 dwords
 ```
 
 *Equivalent ASM (NASM):*
@@ -1331,8 +1436,8 @@ constant values:
 ```sasm
 data weights as float  = __float32__(1.0), __float32__(0.5), __float32__(0.25)
 data precise as double = __float64__(3.14159265358979), __float64__(2.71828182845905)
-data zeroed  as float[8]                    // 8 × 4 bytes, all zero
-data grid    as double[3][3]                // 3×3 = 9 doubles, all zero
+data zeroed  as float[8]                    // 8 * 4 bytes, all zero
+data grid    as double[3][3]                // 3*3 = 9 doubles, all zero
 ```
 
 *Equivalent ASM:*
@@ -1366,11 +1471,11 @@ Array names resolve to their data-segment address. Use the standard memory-refer
 move byte [primes + bx] to al        // al = primes[bx]
 move 0x99 to byte [primes + bx]      // primes[bx] = 0x99
 
-// word array — si holds the byte offset (element index × 2)
+// word array — si holds the byte offset (element index * 2)
 move word [lookup + si] to ax        // ax = lookup[si/2]
 move ax to word [lookup + si]        // lookup[si/2] = ax
 
-// dword array — ebx holds the byte offset (element index × 4)
+// dword array — ebx holds the byte offset (element index * 4)
 move dword [coords + ebx] to eax     // eax = coords[ebx/4]
 move eax to dword [coords + ebx]     // coords[ebx/4] = eax
 ```
@@ -1380,7 +1485,7 @@ move eax to dword [coords + ebx]     // coords[ebx/4] = eax
 * `data` declarations must appear **outside** any `proc` or `block` body — they are segment-level directives emitted into the data segment.
 * An array may use either the bracketed count form (zero-initialized) or the `= <list>` form (initialized), but not both on the same line.
 * Multiple bracket pairs (e.g. `[3][4]`) declare a multi-dimensional array; the total element count is the product of all dimensions. Storage is a flat, contiguous block — the programmer computes byte offsets manually.
-* When indexing word arrays, the register holds a **byte offset** (`index × 2`); for dword arrays the register holds `index × 4`.
+* When indexing word arrays, the register holds a **byte offset** (`index * 2`); for dword arrays the register holds `index * 4`.
 * For a 2-D array with `COLS` columns, the byte offset of element `[row][col]` is `(row * COLS + col) * element_size`.
 
 ---
@@ -1394,8 +1499,8 @@ A `var` declaration with a bracketed element count reserves a named, stack-alloc
 ```sasm
 proc <name> {
     var <name> as byte[<count>]          // <count> bytes reserved on the stack
-    var <name> as word[<count>]          // 2 × <count> bytes reserved on the stack
-    var <name> as dword[<count>]         // 4 × <count> bytes reserved on the stack
+    var <name> as word[<count>]          // 2 * <count> bytes reserved on the stack
+    var <name> as dword[<count>]         // 4 * <count> bytes reserved on the stack
     var <name> as byte[<d1>][<d2>]...    // multi-dimensional (product of dims)
     <body>
 }
@@ -1520,7 +1625,7 @@ reverse_bytes:
 | `decrement <dst>` | `DEC dst` | `dst = dst - 1` (CF unchanged) |
 | `dec <dst>` | `DEC dst` | Short form of `decrement` |
 | `--<dst>` / `<dst>--` | `DEC dst` | Prefix / postfix decrement |
-| `multiply by <src>` | `MUL src` | Unsigned: `AX = AL × src` (byte) or `DX:AX = AX × src` (word) |
+| `multiply by <src>` | `MUL src` | Unsigned: `AX = AL * src` (byte) or `DX:AX = AX * src` (word) |
 | `signed multiply by <src>` | `IMUL src` | Signed multiply (same register layout as `MUL`) |
 | `divide by <src>` | `DIV src` | Unsigned: `AL = AX ÷ src`, `AH = remainder` |
 | `signed divide by <src>` | `IDIV src` | Signed divide (same layout as `DIV`) |
@@ -1646,8 +1751,6 @@ produces one assembly instruction:
 | `ax = [myVar] + 5` | `MOV ax, [myVar]` / `ADD ax, 5` | Variable (memory) as operand |
 | `[counter] = [counter] + 1` | `ADD [counter], 1` | Variable as both destination and operand |
 | `ax = [buf + si] && 0xFF` | `MOV ax, [buf + si]` / `AND ax, 0xFF` | Indexed memory with bitwise AND |
-| `ax = myVar + 5` | `MOV ax, [myVar]` / `ADD ax, 5` | Bare variable name (auto-wrapped) |
-| `result = ax` | `MOV [result], ax` | Bare variable destination (auto-wrapped) |
 
 #### Inline `++`/`--` in Expressions
 
@@ -1671,25 +1774,25 @@ cx = ++bx               // INC bx; MOV cx, bx (increment, then copy)
 | `cx = ax * ++bx` | `INC bx` / `MOV cx, ax` / `IMUL cx, bx` | Pre-increment: INC before expression |
 | `cx = ax + bx--` | `MOV cx, ax` / `ADD cx, bx` / `DEC bx` | Post-decrement: DEC after expression |
 | `cx = ax + --bx` | `DEC bx` / `MOV cx, ax` / `ADD cx, bx` | Pre-decrement: DEC before expression |
-| `ax = counter++ + 5` | `MOV ax, [counter]` / `ADD ax, 5` / `INC [counter]` | Variable with post-increment |
-| `ax = ++counter + 5` | `INC [counter]` / `MOV ax, [counter]` / `ADD ax, 5` | Variable with pre-increment |
+| `ax = [counter]++ + 5` | `MOV ax, [counter]` / `ADD ax, 5` / `INC [counter]` | Variable with post-increment |
+| `ax = ++[counter] + 5` | `INC [counter]` / `MOV ax, [counter]` / `ADD ax, 5` | Variable with pre-increment |
 
 Operands may be registers, immediates, or memory references (variables).
-When a variable defined with `var` is used in an expression, you can wrap it in
-square brackets (e.g. `[myVar]`) to access its value, or use the bare variable
-name directly — the translator automatically wraps known variable names in
-brackets:
+Variables must be enclosed in square brackets (e.g. `[myVar]`) to access
+their value — bare variable names are not permitted in expression
+assignments:
 
 ```sasm
-var total word = 0
-var count word = 10
+var total as word = 0
+var count as word = 10
 
-// The following pairs are equivalent:
+// CORRECT — brackets required for variable access:
 ax = [total] + [count]      // explicit brackets
-ax = total + count           // bare names (auto-wrapped)
-
 [total] = ax                 // explicit bracket destination
-total = ax                   // bare name destination (auto-wrapped)
+
+// ERROR — bare variable names are NOT allowed:
+// ax = total + count        ← syntax error: use [total] + [count]
+// total = ax                ← syntax error: use [total]
 ```
 
 The `+` and `-` characters inside square brackets (e.g. `[buffer + bx]`) are
@@ -2109,7 +2212,7 @@ The following instructions are **not valid** in x86-64 long mode. Using them rai
 ```sasm
 (* 64-bit counters and a qword array. *)
 var tick_count as qword = 0           // DQ 0
-data timestamps as qword[4]           // 4 × 8 bytes, zero-initialized
+data timestamps as qword[4]           // 4 * 8 bytes, zero-initialized
 
 proc record_tick {
     increment tick_count              // INC QWORD [tick_count]
@@ -2560,7 +2663,7 @@ data weights as word  = 10, 20, 30, 40      // 4 initialized words
 data offsets as dword = 0x00000000, 0x00001000, 0x00002000
 
 (* Read the third element (index 2) of the word array 'weights'.
-   Word index 2 → byte offset 4 (index × 2). *)
+   Word index 2 → byte offset 4 (index * 2). *)
 move 4 to si
 move word [weights + si] to ax              // ax = 30
 
@@ -2578,7 +2681,7 @@ proc build_squares {
     move 0 to cx
     repeat {
         move cl to al
-        multiply by cl              // ax = cl × cl
+        multiply by cl              // ax = cl * cl
         move al to byte [sq + bx]  // sq[bx] = cl²
         increment bx
         increment cx

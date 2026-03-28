@@ -50,9 +50,9 @@ explicitly marked optional.
 │                   112 bytes PE32+)           │
 │     ├─ Standard fields                       │
 │     ├─ Windows-specific fields               │
-│     └─ Data Directory array (16 × 8 bytes)   │
+│     └─ Data Directory array (16 * 8 bytes)   │
 ├──────────────────────────────────────────────┤
-│  Section Table  (N × 40 bytes)               │
+│  Section Table  (N * 40 bytes)               │
 ├──────────────────────────────────────────────┤
 │  Raw section data (.text, .data, .rdata …)   │
 └──────────────────────────────────────────────┘
@@ -352,7 +352,7 @@ global start
 extern ExitProcess, GetStdHandle, WriteConsoleA
 
 start:
-    sub   rsp, 40          ; shadow space (4 × 8) + alignment padding
+    sub   rsp, 40          ; shadow space (4 * 8) + alignment padding
     mov   ecx, -11         ; STD_OUTPUT_HANDLE
     call  GetStdHandle
     ; ... WriteConsoleA(hOut, msg, 15, NULL, NULL) ...
@@ -456,8 +456,8 @@ Microsoft's own linker for small executables), the key structures sit at:
 | PE signature | `0x0080` (`e_lfanew`) | 4 bytes |
 | COFF File Header | `0x0084` | 20 bytes |
 | Optional Header | `0x0098` | 224 (PE32) or 240 (PE32+) bytes |
-| Data Directories | inside Optional Header | 16 × 8 = 128 bytes |
-| Section Table | `0x0178` (PE32) or `0x0188` (PE32+) | `N × 40` bytes |
+| Data Directories | inside Optional Header | 16 * 8 = 128 bytes |
+| Section Table | `0x0178` (PE32) or `0x0188` (PE32+) | `N * 40` bytes |
 | First section raw data | rounded up to `FileAlignment` from end of Section Table | variable |
 
 Actual offsets vary by linker; the offsets above assume standard Microsoft defaults and are

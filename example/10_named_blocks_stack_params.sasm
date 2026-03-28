@@ -57,7 +57,7 @@ block call_print_substring {
     push 3                   // offset  = 3  (zero-based)
     push si                  // src_ptr = address already in si
     call print_substring
-    add 6 to sp              // caller cleans 3 × 2-byte args
+    add 6 to sp              // caller cleans 3 * 2-byte args
 }                            // implicit RET
 
 // Invoke the wrapper block:

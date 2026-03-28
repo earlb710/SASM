@@ -229,8 +229,8 @@ The modern, faster hash table used by virtually all Linux shared libraries.  Poi
 | Component | Description |
 |-----------|-------------|
 | Header | `nbuckets`, `symoffset`, `bloom_size`, `bloom_shift` |
-| Bloom filter | Array of `bloom_size` × 8-byte words; enables fast "definitely not in table" checks |
-| Buckets | `nbuckets` × 4-byte entries; each bucket is an index into the sorted symbol chain |
+| Bloom filter | Array of `bloom_size` * 8-byte words; enables fast "definitely not in table" checks |
+| Buckets | `nbuckets` * 4-byte entries; each bucket is an index into the sorted symbol chain |
 | Chains | One 4-byte hash value per symbol (starting from `symoffset`); bit 0 marks the end of a chain |
 
 ### SysV Hash Table (.hash)
@@ -650,27 +650,27 @@ For a typical 64-bit shared library on x86-64 Linux:
 | Structure | File offset | Size |
 |-----------|-------------|------|
 | ELF Header | `0x0000` | 64 bytes |
-| Program Header Table | `0x0040` (immediately after ELF header) | `e_phnum × 56` bytes |
+| Program Header Table | `0x0040` (immediately after ELF header) | `e_phnum * 56` bytes |
 | `.gnu.hash` | 8-byte aligned | variable |
-| `.dynsym` | 8-byte aligned | `N × 24` bytes (N = number of dynamic symbols) |
+| `.dynsym` | 8-byte aligned | `N * 24` bytes (N = number of dynamic symbols) |
 | `.dynstr` | 1-byte aligned | variable |
-| `.gnu.version` | 2-byte aligned | `N × 2` bytes |
+| `.gnu.version` | 2-byte aligned | `N * 2` bytes |
 | `.gnu.version_r` | 4-byte aligned | variable |
-| `.rela.dyn` | 8-byte aligned | `N × 24` bytes |
-| `.rela.plt` | 8-byte aligned | `N × 24` bytes |
-| `.plt` | 16-byte aligned | `(1 + N) × 16` bytes |
+| `.rela.dyn` | 8-byte aligned | `N * 24` bytes |
+| `.rela.plt` | 8-byte aligned | `N * 24` bytes |
+| `.plt` | 16-byte aligned | `(1 + N) * 16` bytes |
 | `.text` | 16-byte aligned | variable |
 | `.rodata` | varies | variable |
 | `.eh_frame_hdr` | 4-byte aligned | variable |
 | `.eh_frame` | 8-byte aligned | variable |
 | — (second PT_LOAD boundary) | page-aligned | — |
-| `.init_array` / `.fini_array` | 8-byte aligned | `N × 8` bytes |
-| `.dynamic` | 8-byte aligned | `N × 16` bytes |
+| `.init_array` / `.fini_array` | 8-byte aligned | `N * 8` bytes |
+| `.dynamic` | 8-byte aligned | `N * 16` bytes |
 | `.got` | 8-byte aligned | variable |
-| `.got.plt` | 8-byte aligned | `(3 + N) × 8` bytes |
+| `.got.plt` | 8-byte aligned | `(3 + N) * 8` bytes |
 | `.data` | varies | variable |
 | `.bss` | varies | variable (no file space) |
-| Section Header Table | end of file | `e_shnum × 64` bytes |
+| Section Header Table | end of file | `e_shnum * 64` bytes |
 
 Actual offsets vary by linker and link flags; the table above reflects the default output of
 `ld -shared` for a small x86-64 Linux shared library.

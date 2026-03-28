@@ -8,7 +8,7 @@
 //     #REF lib/math.sasm math
 //
 // Integer routines:
-//     call @math.square          // EAX = EAX × EAX (unsigned)
+//     call @math.square          // EAX = EAX * EAX (unsigned)
 //     call @math.sqrt_int        // EAX = integer √EAX
 //     call @math.max             // EAX = max(EAX, EBX) signed
 //     call @math.min             // EAX = min(EAX, EBX) signed
@@ -16,7 +16,7 @@
 //     call @math.min_array       // EAX = min of dword array (ESI=ptr, ECX=count)
 //
 // Float/double routines (x87 FPU stack):
-//     call @math.square_float    // ST(0) = ST(0) × ST(0)
+//     call @math.square_float    // ST(0) = ST(0) * ST(0)
 //     call @math.sqrt_float      // ST(0) = √ST(0)
 //     call @math.sin_float       // ST(0) = sin(ST(0))  (radians)
 //     call @math.cos_float       // ST(0) = cos(ST(0))  (radians)
@@ -39,15 +39,15 @@ section .text
 // Computes the unsigned integer square of EAX.
 //
 // Input:  EAX = value to square (unsigned 32-bit)
-// Output: EAX = low 32 bits of value × value
-//         EDX = high 32 bits of value × value
+// Output: EAX = low 32 bits of value * value
+//         EDX = high 32 bits of value * value
 // Clobbers: EDX
 //
 // Example:
 //   move 7 to eax
 //   call @math.square      // eax = 49, edx = 0
 proc square ( in eax as value, out eax as result ) {
-    multiply by eax            // MUL EAX → EDX:EAX = EAX × EAX
+    multiply by eax            // MUL EAX → EDX:EAX = EAX * EAX
     return
 }
 
@@ -188,7 +188,7 @@ proc min_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
 // Computes the floating-point square of ST(0).
 //
 // Input:  ST(0) = value to square (IEEE 754 single or double)
-// Output: ST(0) = value × value
+// Output: ST(0) = value * value
 // Clobbers: none (result replaces input on FPU stack)
 //
 // Example (float):
@@ -202,7 +202,7 @@ proc min_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
 //   fstp qword [dresult]
 // overload: proc square_float ( in double value, out double result )
 proc square_float ( in float value, out float result ) {
-    fmul st0, st0              // ST(0) = ST(0) × ST(0)
+    fmul st0, st0              // ST(0) = ST(0) * ST(0)
     return
 }
 

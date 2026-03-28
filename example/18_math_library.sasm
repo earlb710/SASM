@@ -4,7 +4,7 @@
 // Demonstrates the math standard library.
 //
 // Integer routines:
-//   @math.square       — square EAX (unsigned): EDX:EAX = EAX × EAX
+//   @math.square       — square EAX (unsigned): EDX:EAX = EAX * EAX
 //   @math.sqrt_int     — integer square root via x87 FPU: EAX = √EAX
 //   @math.max          — max of two signed integers: EAX = max(EAX, EBX)
 //   @math.min          — min of two signed integers: EAX = min(EAX, EBX)
@@ -12,7 +12,7 @@
 //   @math.min_array    — min of signed dword array: EAX = min(arr)
 //
 // Float/double routines (x87 FPU stack):
-//   @math.square_float      — square ST(0): ST(0) = ST(0) × ST(0)
+//   @math.square_float      — square ST(0): ST(0) = ST(0) * ST(0)
 //   @math.sqrt_float        — square root ST(0): ST(0) = √ST(0)
 //   @math.sin_float         — sine ST(0): ST(0) = sin(ST(0))  (radians; works with doubles too)
 //   @math.cos_float         — cosine ST(0): ST(0) = cos(ST(0))  (radians; works with doubles too)

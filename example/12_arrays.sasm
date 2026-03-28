@@ -12,8 +12,8 @@
 //
 // Array element access uses the standard memory-reference syntax:
 //   byte  [name + reg]    -- reg = byte offset  (element index for byte arrays)
-//   word  [name + reg]    -- reg = byte offset  (element index × 2 for word arrays)
-//   dword [name + reg]    -- reg = byte offset  (element index × 4 for dword arrays)
+//   word  [name + reg]    -- reg = byte offset  (element index * 2 for word arrays)
+//   dword [name + reg]    -- reg = byte offset  (element index * 4 for dword arrays)
 //
 // Supported types:
 //   byte  — 1 byte  per element  (ASM: DB)
@@ -39,20 +39,20 @@ data masks   as dword = 0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000
 (* //-------------------------------------------------------------
    Part 2: Reading and writing static array elements
 
-   Read weights[2]  (word index 2 → byte offset 4 = index × 2).
+   Read weights[2]  (word index 2 → byte offset 4 = index * 2).
    Write 99 into scores[5]  (byte index 5 → byte offset 5).
    //------------------------------------------------------------- *)
 
 // Read weights[2] into ax:
-move 4 to si                                      // byte offset = index × 2 = 2 × 2
+move 4 to si                                      // byte offset = index * 2 = 2 * 2
 move word [weights + si] to ax                    // ax = 30
 
 // Write 99 into scores[5]:
 move 5 to bx                                      // byte index 5 (byte offset = 5)
 move 99 to byte [scores + bx]                     // scores[5] = 99
 
-// Read masks[1] (dword index 1 → byte offset 4 = index × 4):
-move 4 to ebx                                     // byte offset = index × 4 = 1 × 4
+// Read masks[1] (dword index 1 → byte offset 4 = index * 4):
+move 4 to ebx                                     // byte offset = index * 4 = 1 * 4
 move dword [masks + ebx] to eax                   // eax = 0x0000FF00
 
 
@@ -123,12 +123,12 @@ proc get_even uses stack ( idx ) {
         move cx to word [evens + si]              // evens[si/2] = cx
         add 2 to si
         add 2 to cx
-        compare si with 8                         // 4 words × 2 bytes = 8 bytes total
+        compare si with 8                         // 4 words * 2 bytes = 8 bytes total
     } until equal
 
     (* Return evens[idx] in ax. *)
     move idx to ax                                // ax = idx
-    add ax to ax                                  // ax = idx × 2  (byte offset)
+    add ax to ax                                  // ax = idx * 2  (byte offset)
     move ax to si
     move word [evens + si] to ax                  // ax = evens[idx]
 }

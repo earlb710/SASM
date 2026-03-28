@@ -44,7 +44,7 @@ Both tables point into the same raw file data.
 │  ELF Header  (52 bytes ELF32 / 64 bytes ELF64) │
 ├────────────────────────────────────────────────┤
 │  Program Header Table  (runtime loader input)  │
-│  [PT_PHDR, PT_INTERP, PT_LOAD×N, PT_DYNAMIC,   │
+│  [PT_PHDR, PT_INTERP, PT_LOAD*N, PT_DYNAMIC,   │
 │   PT_NOTE, PT_GNU_STACK, PT_GNU_RELRO …]        │
 ├────────────────────────────────────────────────┤
 │  Raw section data                              │
@@ -529,28 +529,28 @@ For a typical 64-bit dynamically linked binary on x86-64 Linux:
 | Structure | File offset | Size |
 |-----------|-------------|------|
 | ELF Header | `0x0000` | 64 bytes |
-| Program Header Table | `0x0040` (immediately after ELF header) | `e_phnum × 56` bytes |
+| Program Header Table | `0x0040` (immediately after ELF header) | `e_phnum * 56` bytes |
 | `.interp` | after PHT, 1-byte aligned | ~30 bytes |
 | `.note.ABI-tag` | 4-byte aligned | ~32 bytes |
 | `.note.gnu.build-id` | 4-byte aligned | ~36 bytes |
 | `.gnu.hash` | 8-byte aligned | variable |
-| `.dynsym` | 8-byte aligned | `N × 24` bytes |
+| `.dynsym` | 8-byte aligned | `N * 24` bytes |
 | `.dynstr` | 1-byte aligned | variable |
-| `.rela.dyn` | 8-byte aligned | `N × 24` bytes |
-| `.rela.plt` | 8-byte aligned | `N × 24` bytes |
-| `.plt` | 16-byte aligned | `(1 + N) × 16` bytes |
+| `.rela.dyn` | 8-byte aligned | `N * 24` bytes |
+| `.rela.plt` | 8-byte aligned | `N * 24` bytes |
+| `.plt` | 16-byte aligned | `(1 + N) * 16` bytes |
 | `.text` | 16-byte aligned | variable |
 | `.rodata` | page-aligned | variable |
 | `.eh_frame_hdr` | 4-byte aligned | variable |
 | `.eh_frame` | 8-byte aligned | variable |
 | — (second PT_LOAD boundary) | page-aligned | — |
-| `.init_array` / `.fini_array` | 8-byte aligned | `N × 8` bytes |
-| `.dynamic` | 8-byte aligned | `N × 16` bytes |
+| `.init_array` / `.fini_array` | 8-byte aligned | `N * 8` bytes |
+| `.dynamic` | 8-byte aligned | `N * 16` bytes |
 | `.got` | 8-byte aligned | variable |
-| `.got.plt` | 8-byte aligned | `(3 + N) × 8` bytes |
+| `.got.plt` | 8-byte aligned | `(3 + N) * 8` bytes |
 | `.data` | page-aligned | variable |
 | `.bss` | page-aligned | variable (no file space) |
-| Section Header Table | end of file (after all section data) | `e_shnum × 64` bytes |
+| Section Header Table | end of file (after all section data) | `e_shnum * 64` bytes |
 
 Actual offsets vary by linker and link flags; the table above reflects the default output of
 `gcc`/`ld` for a small x86-64 Linux program.

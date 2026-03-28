@@ -76,7 +76,7 @@ proc process_local_buf {
     (* Pass buf to a callee that reads it. *)
     address of buf to si
     move 16 to cx
-    call sum_bytes                                // ax = 16 × 0xFF = 0x0FF0
+    call sum_bytes                                // ax = 16 * 0xFF = 0x0FF0
 }
 
 // Caller:
@@ -123,7 +123,7 @@ proc scale_words ( in out si as arr_ptr, in cx as length, in bx as scalar ) {
     move 0 to di                                  // di = byte offset (step 2 per word)
     repeat cx times {
         move word [arr_ptr + di] to ax
-        multiply by scalar                        // dx:ax = ax × scalar (unsigned)
+        multiply by scalar                        // dx:ax = ax * scalar (unsigned)
         move ax to word [arr_ptr + di]            // store low 16 bits
         add 2 to di
     }
@@ -167,7 +167,7 @@ push cx                                           // length = 4  (first push)
 address of table to si
 push si                                           // arr_ptr = &table[0]
 call sum_words                                    // ax = 20+40+60+80 = 200
-add 4 to sp                                       // caller cleans 2 × 2-byte args
+add 4 to sp                                       // caller cleans 2 * 2-byte args
 
 
 (* //-------------------------------------------------------------

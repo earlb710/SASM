@@ -66,8 +66,8 @@ These instructions perform integer arithmetic operations, updating the FLAGS reg
 | `SBB` | dst, src | Subtracts src and the Carry Flag from dst. Used for multi-precision subtraction. | 8086 | ✅ Still in use |
 | `INC` | dst | Increments dst by 1. Does not affect CF. | 8086 | ✅ Still in use |
 | `DEC` | dst | Decrements dst by 1. Does not affect CF. | 8086 | ✅ Still in use |
-| `MUL` | src | Unsigned multiply: AX = AL × src (byte) or DX:AX = AX × src (word). | 8086 | ✅ Still in use |
-| `IMUL` | src | Signed multiply. In the 8086, AX = AL × src or DX:AX = AX × src. Later processors added two- and three-operand forms. | 8086 | ✅ Still in use |
+| `MUL` | src | Unsigned multiply: AX = AL * src (byte) or DX:AX = AX * src (word). | 8086 | ✅ Still in use |
+| `IMUL` | src | Signed multiply. In the 8086, AX = AL * src or DX:AX = AX * src. Later processors added two- and three-operand forms. | 8086 | ✅ Still in use |
 | `DIV` | src | Unsigned divide: AL = AX ÷ src, AH = remainder (byte); or AX = DX:AX ÷ src, DX = remainder (word). | 8086 | ✅ Still in use |
 | `IDIV` | src | Signed divide; same structure as DIV but for signed integers. | 8086 | ✅ Still in use |
 | `NEG` | dst | Negates dst (two's complement: dst = 0 − dst). | 8086 | ✅ Still in use |
