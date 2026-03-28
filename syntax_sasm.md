@@ -146,6 +146,16 @@ proc <name> {
 }
 ```
 
+An `inline` variant expands the body at each call site (no `CALL`/`RET` overhead):
+
+```sasm
+inline proc <name> {
+    <body>
+}
+```
+
+See [Inline Procedures](#inline-procedures) for details.
+
 ### Named Blocks
 
 ```sasm
@@ -722,6 +732,63 @@ A given procedure name may be declared with *any* of the three parameter styles:
 | Self-documenting | ⚠️ Must know register conventions | ✅ Named params | ✅ Typed + named params |
 
 For typical 8086 subroutines pass ≤ 4 values — **prefer register-based parameters**. For library procedures that may be called from C, or for procedures with many arguments — **prefer stack-based parameters**. For self-documenting library APIs where parameter types clarify the interface — **prefer typed parameters**.
+
+---
+
+### Inline Procedures
+
+The `inline` attribute on a `proc` declaration causes the procedure body to be **expanded at each call site** instead of generating a `CALL`/`RET` pair.  This eliminates the overhead of a function call for small, frequently-used utility routines.
+
+**Syntax:**
+
+```sasm
+inline proc <name> ( <params> ) {
+    <body>
+    return
+}
+```
+
+**Behaviour:**
+
+* The `inline proc` body is **not** emitted as a standalone label in the generated assembly.
+* When `call <name>` is encountered, the translator inserts the body directly at the call site.
+* `return` statements inside the inline body are **suppressed** (no `RET` emitted) — execution flows into the code after the call site.
+* The parameter list (if present) is emitted as a NASM comment for documentation.
+* Multiple calls to the same inline proc expand independently.
+
+**Example:**
+
+```sasm
+// Define a small inline helper
+inline proc double_eax ( in eax as value, out eax as result ) {
+    eax = eax + eax
+    return
+}
+
+// Use it — body is expanded here, no CALL overhead
+move 7 to eax
+call double_eax        // eax = 14 (expanded inline: ADD eax, eax)
+```
+
+*Equivalent NASM output (no label, no CALL, no RET):*
+
+```asm
+    MOV eax, 7
+    ; -- inline double_eax --
+    ADD eax, eax
+```
+
+**When to use:**
+
+| Criterion     | Regular `proc`        | `inline proc`          |
+|---------------|-----------------------|------------------------|
+| Body size     | Any                   | Small (1–5 lines)      |
+| Call frequency| Any                   | Frequent hot paths     |
+| Code size     | Single copy           | Duplicated at each site|
+| Call overhead | `CALL`/`RET` pair     | None                   |
+| Labels        | Emits label           | No label emitted       |
+
+**Note:** Inline procedures that contain local labels (e.g., `.done:`) should be called only once, or use unique label names, to avoid duplicate labels in the generated assembly.
 
 ---
 
