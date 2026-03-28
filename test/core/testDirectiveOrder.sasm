@@ -12,7 +12,7 @@
 section .data
 
 var msg as byte[6]
-data msg_bytes as byte = 'H','e','l','l','o',0
+data msg_bytes as byte = "Hello", 0
 
 section .text
 global _start

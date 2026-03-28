@@ -22,11 +22,11 @@
 section .data
 
 var hello_msg as byte[14]
-data hello_bytes as byte = 'H','e','l','l','o',' ','W','o','r','l','d','!',13,10
+data hello_bytes as byte = "Hello World!\r\n"
 var file_path as byte[11]
-data path_bytes as byte = 't','e','s','t','.','t','x','t',0
+data path_bytes as byte = "test.txt", 0
 var write_data as byte[6]
-data write_bytes as byte = 'S','A','S','M',13,10
+data write_bytes as byte = "SASM\r\n"
 var read_buf as byte[256]
 var file_handle as dword = 0
 

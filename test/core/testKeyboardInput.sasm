@@ -21,13 +21,13 @@
 section .data
 
 var prompt_char as byte[18]
-data prompt_char_bytes as byte = 'T','y','p','e',' ','a',' ','c','h','a','r',':',' ',0
+data prompt_char_bytes as byte = "Type a char: ", 0
 var prompt_line as byte[22]
-data prompt_line_bytes as byte = 'T','y','p','e',' ','a',' ','l','i','n','e',':',' ',0
+data prompt_line_bytes as byte = "Type a line: ", 0
 var newline as byte[2]
 data newline_bytes as byte = 10, 0
 var echo_prefix as byte[12]
-data echo_prefix_bytes as byte = 'Y','o','u',' ','t','y','p','e','d',':',' ',0
+data echo_prefix_bytes as byte = "You typed: ", 0
 var input_buf as byte[80]
 
 section .text

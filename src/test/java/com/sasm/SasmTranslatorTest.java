@@ -576,4 +576,40 @@ class SasmTranslatorTest {
                 SasmTranslator.expandStringLiterals("'x','y','z'"),
                 "single-quoted chars should be unchanged");
     }
+
+    @Test
+    void stringAndByteArray_produceIdenticalOutput() {
+        SasmTranslator t1 = new SasmTranslator();
+        String srcString = String.join("\n",
+                "section .data",
+                "data msg as byte = \"abcde\"");
+        String asmString = t1.translate(srcString);
+
+        SasmTranslator t2 = new SasmTranslator();
+        String srcArray = String.join("\n",
+                "section .data",
+                "data msg as byte = 'a','b','c','d','e'");
+        String asmArray = t2.translate(srcArray);
+
+        assertEquals(asmArray, asmString,
+                "string \"abcde\" should produce identical output to byte array 'a','b','c','d','e'");
+    }
+
+    @Test
+    void stringWithNullAndByteArray_produceIdenticalOutput() {
+        SasmTranslator t1 = new SasmTranslator();
+        String srcString = String.join("\n",
+                "section .data",
+                "data msg as byte = \"Hello\", 0");
+        String asmString = t1.translate(srcString);
+
+        SasmTranslator t2 = new SasmTranslator();
+        String srcArray = String.join("\n",
+                "section .data",
+                "data msg as byte = 'H','e','l','l','o', 0");
+        String asmArray = t2.translate(srcArray);
+
+        assertEquals(asmArray, asmString,
+                "string \"Hello\", 0 should produce identical output to byte array 'H','e','l','l','o', 0");
+    }
 }
