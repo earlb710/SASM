@@ -1123,7 +1123,7 @@ CMP  [counter], [max_count]
 * Module-level `var` declarations must appear **outside** any `proc` or `block` body — they are emitted as data-segment labels.
 * A module-level `var` declaration may appear before or after the `proc`/`block` definitions that use it; the assembler resolves names in a single pass.
 * The same `var` keyword inside a `proc` or `block` body declares a **stack-local** variable instead (see [Local Variables](#local-variables)).
-* The `= <value>` initializer must be a single integer literal (decimal, `0x` hex, `0b` binary, or character literal), or a NASM floating-point macro (`__float32__()` / `__float64__()`) for `float` / `double` types. For multi-element initialized storage, use `data` (see [Static Data Arrays](#static-data-arrays) later in this section).
+* The `= <value>` initializer must be a single integer literal (decimal, `0x` hex, `0b` binary, or character literal), a double-quoted string literal (`"text"` — expanded to individual bytes), or a NASM floating-point macro (`__float32__()` / `__float64__()`) for `float` / `double` types. For multi-element initialized storage, use `data` (see [Static Data Arrays](#static-data-arrays) later in this section).
 * Global scalars are **not** automatically saved/restored across calls; if a `proc` modifies a global, document that side effect in the `proc`'s comment header.
 
 **Example — global counter used across two procs:**
@@ -1237,6 +1237,25 @@ data masks  as dword = 0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000
 primes: DB 2, 3, 5, 7, 11, 13, 17, 19
 lookup: DW 0000h, 00FFh, FF00h, FFFFh
 masks:  DD 000000FFh, 0000FF00h, 00FF0000h, FF000000h
+```
+
+**String literals** — a double-quoted string in a `byte` declaration is expanded
+to individual character bytes, so `"abcde"` is equivalent to
+`'a','b','c','d','e'`.  Recognised escape sequences: `\n` (10), `\t` (9),
+`\r` (13), `\0` (0), `\\` (backslash), `\"` (double-quote).
+
+```sasm
+data greeting as byte = "Hello", 0           // null-terminated string
+data msg      as byte = "Error:\n", 0        // with newline escape
+var  tag      as byte = "OK"                 // local string
+```
+
+*Equivalent ASM:*
+
+```asm
+greeting: DB 'H','e','l','l','o', 0
+msg:      DB 'E','r','r','o','r',':',10, 0
+tag:      DB 'O','K'
 ```
 
 **Floating-point arrays** — use NASM `__float32__()` / `__float64__()` macros for
