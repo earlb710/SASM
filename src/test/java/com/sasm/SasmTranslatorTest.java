@@ -612,4 +612,139 @@ class SasmTranslatorTest {
         assertEquals(asmArray, asmString,
                 "string \"Hello\", 0 should produce identical output to byte array 'H','e','l','l','o', 0");
     }
+
+    // ── Inline proc support ──────────────────────────────────────────────
+
+    /**
+     * An inline proc's body should be expanded at the call site instead
+     * of emitting a CALL instruction.
+     */
+    @Test
+    void inlineProc_bodyInlinedAtCallSite() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "inline proc double_eax {",
+                "    eax = eax + eax",
+                "    return",
+                "}",
+                "move 5 to eax",
+                "call double_eax");
+        String asm = t.translate(src);
+
+        // Body should be inlined — ADD emitted, no CALL instruction
+        assertTrue(asm.contains("ADD eax, eax"),
+                "Inline proc body should emit ADD eax, eax at call site");
+        assertFalse(asm.contains("CALL double_eax"),
+                "Inline proc call should NOT emit CALL instruction");
+        assertFalse(asm.contains("RET"),
+                "Inline expansion should suppress RET");
+    }
+
+    /**
+     * An inline proc with parameters should emit a NASM comment with
+     * the parameter list for documentation.
+     */
+    @Test
+    void inlineProc_parametersEmittedAsComment() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "inline proc add_to_eax ( in eax as value, in ebx as addend, out eax as result ) {",
+                "    eax = eax + ebx",
+                "    return",
+                "}",
+                "call add_to_eax");
+        String asm = t.translate(src);
+
+        // The parameter list should appear as a comment
+        assertTrue(asm.contains("; inline proc add_to_eax"),
+                "Inline proc should emit parameter comment");
+        // Body inlined — no CALL
+        assertTrue(asm.contains("ADD eax, ebx"),
+                "Inline body should emit ADD eax, ebx");
+        assertFalse(asm.contains("CALL add_to_eax"),
+                "Inline proc call should NOT emit CALL instruction");
+    }
+
+    /**
+     * Inline proc should NOT emit a label in the output (the body is
+     * expanded at each call site, not called via CALL/RET).
+     */
+    @Test
+    void inlineProc_noLabelEmitted() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "inline proc nop_proc {",
+                "    nop",
+                "    return",
+                "}",
+                "call nop_proc");
+        String asm = t.translate(src);
+
+        assertFalse(asm.contains("nop_proc:"),
+                "Inline proc should NOT emit a label");
+        assertTrue(asm.contains("nop"),
+                "Inline expansion should contain nop");
+    }
+
+    /**
+     * A non-inline call should still emit a normal CALL instruction.
+     */
+    @Test
+    void nonInlineCall_stillEmitsCALL() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "inline proc my_inline {",
+                "    nop",
+                "    return",
+                "}",
+                "proc my_regular {",
+                "    nop",
+                "    return",
+                "}",
+                "call my_inline",
+                "call my_regular");
+        String asm = t.translate(src);
+
+        // my_inline should be expanded, not called
+        assertFalse(asm.contains("CALL my_inline"),
+                "Inline proc should not produce CALL");
+        // my_regular should be called normally
+        assertTrue(asm.contains("CALL my_regular"),
+                "Regular proc should produce CALL");
+        // my_regular should have a label
+        assertTrue(asm.contains("my_regular:"),
+                "Regular proc should emit a label");
+    }
+
+    /**
+     * An inline proc called multiple times should expand its body at
+     * each call site.
+     */
+    @Test
+    void inlineProc_multipleCallsExpandedEachTime() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "inline proc inc_eax {",
+                "    increment eax",
+                "    return",
+                "}",
+                "call inc_eax",
+                "call inc_eax");
+        String asm = t.translate(src);
+
+        // Count occurrences of INC eax — should appear twice
+        int count = 0;
+        int idx = 0;
+        while ((idx = asm.indexOf("INC eax", idx)) >= 0) {
+            count++;
+            idx += 7;
+        }
+        assertEquals(2, count,
+                "Two calls to inline proc should produce two INC eax");
+    }
 }

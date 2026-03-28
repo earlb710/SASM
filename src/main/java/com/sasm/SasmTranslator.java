@@ -47,6 +47,25 @@ public class SasmTranslator {
     /** {@code true} while inside a multi-line {@code (* ... *)} block comment. */
     private boolean inBlockComment = false;
 
+    // ── inline proc support ──────────────────────────────────────────────────
+    /**
+     * Maps inline procedure names to their collected SASM body lines.
+     * Populated when an {@code inline proc name (...) \{} declaration is
+     * encountered; the body lines are stored until the closing brace.
+     * When a {@code call} targets an inline proc, the stored body is
+     * translated and emitted in place of the CALL instruction.
+     */
+    private final Map<String, List<String>> inlineProcs = new HashMap<>();
+
+    /** Name of the inline proc currently being collected, or {@code null}. */
+    private String collectingInlineName = null;
+
+    /** Accumulates SASM body lines for the inline proc being collected. */
+    private List<String> collectingInlineBody = null;
+
+    /** Tracks brace nesting depth inside an inline proc body. */
+    private int inlineBraceDepth = 0;
+
     /**
      * Collects error messages produced during translation.
      * Populated when source violates ordering rules (e.g. a {@code #REF}
@@ -211,6 +230,10 @@ public class SasmTranslator {
         aliasMap.clear();
         declaredVars.clear();
         blockStack.clear();
+        inlineProcs.clear();
+        collectingInlineName = null;
+        collectingInlineBody = null;
+        inlineBraceDepth = 0;
         seenCode = false;
         inBlockComment = false;
         currentLine = 0;
@@ -321,9 +344,34 @@ public class SasmTranslator {
         // operands.  Control-flow constructs (if, else if, while, for, switch),
         // proc declarations, and data declarations use parentheses for their
         // own syntax (e.g. __float32__(3.0) macros) and must not be normalised.
-        if (!code.startsWith("proc ") && !code.startsWith("var ")
+        if (!code.startsWith("proc ") && !code.startsWith("inline ")
+                && !code.startsWith("var ")
                 && !code.startsWith("data ") && !isControlFlowLine(code)) {
             code = code.replace('(', '[').replace(')', ']');
+        }
+
+        // ── inline proc body collection ─────────────────────────────────────
+        // When an inline proc declaration has been seen, subsequent lines are
+        // stored (not translated) until the matching closing brace.
+        if (collectingInlineName != null) {
+            if (code.equals("}")) {
+                if (inlineBraceDepth > 0) {
+                    inlineBraceDepth--;
+                    collectingInlineBody.add(code);
+                    return "";
+                }
+                // End of inline proc body
+                inlineProcs.put(collectingInlineName,
+                        new ArrayList<>(collectingInlineBody));
+                collectingInlineName = null;
+                collectingInlineBody = null;
+                return "";
+            }
+            if (code.endsWith("{")) {
+                inlineBraceDepth++;
+            }
+            collectingInlineBody.add(code);
+            return "";
         }
 
         String asm = tryTranslateCode(code);
@@ -404,6 +452,7 @@ public class SasmTranslator {
             }
             return ""; // while / repeat / atomic / proc / block — consume brace
         }
+        if (code.startsWith("inline "))  return translateInlineProc(code);
         if (code.startsWith("proc "))   return translateProc(code);
         if (code.startsWith("block "))  return translateBlock(code);
         if (code.equals("return"))      return "    RET";
@@ -936,8 +985,13 @@ public class SasmTranslator {
     }
 
     private String tryCall(String code) {
-        if (code.startsWith("call "))
-            return "    CALL " + code.substring(5).trim();
+        if (code.startsWith("call ")) {
+            String target = code.substring(5).trim();
+            if (inlineProcs.containsKey(target)) {
+                return expandInline(target);
+            }
+            return "    CALL " + target;
+        }
         return null;
     }
 
@@ -1383,8 +1437,57 @@ public class SasmTranslator {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  Structural Keywords (proc, block)
+    //  Structural Keywords (proc, block, inline proc)
     // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Handles an {@code inline proc name (...) \{} declaration.
+     * Instead of emitting a label, the translator enters collection mode:
+     * subsequent lines are stored in {@link #collectingInlineBody} until
+     * the matching closing brace.  The body can later be expanded at each
+     * call site via {@link #expandInline(String)}.
+     */
+    private String translateInlineProc(String code) {
+        Matcher m = Pattern.compile(
+                "inline\\s+proc\\s+(\\w+)\\s*(.*)\\{").matcher(code);
+        if (m.find()) {
+            String name   = m.group(1);
+            String params = m.group(2).trim();
+            collectingInlineName = name;
+            collectingInlineBody = new ArrayList<>();
+            inlineBraceDepth = 0;
+            // Emit the parameter list as a NASM comment for documentation
+            if (!params.isEmpty()) {
+                return "; inline proc " + name + " " + params;
+            }
+            return "; inline proc " + name;
+        }
+        return null;
+    }
+
+    /**
+     * Expands an inline proc by translating its stored body lines and
+     * concatenating the NASM output.  {@code return} statements are
+     * suppressed (no {@code RET} emitted) so the inlined code flows
+     * into the code that follows the call site.
+     */
+    private String expandInline(String name) {
+        List<String> body = inlineProcs.get(name);
+        StringBuilder sb = new StringBuilder();
+        sb.append("; -- inline " + name + " --");
+        for (String bodyLine : body) {
+            if (bodyLine.equals("return")) continue;
+            String asm = tryTranslateCode(bodyLine);
+            if (asm == null) {
+                // Unrecognised line — pass through (raw ASM)
+                asm = "    " + bodyLine;
+            }
+            if (!asm.isEmpty()) {
+                sb.append('\n').append(asm);
+            }
+        }
+        return sb.toString();
+    }
 
     private String translateProc(String code) {
         // Supported parameter styles (parameter overloading):
