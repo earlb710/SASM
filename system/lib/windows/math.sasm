@@ -67,7 +67,7 @@ proc square ( in eax as value, out eax as result ) {
 proc sqrt_int ( in eax as value, out eax as result ) {
     push ebp
     move esp to ebp
-    subtract 4 from esp        // local: [ebp-4] = temp dword
+    esp = esp - 4        // local: [ebp-4] = temp dword
 
     move eax to dword [ebp-4]  // store input
     fild dword [ebp-4]         // push integer onto FPU stack
@@ -134,8 +134,8 @@ proc min ( in eax as first, in ebx as second, out eax as result ) {
 //   call @math.max_array   // eax = max element
 proc max_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
     move dword [esi] to eax    // start with first element
-    add 4 to esi
-    subtract 1 from ecx
+    esi = esi + 4
+    ecx = ecx - 1
 .max_array_loop:
     compare ecx with 0
     goto .max_array_done if equal
@@ -143,8 +143,8 @@ proc max_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
     goto .max_array_skip if greater or equal
     move dword [esi] to eax
 .max_array_skip:
-    add 4 to esi
-    subtract 1 from ecx
+    esi = esi + 4
+    ecx = ecx - 1
     goto .max_array_loop
 .max_array_done:
     return
@@ -164,8 +164,8 @@ proc max_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
 //   call @math.min_array   // eax = min element
 proc min_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
     move dword [esi] to eax    // start with first element
-    add 4 to esi
-    subtract 1 from ecx
+    esi = esi + 4
+    ecx = ecx - 1
 .min_array_loop:
     compare ecx with 0
     goto .min_array_done if equal
@@ -173,8 +173,8 @@ proc min_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
     goto .min_array_skip if less or equal
     move dword [esi] to eax
 .min_array_skip:
-    add 4 to esi
-    subtract 1 from ecx
+    esi = esi + 4
+    ecx = ecx - 1
     goto .min_array_loop
 .min_array_done:
     return
@@ -355,8 +355,8 @@ proc min_float ( in float first, in float second, out float result ) {
 //   fstp dword [result]
 proc max_array_float ( in esi as array_ptr, in ecx as count ) {
     fld dword [esi]             // ST(0) = first element
-    add 4 to esi
-    subtract 1 from ecx
+    esi = esi + 4
+    ecx = ecx - 1
 .max_af_loop:
     compare ecx with 0
     goto .max_af_done if equal
@@ -370,8 +370,8 @@ proc max_array_float ( in esi as array_ptr, in ecx as count ) {
 .max_af_new:
     fstp st1                    // replace old max with new
 .max_af_next:
-    add 4 to esi
-    subtract 1 from ecx
+    esi = esi + 4
+    ecx = ecx - 1
     goto .max_af_loop
 .max_af_done:
     return
@@ -392,8 +392,8 @@ proc max_array_float ( in esi as array_ptr, in ecx as count ) {
 //   fstp dword [result]
 proc min_array_float ( in esi as array_ptr, in ecx as count ) {
     fld dword [esi]             // ST(0) = first element
-    add 4 to esi
-    subtract 1 from ecx
+    esi = esi + 4
+    ecx = ecx - 1
 .min_af_loop:
     compare ecx with 0
     goto .min_af_done if equal
@@ -407,8 +407,8 @@ proc min_array_float ( in esi as array_ptr, in ecx as count ) {
 .min_af_new:
     fstp st1                    // replace old min with new
 .min_af_next:
-    add 4 to esi
-    subtract 1 from ecx
+    esi = esi + 4
+    ecx = ecx - 1
     goto .min_af_loop
 .min_af_done:
     return
@@ -429,8 +429,8 @@ proc min_array_float ( in esi as array_ptr, in ecx as count ) {
 //   fstp qword [result]
 proc max_array_double ( in esi as array_ptr, in ecx as count ) {
     fld qword [esi]             // ST(0) = first element
-    add 8 to esi
-    subtract 1 from ecx
+    esi = esi + 8
+    ecx = ecx - 1
 .max_ad_loop:
     compare ecx with 0
     goto .max_ad_done if equal
@@ -444,8 +444,8 @@ proc max_array_double ( in esi as array_ptr, in ecx as count ) {
 .max_ad_new:
     fstp st1                    // replace old max with new
 .max_ad_next:
-    add 8 to esi
-    subtract 1 from ecx
+    esi = esi + 8
+    ecx = ecx - 1
     goto .max_ad_loop
 .max_ad_done:
     return
@@ -466,8 +466,8 @@ proc max_array_double ( in esi as array_ptr, in ecx as count ) {
 //   fstp qword [result]
 proc min_array_double ( in esi as array_ptr, in ecx as count ) {
     fld qword [esi]             // ST(0) = first element
-    add 8 to esi
-    subtract 1 from ecx
+    esi = esi + 8
+    ecx = ecx - 1
 .min_ad_loop:
     compare ecx with 0
     goto .min_ad_done if equal
@@ -481,8 +481,8 @@ proc min_array_double ( in esi as array_ptr, in ecx as count ) {
 .min_ad_new:
     fstp st1                    // replace old min with new
 .min_ad_next:
-    add 8 to esi
-    subtract 1 from ecx
+    esi = esi + 8
+    ecx = ecx - 1
     goto .min_ad_loop
 .min_ad_done:
     return
