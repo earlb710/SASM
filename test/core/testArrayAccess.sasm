@@ -1,0 +1,114 @@
+-- testArrayAccess.sasm
+-- Project : Test-projects
+--
+-- Demonstrates how to access array elements using the bracket syntax:
+--   [array + offset]    — dereference element at byte offset
+--
+-- This builds on the "result vs. [result]" discussion:
+--   'result'   → base address (label)
+--   '[result]' → value of the first element (offset 0)
+--   '[result + N]' → value of the element at byte offset N
+
+section .text
+global _start
+
+(* -----------------------------------------------------------------
+   Static arrays used in the tests below.
+   ----------------------------------------------------------------- *)
+data scores  as byte[8]
+data table   as word  = 10, 20, 30, 40
+
+(* -----------------------------------------------------------------
+   test_byte_array — access byte-array elements with constant and
+   register offsets.  Byte arrays use 1-byte elements, so the byte
+   offset equals the element index.
+   ----------------------------------------------------------------- *)
+proc test_byte_array {
+    -- Write values into the first few elements
+    move 0xAA to byte [scores + 0]           -- scores[0] = 0xAA
+    move 0xBB to byte [scores + 1]           -- scores[1] = 0xBB
+    move 0xCC to byte [scores + 2]           -- scores[2] = 0xCC
+
+    -- Read back with a constant offset
+    move byte [scores + 0] to al             -- al = scores[0] = 0xAA
+    move byte [scores + 2] to al             -- al = scores[2] = 0xCC
+
+    -- Read back with a register offset
+    move 1 to bx
+    move byte [scores + bx] to al            -- al = scores[1] = 0xBB
+
+    return
+}
+
+(* -----------------------------------------------------------------
+   test_word_array — access word-array elements.
+   Word arrays have 2-byte elements, so byte offset = index × 2.
+   ----------------------------------------------------------------- *)
+proc test_word_array {
+    -- Read element 0 (byte offset 0)
+    move word [table] to ax                  -- ax = table[0] = 10
+
+    -- Read element 2 (byte offset 4 = 2 × 2)
+    move 4 to si                             -- byte offset = index 2 × 2
+    move word [table + si] to ax             -- ax = table[2] = 30
+
+    -- Write element 1 (byte offset 2 = 1 × 2)
+    move 2 to si
+    move 99 to word [table + si]             -- table[1] = 99
+
+    -- Read it back
+    move word [table + si] to ax             -- ax = 99
+
+    return
+}
+
+(* -----------------------------------------------------------------
+   test_local_byte_array — stack-local byte array accessed the same way.
+   ----------------------------------------------------------------- *)
+proc test_local_byte_array {
+    var buf as byte[16]
+
+    -- Write first and last elements
+    move 0x41 to byte [buf + 0]              -- buf[0] = 'A'
+    move 0x5A to byte [buf + 15]             -- buf[15] = 'Z'
+
+    -- Read with register offset
+    move 0 to bx
+    move byte [buf + bx] to al               -- al = buf[0] = 0x41
+
+    move 15 to bx
+    move byte [buf + bx] to al               -- al = buf[15] = 0x5A
+
+    return
+}
+
+(* -----------------------------------------------------------------
+   test_expression_array — expression-assignment syntax with arrays.
+   The [array + offset] operand works in expression assignments too.
+   ----------------------------------------------------------------- *)
+proc test_expression_array {
+    -- Read an array element via expression assignment
+    ax = word [table]                        -- ax = table[0] = 10
+
+    move 4 to si
+    ax = word [table + si]                   -- ax = table[2] = 30
+
+    -- Arithmetic with an array element
+    ax = word [table] + 5                    -- ax = 10 + 5 = 15
+
+    return
+}
+
+(* -----------------------------------------------------------------
+   _start — entry point
+   ----------------------------------------------------------------- *)
+_start:
+    call test_byte_array
+    call test_word_array
+    call test_local_byte_array
+    call test_expression_array
+
+    -- Exit (Linux syscall: sys_exit)
+    move 0 to bl
+    move 1 to ax
+    syscall 0x80

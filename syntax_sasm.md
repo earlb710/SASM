@@ -1261,6 +1261,76 @@ raw address/label, which is almost never what you want.
 **Summary:** prefer the shorter bare name in expression assignments, but always
 use explicit `[brackets]` in English-phrase instructions.
 
+**What if the variable is an array?**
+
+When a variable holds (or *is*) an array, the bare name is the **base address**
+of the array, and square brackets dereference into it.  Add a register or
+constant offset inside the brackets to reach individual elements:
+
+```sasm
+data scores as byte[8]                    -- 8 zero-initialized bytes
+data table  as word  = 10, 20, 30, 40     -- 4 initialized words
+
+-- First element (offset 0):
+al = byte [scores]                        -- al = scores[0]
+ax = word [table]                         -- ax = table[0]  (= 10)
+
+-- Element at a byte offset held in a register:
+move 3 to bx
+al = byte [scores + bx]                   -- al = scores[3]
+
+-- Word/dword arrays: the offset is in BYTES, not element indices.
+-- For a word array, element index i → byte offset = i × 2.
+move 4 to si                              -- byte offset = 2 × 2 = 4
+ax = word [table + si]                    -- ax = table[2]  (= 30)
+```
+
+Because `+` and `-` inside brackets are **address arithmetic** (not expression
+operators), `[scores + bx]` is a single memory operand — not an addition of
+two values.
+
+The same syntax works in English-phrase instructions:
+
+```sasm
+move byte [scores + bx] to al            -- MOV al, [scores + bx]
+move al to byte [scores + bx]            -- MOV [scores + bx], al
+compare byte [scores + bx] with 0        -- CMP BYTE [scores + bx], 0
+```
+
+For local (stack) arrays declared with `var`, the name resolves to the base
+stack address.  Access elements the same way:
+
+```sasm
+proc example {
+    var buf as byte[16]
+
+    move 0xFF to byte [buf + 0]           -- buf[0] = 0xFF
+    move byte [buf + 5] to al             -- al = buf[5]
+
+    -- Use a register for computed indices:
+    move 7 to bx
+    move byte [buf + bx] to al            -- al = buf[7]
+}
+```
+
+**Element-size cheat sheet:**
+
+| Array type | Element size | Byte offset for element *i* | Access pattern |
+|------------|-------------|----------------------------|----------------|
+| `byte`     | 1 byte      | *i*                        | `byte [arr + i]` |
+| `word`     | 2 bytes     | *i* × 2                   | `word [arr + i*2]` |
+| `dword`    | 4 bytes     | *i* × 4                   | `dword [arr + i*4]` |
+| `qword`    | 8 bytes     | *i* × 8                   | `qword [arr + i*8]` (x86-64) |
+
+> **Tip:** for word/dword/qword arrays in 32-bit or 64-bit mode, you can use
+> scaled-index addressing — `[arr + ecx*2]`, `[arr + ecx*4]`, or
+> `[arr + rcx*8]` — to index by element number directly without multiplying
+> first.
+
+See also: [Static Data Arrays](#static-data-arrays),
+[Local Array Variables](#local-array-variables), and
+[Passing Arrays as Parameters](#passing-arrays-as-parameters) for full details.
+
 > **Note:** the `+` and `-` characters inside square brackets
 > (e.g. `[buffer + bx]`) are treated as address arithmetic, not expression
 > operators.
