@@ -820,4 +820,112 @@ class SasmTranslatorTest {
                         .anyMatch(e -> e.contains("bare variable name 'result'")),
                 "Bare destination with bracketed operands should produce error");
     }
+
+    // ── Short-form aliases ──────────────────────────────────────────────
+
+    /** {@code nop} is a short form for {@code no op} → {@code NOP}. */
+    @Test
+    void shortForm_nop_translatesTo_NOP() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "nop");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("NOP"),
+                "nop should translate to NOP, got: " + asm);
+    }
+
+    /** {@code addc} is a short form for {@code add with carry} → {@code ADC}. */
+    @Test
+    void shortForm_addc_translatesTo_ADC() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "addc ebx to eax");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("ADC eax, ebx"),
+                "addc ebx to eax should translate to ADC eax, ebx, got: " + asm);
+    }
+
+    /** {@code subb} is a short form for {@code subtract with borrow} → {@code SBB}. */
+    @Test
+    void shortForm_subb_translatesTo_SBB() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "subb ecx from eax");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("SBB eax, ecx"),
+                "subb ecx from eax should translate to SBB eax, ecx, got: " + asm);
+    }
+
+    /**
+     * Operator {@code !=} used as a condition word (after CMP) should map to
+     * {@code JNE} (just like {@code not equal}).
+     */
+    @Test
+    void shortForm_notEqualOperator_asConditionWord() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "compare ax with bx",
+                "goto .done if !=");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("JNE .done"),
+                "goto .done if != should emit JNE .done, got: " + asm);
+    }
+
+    /**
+     * Operator {@code >=} used as a condition word (after CMP) should map to
+     * {@code JGE} (just like {@code greater or equal}).
+     */
+    @Test
+    void shortForm_greaterOrEqualOperator_asConditionWord() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "compare ax with bx",
+                "goto .done if >=");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("JGE .done"),
+                "goto .done if >= should emit JGE .done, got: " + asm);
+    }
+
+    /**
+     * Unparenthesised operator comparison in {@code if} should emit
+     * {@code CMP} followed by the appropriate conditional jump.
+     */
+    @Test
+    void shortForm_ifWithOperatorCondition_noParens() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "if ax != bx {",
+                "    increment ax",
+                "}");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("CMP ax, bx"),
+                "if ax != bx should emit CMP ax, bx, got: " + asm);
+        assertTrue(asm.contains("JE"),
+                "if ax != bx should emit JE (inverted), got: " + asm);
+    }
+
+    /**
+     * Unparenthesised operator comparison in {@code while} should emit
+     * {@code CMP} followed by the loop label (same as parenthesised form).
+     */
+    @Test
+    void shortForm_whileWithOperatorCondition_noParens() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "while bx >= 0 {",
+                "    decrement bx",
+                "}");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("CMP bx, 0"),
+                "while bx >= 0 should emit CMP bx, 0, got: " + asm);
+        assertTrue(asm.contains(".while"),
+                "while bx >= 0 should emit a loop label, got: " + asm);
+    }
 }

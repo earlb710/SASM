@@ -646,10 +646,13 @@ public class SasmTranslator {
             "add\\s+(.+?)\\s+to\\s+(.+)", Pattern.CASE_INSENSITIVE);
     private static final Pattern ADD_CARRY = Pattern.compile(
             "add\\s+(.+?)\\s+with\\s+carry\\s+to\\s+(.+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ADD_CARRY_SHORT = Pattern.compile(
+            "addc\\s+(.+?)\\s+to\\s+(.+)", Pattern.CASE_INSENSITIVE);
 
     private String tryAdd(String code) {
         Matcher m;
-        if ((m = ADD_CARRY.matcher(code)).matches()) {
+        if ((m = ADD_CARRY.matcher(code)).matches()
+                || (m = ADD_CARRY_SHORT.matcher(code)).matches()) {
             return "    ADC " + m.group(2) + ", " + m.group(1);
         }
         if ((m = ADD.matcher(code)).matches()) {
@@ -663,10 +666,13 @@ public class SasmTranslator {
     private static final Pattern SBB = Pattern.compile(
             "subtract\\s+(.+?)\\s+with\\s+borrow\\s+from\\s+(.+)",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern SBB_SHORT = Pattern.compile(
+            "subb\\s+(.+?)\\s+from\\s+(.+)", Pattern.CASE_INSENSITIVE);
 
     private String trySub(String code) {
         Matcher m;
-        if ((m = SBB.matcher(code)).matches()) {
+        if ((m = SBB.matcher(code)).matches()
+                || (m = SBB_SHORT.matcher(code)).matches()) {
             return "    SBB " + m.group(2) + ", " + m.group(1);
         }
         if ((m = SUB.matcher(code)).matches()) {
@@ -771,8 +777,27 @@ public class SasmTranslator {
      */
     private String[] parseInlineCompare(String cond) {
         if (!cond.startsWith("(") || !cond.endsWith(")")) return null;
-        String inner = cond.substring(1, cond.length() - 1).trim();
-        Matcher m = C_CMP.matcher(inner);
+        return parseCompareExpression(cond.substring(1, cond.length() - 1).trim());
+    }
+
+    /**
+     * Tries to parse an unparenthesised inline comparison from a condition
+     * string (e.g. {@code eax != ebx} or {@code bx >= 10}).
+     * Returns the same two-element array as {@link #parseInlineCompare},
+     * or {@code null} if the condition does not match.
+     */
+    private String[] parseOperatorCondition(String cond) {
+        return parseCompareExpression(cond);
+    }
+
+    /**
+     * Core comparison-expression parser used by both
+     * {@link #parseInlineCompare} and {@link #parseOperatorCondition}.
+     * Matches {@code expr} against the C-style comparison pattern and
+     * returns {@code [CMP instruction, conditionWord]}, or {@code null}.
+     */
+    private String[] parseCompareExpression(String expr) {
+        Matcher m = C_CMP.matcher(expr);
         if (!m.matches()) return null;
         String op1 = wrapIfVar(m.group(1).trim());
         String op2 = wrapIfVar(m.group(3).trim());
@@ -1038,6 +1063,7 @@ public class SasmTranslator {
 
     private String tryProcControl(String code) {
         if (code.equals("no op"))  return "    NOP";
+        if (code.equals("nop"))    return "    NOP";
         if (code.equals("halt"))   return "    HLT";
         if (code.equals("wait for coprocessor")) return "    FWAIT";
         if (code.equals("read cpu id"))          return "    CPUID";
@@ -1070,8 +1096,9 @@ public class SasmTranslator {
             // endLabel starts as null; assigned lazily if an else-if/else follows.
             blockStack.push(new IfContext(skipLbl, null));
 
-            // C-style inline comparison: if (op1 == op2) {
+            // C-style inline comparison: if (op1 == op2) { or if op1 != op2 {
             String[] ic = parseInlineCompare(cond);
+            if (ic == null) ic = parseOperatorCondition(cond);
             if (ic != null) {
                 String inv = conditionToJump(invertCondition(ic[1]));
                 return ic[0] + "\n    " + inv + " " + skipLbl + "   ; if " + cond;
@@ -1099,8 +1126,9 @@ public class SasmTranslator {
                 String skipLbl = ".L" + (labelSeq++);
                 blockStack.push(new IfContext(skipLbl, endLbl));
 
-                // C-style inline comparison: } else if (op1 != op2) {
+                // C-style inline comparison: } else if (op1 != op2) { or } else if op1 != op2 {
                 String[] ic = parseInlineCompare(cond);
+                if (ic == null) ic = parseOperatorCondition(cond);
                 if (ic != null) {
                     String inv = conditionToJump(invertCondition(ic[1]));
                     return "    JMP " + endLbl + "\n"
@@ -1252,8 +1280,9 @@ public class SasmTranslator {
         if (m.matches()) {
             if (!blockStack.isEmpty()) blockStack.pop();
             String cond = m.group(1).trim();
-            // C-style inline comparison: } until (op1 == op2)
+            // C-style inline comparison: } until (op1 == op2) or } until op1 == op2
             String[] ic = parseInlineCompare(cond);
+            if (ic == null) ic = parseOperatorCondition(cond);
             if (ic != null) {
                 String jmp = conditionToJump(invertCondition(ic[1]));
                 return ic[0] + "\n    " + jmp + " .loop   ; until " + cond;
@@ -1270,8 +1299,9 @@ public class SasmTranslator {
             blockStack.push(null);
             String cond = m.group(1).trim();
             String lbl = ".while" + (labelSeq++);
-            // C-style inline comparison: while (op1 != op2) {
+            // C-style inline comparison: while (op1 != op2) { or while op1 != op2 {
             String[] ic = parseInlineCompare(cond);
+            if (ic == null) ic = parseOperatorCondition(cond);
             if (ic != null) {
                 return ic[0] + "\n" + lbl + ":   ; while " + ic[1];
             }
@@ -2125,49 +2155,49 @@ public class SasmTranslator {
 
     private static String conditionToJump(String cond) {
         return switch (cond.toLowerCase()) {
-            case "equal"           -> "JE";
-            case "not equal"       -> "JNE";
-            case "above"           -> "JA";
-            case "above or equal"  -> "JAE";
-            case "below"           -> "JB";
-            case "below or equal"  -> "JBE";
-            case "greater"         -> "JG";
-            case "greater or equal"-> "JGE";
-            case "less"            -> "JL";
-            case "less or equal"   -> "JLE";
-            case "overflow"        -> "JO";
-            case "no overflow"     -> "JNO";
-            case "negative"        -> "JS";
-            case "positive"        -> "JNS";
-            case "parity even"     -> "JP";
-            case "parity odd"      -> "JNP";
-            case "cx zero"         -> "JCXZ";
-            case "carry"           -> "JC";
-            case "no carry"        -> "JNC";
-            default                -> "; unknown condition: " + cond;
+            case "equal",           "=="  -> "JE";
+            case "not equal",       "!="  -> "JNE";
+            case "above"                  -> "JA";
+            case "above or equal"         -> "JAE";
+            case "below"                  -> "JB";
+            case "below or equal"         -> "JBE";
+            case "greater",         ">"   -> "JG";
+            case "greater or equal", ">=" -> "JGE";
+            case "less",            "<"   -> "JL";
+            case "less or equal",   "<="  -> "JLE";
+            case "overflow"               -> "JO";
+            case "no overflow"            -> "JNO";
+            case "negative"               -> "JS";
+            case "positive"               -> "JNS";
+            case "parity even"            -> "JP";
+            case "parity odd"             -> "JNP";
+            case "cx zero"                -> "JCXZ";
+            case "carry"                  -> "JC";
+            case "no carry"               -> "JNC";
+            default                       -> "; unknown condition: " + cond;
         };
     }
 
     /** Returns the logical inverse of a condition word. */
     private static String invertCondition(String cond) {
         return switch (cond.toLowerCase()) {
-            case "equal"           -> "not equal";
-            case "not equal"       -> "equal";
-            case "above"           -> "below or equal";
-            case "above or equal"  -> "below";
-            case "below"           -> "above or equal";
-            case "below or equal"  -> "above";
-            case "greater"         -> "less or equal";
-            case "greater or equal"-> "less";
-            case "less"            -> "greater or equal";
-            case "less or equal"   -> "greater";
-            case "overflow"        -> "no overflow";
-            case "no overflow"     -> "overflow";
-            case "negative"        -> "positive";
-            case "positive"        -> "negative";
-            case "carry"           -> "no carry";
-            case "no carry"        -> "carry";
-            default                -> cond; // fallback
+            case "equal",           "=="  -> "not equal";
+            case "not equal",       "!="  -> "equal";
+            case "above"                  -> "below or equal";
+            case "above or equal"         -> "below";
+            case "below"                  -> "above or equal";
+            case "below or equal"         -> "above";
+            case "greater",         ">"   -> "less or equal";
+            case "greater or equal", ">=" -> "less";
+            case "less",            "<"   -> "greater or equal";
+            case "less or equal",   "<="  -> "greater";
+            case "overflow"               -> "no overflow";
+            case "no overflow"            -> "overflow";
+            case "negative"               -> "positive";
+            case "positive"               -> "negative";
+            case "carry"                  -> "no carry";
+            case "no carry"               -> "carry";
+            default                       -> cond; // fallback
         };
     }
 

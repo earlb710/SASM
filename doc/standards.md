@@ -245,6 +245,9 @@ The translator accepts both.
 | `increment <dst>` | `inc <dst>` | `INC` |
 | `decrement <dst>` | `dec <dst>` | `DEC` |
 | `compare <a> with <b>` | `comp <a> with <b>` | `CMP` |
+| `add <src> with carry to <dst>` | `addc <src> to <dst>` | `ADC` |
+| `subtract <src> with borrow from <dst>` | `subb <src> from <dst>` | `SBB` |
+| `no op` | `nop` | `NOP` |
 
 ### Expression operator short forms
 
@@ -266,18 +269,23 @@ These replace the longer English-phrase instructions:
 
 ### Condition short forms (in `if` / `while` / `goto if`)
 
-| Condition word | C-style inline | Flag check |
-|----------------|---------------|------------|
-| `equal` | `(a == b)` | ZF=1 |
-| `not equal` | `(a != b)` | ZF=0 |
-| `above` | `(a > b)` unsigned | CF=0, ZF=0 |
-| `above or equal` | `(a >= b)` unsigned | CF=0 |
-| `below` | `(a < b)` unsigned | CF=1 |
-| `below or equal` | `(a <= b)` unsigned | CF=1 or ZF=1 |
-| `greater` | `(a > b)` signed | ZF=0, SF=OF |
-| `greater or equal` | `(a >= b)` signed | SF=OF |
-| `less` | `(a < b)` signed | SF!=OF |
-| `less or equal` | `(a <= b)` signed | ZF=1 or SF!=OF |
+The operator symbols `==`, `!=`, `<`, `<=`, `>`, `>=` may be used as condition word
+aliases anywhere a condition word is accepted (e.g. `goto .done if !=`).
+They may also be used directly in `if` / `while` / `repeat-until` without parentheses
+to auto-generate a `CMP` (e.g. `if ax != bx {`).
+
+| Condition word | Operator alias | C-style inline | Flag check |
+|----------------|---------------|---------------|------------|
+| `equal` | `==` | `(a == b)` | ZF=1 |
+| `not equal` | `!=` | `(a != b)` | ZF=0 |
+| `above` | | `(a > b)` unsigned | CF=0, ZF=0 |
+| `above or equal` | | `(a >= b)` unsigned | CF=0 |
+| `below` | | `(a < b)` unsigned | CF=1 |
+| `below or equal` | | `(a <= b)` unsigned | CF=1 or ZF=1 |
+| `greater` | `>` | `(a > b)` signed | ZF=0, SF=OF |
+| `greater or equal` | `>=` | `(a >= b)` signed | SF=OF |
+| `less` | `<` | `(a < b)` signed | SF!=OF |
+| `less or equal` | `<=` | `(a <= b)` signed | ZF=1 or SF!=OF |
 
 ---
 
@@ -305,7 +313,7 @@ All SASM keywords grouped by category. **Bold** entries have a short form.
 
 ### Arithmetic
 
-`add`, `add with carry`, `subtract`, `subtract with borrow`,
+`add`, **`add with carry`** (`addc`), `subtract`, **`subtract with borrow`** (`subb`),
 **`increment`** (`inc`), **`decrement`** (`dec`), `multiply by`,
 `signed multiply by`, `divide by`, `signed divide by`, `negate`,
 **`compare`** (`comp`), `extend byte to word`, `extend word to double`,
@@ -337,7 +345,7 @@ All SASM keywords grouped by category. **Bold** entries have a short form.
 
 ### Processor control
 
-`no op`, `halt`, `wait for coprocessor`, `read cpu id`,
+**`no op`** (`nop`), `halt`, `wait for coprocessor`, `read cpu id`,
 `read timestamp`, `read msr`, `write msr`, `clear task switch`,
 `invalidate cache`, `flush cache`, `invalidate page`,
 `memory fence`, `store fence`, `load fence`, `pause`, `trap`
@@ -359,10 +367,11 @@ All SASM keywords grouped by category. **Bold** entries have a short form.
   (brackets `[var]` are now required)
 - [x] Documentation uses `*` (ASCII) instead of `×` (Unicode) for
   multiplication throughout all files
-- [ ] Consider adding short-form aliases for high-frequency condition words
-  (e.g. `ne` for `not equal`, `ge` for `greater or equal`)
-- [ ] Consider adding short-form aliases for remaining long instructions
-  (e.g. `adc` for `add with carry`, `sbb` for `subtract with borrow`,
+- [x] Consider adding short-form aliases for high-frequency condition words
+  (`==` for `equal`, `!=` for `not equal`, `>=` for `greater or equal`,
+  `<=` for `less or equal`, `>` for `greater`, `<` for `less`)
+- [x] Consider adding short-form aliases for remaining long instructions
+  (`addc` for `add with carry`, `subb` for `subtract with borrow`,
   `nop` for `no op`)
 - [ ] Document which operators in `>>` auto-select `SAR` vs `SHR` more
   prominently — easy to miss in current docs
