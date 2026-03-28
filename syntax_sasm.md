@@ -1805,9 +1805,29 @@ bit that "falls off" the right end goes to CF.  All other shifted-out bits are
 discarded.  You can test CF afterward with `jump if carry` / `jump if no carry`
 or use it in a `rotate left carry` / `rotate right carry` instruction.
 
-When the operand being shifted with `>>` is a variable declared as `signed`,
-the translator emits **SAR** (arithmetic shift, preserving the sign bit)
-instead of **SHR** (logical shift, filling with zeros).
+> **`>>` auto-selects `SHR` or `SAR` based on operand signedness**
+>
+> When the left operand of `>>` is a variable declared as `signed`, the
+> translator automatically emits **SAR** (arithmetic right shift — the sign bit
+> is copied into vacated high bits, so the value's sign is preserved).
+> For all other operands — registers, unsigned variables, and immediate values —
+> it emits **SHR** (logical right shift — high bits are filled with zeros).
+>
+> ```sasm
+> var sval as word signed   = -10   // signed variable
+> var uval as word unsigned = 200   // unsigned variable
+>
+> ax = [sval] >> 2    // SAR ax, 2   (sign-preserving: -10 >> 2 = -3)
+> ax = [uval] >> 2    // SHR ax, 2   (zero-fill:        200 >> 2 = 50)
+> ax = cx    >> 2    // SHR ax, 2   (register — always logical)
+> ```
+>
+> To force an arithmetic right shift regardless of how the variable was declared,
+> use the explicit keyword form:
+>
+> ```sasm
+> shift right signed ax by 2    // always SAR ax, 2
+> ```
 
 ---
 
