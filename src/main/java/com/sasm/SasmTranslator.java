@@ -1999,6 +1999,24 @@ public class SasmTranslator {
                     continue;
                 }
             }
+            // Single-char bitwise operators: & | ^ (aliases for && || ^^)
+            // Only reached when the next char is different, so && / || / ^^ are
+            // always handled by the two-char block above.
+            if ((c == '&' || c == '|' || c == '^') && i > 0
+                    && (i + 1 >= rhs.length() || rhs.charAt(i + 1) != c)) {
+                String before = rhs.substring(start, i).trim();
+                if (!before.isEmpty()) {
+                    operands.add(before);
+                    operators.add(switch (c) {
+                        case '&' -> (int) 'A';
+                        case '|' -> (int) 'O';
+                        case '^' -> (int) 'X';
+                        default  -> (int) c;
+                    });
+                    start = i + 1;
+                    continue;
+                }
+            }
             // Skip ++ and -- pairs: they are inline increment/decrement
             // operators (part of an operand), not binary +/- operators.
             if ((c == '+' || c == '-') && i + 1 < rhs.length()

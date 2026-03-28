@@ -1677,7 +1677,7 @@ In addition to the English-phrase syntax above, SASM supports a compact
 **expression assignment** form using the operators `=`, `+`, `-`, `*`, `%` (modulo),
 `div`, `sdiv` (signed division), `mod`, `smod` (signed modulo),
 `<<` (left shift), `>>` (right shift),
-`&&` (bitwise AND), `||` (bitwise OR), `^^` (bitwise XOR),
+`&&` or `&` (bitwise AND), `||` or `|` (bitwise OR), `^^` or `^` (bitwise XOR),
 and `!` (bitwise NOT):
 
 ```
@@ -1692,9 +1692,9 @@ and `!` (bitwise NOT):
 <dst> = <op1> smod <op2>     // explicit signed modulo (always IDIV; remainder → dst)
 <dst> = <op1> << <op2>       // logical left shift (SHL)
 <dst> = <op1> >> <op2>       // right shift (auto: SHR or SAR based on var signedness)
-<dst> = <op1> && <op2>       // bitwise AND
-<dst> = <op1> || <op2>       // bitwise OR
-<dst> = <op1> ^^ <op2>       // bitwise XOR
+<dst> = <op1> && <op2>       // bitwise AND  (& is equivalent)
+<dst> = <op1> || <op2>       // bitwise OR   (| is equivalent)
+<dst> = <op1> ^^ <op2>       // bitwise XOR  (^ is equivalent)
 <dst> = !<src>               // bitwise NOT (one's complement)
 ```
 
@@ -1864,6 +1864,25 @@ or use it in a `rotate left carry` / `rotate right carry` instruction.
 | `rotate right carry <dst> by <n>` | `RCR dst, n` | Rotate right through CF |
 | `shift left double <dst>, <src> by <n>` | `SHLD dst, src, n` | Shift `dst` left, bits shifting out come from `src` |
 | `shift right double <dst>, <src> by <n>` | `SHRD dst, src, n` | Shift `dst` right, bits shifting out come from `src` |
+
+### Right shift: keyword form vs `>>` expression operator
+
+The keyword form always emits a fixed instruction regardless of variable type:
+
+| Keyword form | Always emits | Behaviour |
+|---|---|---|
+| `shift right <dst> by <n>` | `SHR dst, n` | Logical — zeros fill high bits |
+| `shift right signed <dst> by <n>` | `SAR dst, n` | Arithmetic — sign bit replicated |
+
+The `>>` expression operator chooses automatically based on how the left operand was declared:
+
+| Left operand | `>>` emits | Example |
+|---|---|---|
+| Variable declared `signed` | `SAR` | `ax = [sval] >> 2` → `SAR ax, 2` |
+| Variable declared `unsigned` (or no modifier) | `SHR` | `ax = [uval] >> 2` → `SHR ax, 2` |
+| Register or immediate | `SHR` | `ax = cx >> 2` → `SHR ax, 2` |
+
+Use `shift right signed` when you need an arithmetic shift on a register or a variable that was not declared `signed`.
 
 ---
 

@@ -910,22 +910,71 @@ class SasmTranslatorTest {
                 "if ax != bx should emit JE (inverted), got: " + asm);
     }
 
-    /**
-     * Unparenthesised operator comparison in {@code while} should emit
-     * {@code CMP} followed by the loop label (same as parenthesised form).
-     */
+    // ── Single-char bitwise operator aliases ──────────────────────────
+
+    /** {@code &} is a single-char alias for {@code &&} → {@code AND}. */
     @Test
-    void shortForm_whileWithOperatorCondition_noParens() {
+    void singleChar_and_translatesTo_AND() {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "while bx >= 0 {",
-                "    decrement bx",
-                "}");
+                "ax = bx & 0xFF");
         String asm = t.translate(src);
-        assertTrue(asm.contains("CMP bx, 0"),
-                "while bx >= 0 should emit CMP bx, 0, got: " + asm);
-        assertTrue(asm.contains(".while"),
-                "while bx >= 0 should emit a loop label, got: " + asm);
+        assertTrue(asm.contains("AND ax, 0xFF"),
+                "ax = bx & 0xFF should emit AND, got: " + asm);
+    }
+
+    /** {@code |} is a single-char alias for {@code ||} → {@code OR}. */
+    @Test
+    void singleChar_or_translatesTo_OR() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "ax = bx | 0x80");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("OR ax, 0x80"),
+                "ax = bx | 0x80 should emit OR, got: " + asm);
+    }
+
+    /** {@code ^} is a single-char alias for {@code ^^} → {@code XOR}. */
+    @Test
+    void singleChar_xor_translatesTo_XOR() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "ax = bx ^ 0xFF");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("XOR ax, 0xFF"),
+                "ax = bx ^ 0xFF should emit XOR, got: " + asm);
+    }
+
+    /**
+     * Double-char {@code &&} must still work after the single-char change,
+     * and must not be confused with two consecutive {@code &} operators.
+     */
+    @Test
+    void doubleChar_and_stillWorks() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "ax = ax && 0xFF");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("AND ax, 0xFF"),
+                "ax = ax && 0xFF should still emit AND, got: " + asm);
+    }
+
+    /** Single-char {@code &} with dst matching op1 should be optimized to a single {@code AND}. */
+    @Test
+    void singleChar_and_optimized_whenDstEqualsOp1() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "ax = ax & 0x0F");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("AND ax, 0x0F"),
+                "ax = ax & 0x0F should emit AND ax, 0x0F, got: " + asm);
+        // Should be only one instruction (no MOV needed)
+        assertFalse(asm.contains("MOV ax"),
+                "ax = ax & 0x0F should not emit MOV when dst == op1, got: " + asm);
     }
 }

@@ -121,15 +121,15 @@ Both forms are valid. Use expression syntax for new code when possible.
 | `mod` | Modulo (keyword) | `DIV`/`IDIV` | Same as `%` |
 | `smod` | Signed modulo | `IDIV` | Always signed remainder |
 | `<<` | Left shift | `SHL` | |
-| `>>` | Right shift | `SHR`/`SAR` | Auto: `SAR` if operand is `signed` var |
-| `&&` | Bitwise AND | `AND` | Not logical AND — always bitwise |
-| `\|\|` | Bitwise OR | `OR` | Not logical OR — always bitwise |
-| `^^` | Bitwise XOR | `XOR` | |
+| `>>` | Right shift | `SHR`/`SAR` | **Auto: `SAR` if left operand is a `signed` var; `SHR` otherwise** |
+| `&&` or `&` | Bitwise AND | `AND` | Not logical AND — always bitwise |
+| `\|\|` or `\|` | Bitwise OR | `OR` | Not logical OR — always bitwise |
+| `^^` or `^` | Bitwise XOR | `XOR` | |
 | `!` | Bitwise NOT | `NOT` | Unary; one's complement |
 | `++` | Increment | `INC` | Pre (`++x`) or post (`x++`) |
 | `--` | Decrement | `DEC` | Pre (`--x`) or post (`x--`) |
 
-> **Clarification:** `&&`, `||`, and `^^` are **bitwise** operators despite
+> **Clarification:** `&&`/`&`, `||`/`|`, and `^^`/`^` are **bitwise** operators despite
 > resembling C logical operators. SASM has no short-circuit logical operators.
 
 ---
@@ -148,27 +148,45 @@ Brackets dereference it to access the **stored value**.
 
 In expression assignments, brackets are **required** — bare names are errors.
 
-### 2. `&&` / `||` are bitwise, not logical
+### 2. `&&`/`&`, `||`/`|`, `^^`/`^` are bitwise, not logical
 
 ```sasm
 ax = bx && cx     // AND bx, cx (bitwise AND, not logical)
 ax = bx || cx     // OR  bx, cx (bitwise OR,  not logical)
+ax = bx &  cx     // AND bx, cx (single-char form — identical to &&)
+ax = bx |  cx     // OR  bx, cx (single-char form — identical to ||)
+ax = bx ^  cx     // XOR bx, cx (single-char form — identical to ^^)
 ```
 
-SASM does not have short-circuit logical operators.
+SASM does not have short-circuit logical operators. The single-char forms
+`&`, `|`, `^` are aliases for `&&`, `||`, `^^` respectively; both
+produce identical assembly.
 
 ### 3. `>>` auto-selects shift type
 
-```sasm
-var sval as word signed = -10
-var uval as word unsigned = 200
+The `>>` expression operator chooses between `SHR` (logical) and `SAR`
+(arithmetic) based on how the left operand was declared:
 
-ax = [sval] >> 2     // SAR ax, 2 (arithmetic — preserves sign)
-ax = [uval] >> 2     // SHR ax, 2 (logical — fills with zeros)
+```sasm
+var sval as word signed   = -10   // signed variable
+var uval as word unsigned = 200   // unsigned variable
+
+ax = [sval] >> 2    // SAR ax, 2   (sign-preserving: -10 >> 2 = -3)
+ax = [uval] >> 2    // SHR ax, 2   (zero-fill:        200 >> 2 = 50)
+ax = cx    >> 2    // SHR ax, 2   (register — always logical)
 ```
 
-The translator checks whether the operand was declared `signed`. Use `shift
-right signed` for explicit arithmetic shift when needed.
+| Left operand | `>>` emits | Notes |
+|---|---|---|
+| Variable declared `signed` | `SAR` | Arithmetic shift — sign bit replicated |
+| Variable declared `unsigned` (or no modifier) | `SHR` | Logical shift — zeros fill high bits |
+| Register or immediate | `SHR` | Registers have no declared signedness |
+
+To force an arithmetic shift regardless of declaration, use the keyword form:
+
+```sasm
+shift right signed ax by 2    // always SAR ax, 2
+```
 
 ### 4. `div` auto-selects signed/unsigned
 
@@ -260,9 +278,9 @@ These replace the longer English-phrase instructions:
 | `increment <dst>` | `<dst>++` or `++<dst>` | `eax++` |
 | `decrement <dst>` | `<dst>--` or `--<dst>` | `ecx--` |
 | `compare <a> with <b>` | `<a> == <b>`, `<a> != <b>`, etc. | `ax == 0` |
-| `and <src> into <dst>` | `<dst> = <dst> && <src>` | `ax = ax && 0xFF` |
-| `or <src> into <dst>` | `<dst> = <dst> \|\| <src>` | `ax = ax \|\| 0x80` |
-| `xor <src> into <dst>` | `<dst> = <dst> ^^ <src>` | `ax = ax ^^ 0xFF` |
+| `and <src> into <dst>` | `<dst> = <dst> && <src>` or `<dst> = <dst> & <src>` | `ax = ax & 0xFF` |
+| `or <src> into <dst>` | `<dst> = <dst> \|\| <src>` or `<dst> = <dst> \| <src>` | `ax = ax \| 0x80` |
+| `xor <src> into <dst>` | `<dst> = <dst> ^^ <src>` or `<dst> = <dst> ^ <src>` | `ax = ax ^ 0xFF` |
 | `not <dst>` | `<dst> = !<dst>` | `ax = !ax` |
 | `shift left <dst> by <n>` | `<dst> = <dst> << <n>` | `ax = ax << 3` |
 | `shift right <dst> by <n>` | `<dst> = <dst> >> <n>` | `ax = ax >> 1` |
@@ -373,10 +391,11 @@ All SASM keywords grouped by category. **Bold** entries have a short form.
 - [x] Consider adding short-form aliases for remaining long instructions
   (`addc` for `add with carry`, `subb` for `subtract with borrow`,
   `nop` for `no op`)
-- [ ] Document which operators in `>>` auto-select `SAR` vs `SHR` more
-  prominently — easy to miss in current docs
-- [ ] Clarify `&&`/`||`/`^^` naming — these are bitwise, not logical;
-  consider whether `&`/`|`/`^` single-char forms would reduce confusion
+- [x] Document which operators in `>>` auto-select `SAR` vs `SHR` more
+  prominently — added prominent callout in syntax_sasm.md and expanded
+  Section 3 in doc/standards.md with a full rule table
+- [x] Clarify `&&`/`||`/`^^` naming — these are bitwise, not logical;
+  added `&`/`|`/`^` single-char aliases (translator + docs)
 - [ ] Consider warning/error when `repeat <non-cx> times` silently loads
   `cx` — the implicit register clobber may surprise users
 
