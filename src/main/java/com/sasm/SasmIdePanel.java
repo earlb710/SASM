@@ -75,7 +75,7 @@ public class SasmIdePanel extends JPanel {
     private boolean syncingScroll = false;
 
     /** The parent container holding the editor and asm panes (needed for toggle). */
-    private JPanel codeArea;
+    private JSplitPane splitPane;
 
     /** Tracks the last-known editor line count so line-number repaint is skipped when unchanged. */
     private int lastEditorLineCount = -1;
@@ -617,31 +617,19 @@ public class SasmIdePanel extends JPanel {
         asmScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         asmPane.add(asmScroll, BorderLayout.CENTER);
 
-        // ── split the editor area 2/3 : 1/3 ─────────────────────────────────
-        // Override isValidateRoot so that revalidation from child headers or
-        // scroll panes never propagates past this container — prevents
-        // GridBagLayout from relaying out the editor pane when only the asm
-        // pane content changes.
-        codeArea = new JPanel(new GridBagLayout()) {
-            @Override public boolean isValidateRoot() { return true; }
-        };
-        GridBagConstraints gc = new GridBagConstraints();
-        gc.fill    = GridBagConstraints.BOTH;
-        gc.gridy   = 0;
-        gc.weighty = 1.0;
-
-        gc.gridx   = 0;
-        gc.weightx = 2.0;  // 2/3
-        codeArea.add(editorPane, gc);
-
-        gc.gridx   = 1;
-        gc.weightx = 0.0;  // starts hidden
+        // ── split the editor area with a draggable divider ─────────────────
+        splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, editorPane, asmPane);
+        splitPane.setContinuousLayout(true);
+        splitPane.setDividerSize(6);
+        splitPane.setBorder(null);
+        // Start with ASM pane hidden — divider pushed to the far right
         asmPane.setVisible(false);
-        codeArea.add(asmPane, gc);
+        splitPane.setDividerLocation(1.0);
+        splitPane.setResizeWeight(1.0);
 
         // ── assemble panels ──────────────────────────────────────────────────
         add(leftPane,  BorderLayout.WEST);
-        add(codeArea,  BorderLayout.CENTER);
+        add(splitPane, BorderLayout.CENTER);
 
         // ── wire events ───────────────────────────────────────────────────────
         fileList.addListSelectionListener(e -> {
@@ -841,14 +829,20 @@ public class SasmIdePanel extends JPanel {
         asmVisible = !asmVisible;
         asmPane.setVisible(asmVisible);
 
-        // Rebuild the GridBagLayout weights so the editor fills the space
-        GridBagLayout gbl = (GridBagLayout) codeArea.getLayout();
-        GridBagConstraints gc = gbl.getConstraints(asmPane);
-        gc.weightx = asmVisible ? 1.0 : 0.0;
-        gbl.setConstraints(asmPane, gc);
+        if (asmVisible) {
+            // Show ASM pane: place divider at 2/3 of the split pane width
+            // and allow the user to drag it freely.
+            splitPane.setResizeWeight(0.67);
+            splitPane.setDividerLocation(0.67);
+        } else {
+            // Hide ASM pane: push divider to the right edge and give all
+            // extra space to the editor.
+            splitPane.setResizeWeight(1.0);
+            splitPane.setDividerLocation(1.0);
+        }
 
-        codeArea.revalidate();
-        codeArea.repaint();
+        splitPane.revalidate();
+        splitPane.repaint();
 
         if (asmVisible) {
             // Refresh translation now that the pane is visible again
