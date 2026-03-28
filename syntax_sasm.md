@@ -26,7 +26,8 @@
 18. [Full Examples](#full-examples)
 
 > **See also:** [`doc/instruction_8086.md`](doc/instruction_8086.md) — comprehensive Intel 8086 instruction set reference with status, operands, and compatibility notes.  
-> **See also:** [`doc/instruction_x86_64.md`](doc/instruction_x86_64.md) — x86-64 (64-bit) instruction set reference: new registers, new instructions, and removed instructions.
+> **See also:** [`doc/instruction_x86_64.md`](doc/instruction_x86_64.md) — x86-64 (64-bit) instruction set reference: new registers, new instructions, and removed instructions.  
+> **See also:** [`doc/standards.md`](doc/standards.md) — coding standards, short-form reference, ambiguity clarifications, and TODO list.
 
 ---
 
