@@ -1677,7 +1677,7 @@ In addition to the English-phrase syntax above, SASM supports a compact
 **expression assignment** form using the operators `=`, `+`, `-`, `*`, `%` (modulo),
 `div`, `sdiv` (signed division), `mod`, `smod` (signed modulo),
 `<<` (left shift), `>>` (right shift),
-`&&` (bitwise AND), `||` (bitwise OR), `^^` (bitwise XOR),
+`&&` or `&` (bitwise AND), `||` or `|` (bitwise OR), `^^` or `^` (bitwise XOR),
 and `!` (bitwise NOT):
 
 ```
@@ -1692,9 +1692,9 @@ and `!` (bitwise NOT):
 <dst> = <op1> smod <op2>     // explicit signed modulo (always IDIV; remainder → dst)
 <dst> = <op1> << <op2>       // logical left shift (SHL)
 <dst> = <op1> >> <op2>       // right shift (auto: SHR or SAR based on var signedness)
-<dst> = <op1> && <op2>       // bitwise AND
-<dst> = <op1> || <op2>       // bitwise OR
-<dst> = <op1> ^^ <op2>       // bitwise XOR
+<dst> = <op1> && <op2>       // bitwise AND  (& is equivalent)
+<dst> = <op1> || <op2>       // bitwise OR   (| is equivalent)
+<dst> = <op1> ^^ <op2>       // bitwise XOR  (^ is equivalent)
 <dst> = !<src>               // bitwise NOT (one's complement)
 ```
 
@@ -1751,6 +1751,8 @@ produces one assembly instruction:
 | `ax = [myVar] + 5` | `MOV ax, [myVar]` / `ADD ax, 5` | Variable (memory) as operand |
 | `[counter] = [counter] + 1` | `ADD [counter], 1` | Variable as both destination and operand |
 | `ax = [buf + si] && 0xFF` | `MOV ax, [buf + si]` / `AND ax, 0xFF` | Indexed memory with bitwise AND |
+| `[result] = [v1] + [v2]` | `MOV AX, [v1]` / `ADD AX, [v2]` / `MOV [result], AX` | Both operands are memory — scratch AX used automatically |
+| `[result] = [v1] + [v2] - [v3]` | `MOV AX, [v1]` / `ADD AX, [v2]` / `SUB AX, [v3]` / `MOV [result], AX` | Chained mem-to-mem; scratch size matches declared type |
 
 #### Inline `++`/`--` in Expressions
 
@@ -1789,11 +1791,19 @@ var count as word = 10
 // CORRECT — brackets required for variable access:
 ax = [total] + [count]      // explicit brackets
 [total] = ax                 // explicit bracket destination
+[total] = [total] + [count]  // memory destination with two memory operands — OK
 
 // ERROR — bare variable names are NOT allowed:
 // ax = total + count        ← syntax error: use [total] + [count]
 // total = ax                ← syntax error: use [total]
 ```
+
+When the destination **and** one or more operands are all memory references,
+the translator automatically routes the computation through a scratch register
+(`AL`/`AX`/`EAX`/`RAX` chosen from the destination variable's declared type)
+and stores the result back.  x86 does not allow two memory operands in a
+single instruction; the translator inserts the intermediate register
+transparently.
 
 The `+` and `-` characters inside square brackets (e.g. `[buffer + bx]`) are
 treated as address arithmetic, not expression operators.
@@ -1805,9 +1815,29 @@ bit that "falls off" the right end goes to CF.  All other shifted-out bits are
 discarded.  You can test CF afterward with `jump if carry` / `jump if no carry`
 or use it in a `rotate left carry` / `rotate right carry` instruction.
 
-When the operand being shifted with `>>` is a variable declared as `signed`,
-the translator emits **SAR** (arithmetic shift, preserving the sign bit)
-instead of **SHR** (logical shift, filling with zeros).
+> **`>>` auto-selects `SHR` or `SAR` based on operand signedness**
+>
+> When the left operand of `>>` is a variable declared as `signed`, the
+> translator automatically emits **SAR** (arithmetic right shift — the sign bit
+> is copied into vacated high bits, so the value's sign is preserved).
+> For all other operands — registers, unsigned variables, and immediate values —
+> it emits **SHR** (logical right shift — high bits are filled with zeros).
+>
+> ```sasm
+> var sval as word signed   = -10   // signed variable
+> var uval as word unsigned = 200   // unsigned variable
+>
+> ax = [sval] >> 2    // SAR ax, 2   (sign-preserving: -10 >> 2 = -3)
+> ax = [uval] >> 2    // SHR ax, 2   (zero-fill:        200 >> 2 = 50)
+> ax = cx    >> 2    // SHR ax, 2   (register — always logical)
+> ```
+>
+> To force an arithmetic right shift regardless of how the variable was declared,
+> use the explicit keyword form:
+>
+> ```sasm
+> shift right signed ax by 2    // always SAR ax, 2
+> ```
 
 ---
 
@@ -1844,6 +1874,25 @@ instead of **SHR** (logical shift, filling with zeros).
 | `rotate right carry <dst> by <n>` | `RCR dst, n` | Rotate right through CF |
 | `shift left double <dst>, <src> by <n>` | `SHLD dst, src, n` | Shift `dst` left, bits shifting out come from `src` |
 | `shift right double <dst>, <src> by <n>` | `SHRD dst, src, n` | Shift `dst` right, bits shifting out come from `src` |
+
+### Right shift: keyword form vs `>>` expression operator
+
+The keyword form always emits a fixed instruction regardless of variable type:
+
+| Keyword form | Always emits | Behaviour |
+|---|---|---|
+| `shift right <dst> by <n>` | `SHR dst, n` | Logical — zeros fill high bits |
+| `shift right signed <dst> by <n>` | `SAR dst, n` | Arithmetic — sign bit replicated |
+
+The `>>` expression operator chooses automatically based on how the left operand was declared:
+
+| Left operand | `>>` emits | Example |
+|---|---|---|
+| Variable declared `signed` | `SAR` | `ax = [sval] >> 2` → `SAR ax, 2` |
+| Variable declared `unsigned` (or no modifier) | `SHR` | `ax = [uval] >> 2` → `SHR ax, 2` |
+| Register or immediate | `SHR` | `ax = cx >> 2` → `SHR ax, 2` |
+
+Use `shift right signed` when you need an arithmetic shift on a register or a variable that was not declared `signed`.
 
 ---
 

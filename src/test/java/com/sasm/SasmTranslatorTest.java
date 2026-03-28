@@ -820,4 +820,268 @@ class SasmTranslatorTest {
                         .anyMatch(e -> e.contains("bare variable name 'result'")),
                 "Bare destination with bracketed operands should produce error");
     }
+
+    // ── Short-form aliases ──────────────────────────────────────────────
+
+    /** {@code nop} is a short form for {@code no op} → {@code NOP}. */
+    @Test
+    void shortForm_nop_translatesTo_NOP() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "nop");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("NOP"),
+                "nop should translate to NOP, got: " + asm);
+    }
+
+    /** {@code addc} is a short form for {@code add with carry} → {@code ADC}. */
+    @Test
+    void shortForm_addc_translatesTo_ADC() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "addc ebx to eax");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("ADC eax, ebx"),
+                "addc ebx to eax should translate to ADC eax, ebx, got: " + asm);
+    }
+
+    /** {@code subb} is a short form for {@code subtract with borrow} → {@code SBB}. */
+    @Test
+    void shortForm_subb_translatesTo_SBB() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "subb ecx from eax");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("SBB eax, ecx"),
+                "subb ecx from eax should translate to SBB eax, ecx, got: " + asm);
+    }
+
+    /**
+     * Operator {@code !=} used as a condition word (after CMP) should map to
+     * {@code JNE} (just like {@code not equal}).
+     */
+    @Test
+    void shortForm_notEqualOperator_asConditionWord() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "compare ax with bx",
+                "goto .done if !=");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("JNE .done"),
+                "goto .done if != should emit JNE .done, got: " + asm);
+    }
+
+    /**
+     * Operator {@code >=} used as a condition word (after CMP) should map to
+     * {@code JGE} (just like {@code greater or equal}).
+     */
+    @Test
+    void shortForm_greaterOrEqualOperator_asConditionWord() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "compare ax with bx",
+                "goto .done if >=");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("JGE .done"),
+                "goto .done if >= should emit JGE .done, got: " + asm);
+    }
+
+    /**
+     * Unparenthesised operator comparison in {@code if} should emit
+     * {@code CMP} followed by the appropriate conditional jump.
+     */
+    @Test
+    void shortForm_ifWithOperatorCondition_noParens() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "if ax != bx {",
+                "    increment ax",
+                "}");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("CMP ax, bx"),
+                "if ax != bx should emit CMP ax, bx, got: " + asm);
+        assertTrue(asm.contains("JE"),
+                "if ax != bx should emit JE (inverted), got: " + asm);
+    }
+
+    // ── Single-char bitwise operator aliases ──────────────────────────
+
+    /** {@code &} is a single-char alias for {@code &&} → {@code AND}. */
+    @Test
+    void singleChar_and_translatesTo_AND() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "ax = bx & 0xFF");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("AND ax, 0xFF"),
+                "ax = bx & 0xFF should emit AND, got: " + asm);
+    }
+
+    /** {@code |} is a single-char alias for {@code ||} → {@code OR}. */
+    @Test
+    void singleChar_or_translatesTo_OR() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "ax = bx | 0x80");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("OR ax, 0x80"),
+                "ax = bx | 0x80 should emit OR, got: " + asm);
+    }
+
+    /** {@code ^} is a single-char alias for {@code ^^} → {@code XOR}. */
+    @Test
+    void singleChar_xor_translatesTo_XOR() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "ax = bx ^ 0xFF");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("XOR ax, 0xFF"),
+                "ax = bx ^ 0xFF should emit XOR, got: " + asm);
+    }
+
+    /**
+     * Double-char {@code &&} must still work after the single-char change,
+     * and must not be confused with two consecutive {@code &} operators.
+     */
+    @Test
+    void doubleChar_and_stillWorks() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "ax = ax && 0xFF");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("AND ax, 0xFF"),
+                "ax = ax && 0xFF should still emit AND, got: " + asm);
+    }
+
+    // ── Memory-to-memory expression operands ────────────────────────────
+
+    /**
+     * {@code [result] = [v1] + [v2]} — both operands are memory refs.
+     * Must route through scratch AX (word variables) instead of emitting
+     * the illegal {@code MOV [result],[v1]} / {@code ADD [result],[v2]}.
+     */
+    @Test
+    void memDst_memOp1_memOp2_routesThroughScratch_word() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "var result as word = 0",
+                "var v1 as word = 10",
+                "var v2 as word = 20",
+                "[result] = [v1] + [v2]");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("MOV AX, [v1]"),
+                "Should load v1 into scratch AX, got: " + asm);
+        assertTrue(asm.contains("ADD AX, [v2]"),
+                "Should add v2 to scratch AX, got: " + asm);
+        assertTrue(asm.contains("MOV [result], AX"),
+                "Should store AX to result, got: " + asm);
+        assertFalse(asm.contains("MOV [result], [v1]"),
+                "Should not emit illegal mem-to-mem MOV, got: " + asm);
+    }
+
+    /**
+     * {@code [result] = [v1] + [v2]} with dword variables must use EAX
+     * as scratch register.
+     */
+    @Test
+    void memDst_memOp1_memOp2_routesThroughScratch_dword() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "var result as dword = 0",
+                "var v1 as dword = 10",
+                "var v2 as dword = 20",
+                "[result] = [v1] + [v2]");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("MOV EAX, [v1]"),
+                "Should load into EAX for dword, got: " + asm);
+        assertTrue(asm.contains("ADD EAX, [v2]"),
+                "Should operate on EAX, got: " + asm);
+        assertTrue(asm.contains("MOV [result], EAX"),
+                "Should store EAX to dword result, got: " + asm);
+    }
+
+    /**
+     * Simple assignment {@code [result] = [v1]} (no operator) must not emit
+     * the illegal {@code MOV [result],[v1]} directly.
+     */
+    @Test
+    void memDst_memSrc_simpleAssign_routesThroughScratch() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "var result as word = 0",
+                "var v1 as word = 10",
+                "[result] = [v1]");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("MOV AX, [v1]"),
+                "Should load v1 into AX, got: " + asm);
+        assertTrue(asm.contains("MOV [result], AX"),
+                "Should store AX to result, got: " + asm);
+        assertFalse(asm.contains("MOV [result], [v1]"),
+                "Should not emit illegal mem-to-mem MOV, got: " + asm);
+    }
+
+    /**
+     * Chained expression {@code [result] = [v1] + [v2] + [v3]} must route
+     * all three operands through the scratch register.
+     */
+    @Test
+    void memDst_chainedMemOps_routesThroughScratch() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "var result as word = 0",
+                "var v1 as word = 1",
+                "var v2 as word = 2",
+                "var v3 as word = 3",
+                "[result] = [v1] + [v2] + [v3]");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("MOV AX, [v1]"), "Should load v1 into AX, got: " + asm);
+        assertTrue(asm.contains("ADD AX, [v2]"), "Should add v2 to AX, got: " + asm);
+        assertTrue(asm.contains("ADD AX, [v3]"), "Should add v3 to AX, got: " + asm);
+        assertTrue(asm.contains("MOV [result], AX"), "Should store AX to result, got: " + asm);
+    }
+
+    /**
+     * When dst is a memory ref and op2 is memory (but op1 is a register),
+     * the expression must still route through scratch.
+     */
+    @Test
+    void memDst_regOp1_memOp2_routesThroughScratch() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "var result as word = 0",
+                "var v2 as word = 20",
+                "[result] = bx + [v2]");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("ADD AX, [v2]"),
+                "Should add mem operand to scratch AX, got: " + asm);
+        assertTrue(asm.contains("MOV [result], AX"),
+                "Should store AX to result, got: " + asm);
+        assertFalse(asm.contains("ADD [result], [v2]"),
+                "Should not emit illegal two-mem-operand ADD, got: " + asm);
+    }
 }
