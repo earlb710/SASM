@@ -747,4 +747,77 @@ class SasmTranslatorTest {
         assertEquals(2, count,
                 "Two calls to inline proc should produce two INC eax");
     }
+
+    // ── Bare variable name rejection in expression assignments ───────────
+
+    /**
+     * A bare variable name used as the destination of an expression
+     * assignment should produce an error.
+     */
+    @Test
+    void bareVarAsDestination_producesError() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "var result as word = 0",
+                "result = ax");
+        t.translate(src);
+        assertTrue(t.getErrors().stream()
+                        .anyMatch(e -> e.contains("bare variable name 'result'")),
+                "Bare variable destination should produce an error");
+    }
+
+    /**
+     * A bare variable name used as an operand in an expression
+     * assignment should produce an error.
+     */
+    @Test
+    void bareVarAsOperand_producesError() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "var value1 as word = 10",
+                "ax = value1 + 5");
+        t.translate(src);
+        assertTrue(t.getErrors().stream()
+                        .anyMatch(e -> e.contains("bare variable name 'value1'")),
+                "Bare variable operand should produce an error");
+    }
+
+    /**
+     * Bracketed variable names in expression assignments should NOT
+     * produce errors.
+     */
+    @Test
+    void bracketedVar_noError() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "var result as word = 0",
+                "var value1 as word = 10",
+                "[result] = [value1] + 5");
+        t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Bracketed variables should not produce errors, but got: "
+                + t.getErrors());
+    }
+
+    /**
+     * Mixed bare/bracketed in expression: bare destination
+     * should still produce error even when operands are bracketed.
+     */
+    @Test
+    void bareDestBracketedOperands_producesError() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "var val1 as word = 5",
+                "var val2 as word = 10",
+                "var result as word = 0",
+                "result = [val1] * [val2] + ax");
+        t.translate(src);
+        assertTrue(t.getErrors().stream()
+                        .anyMatch(e -> e.contains("bare variable name 'result'")),
+                "Bare destination with bracketed operands should produce error");
+    }
 }

@@ -66,28 +66,28 @@ proc test_expressions {
     // bitwise NOT
     ax = ![value1]                    // ax = ~10
 
-    // bare variable names (auto-wrapped in brackets)
-    ax = value1                       // ax = 10 (bare name → [value1])
-    ax = value1 + value2              // ax = 10 + 20 = 30 (bare names)
-    bx = value2 - value1              // bx = 20 - 10 = 10
-    result = ax                       // result = 30 (bare dest)
-    ax = signedVal + unsgnVal         // ax = -10 + 200 = 190
-    ax = value1 + value2 - 5          // chained: ax = 10 + 20 - 5 = 25
-    ax = value1 * 3                   // ax = 10 * 3 = 30 (bare multiply)
-    ax = !value1                      // ax = ~10 (bare NOT)
+    // bracketed variable names (required for expression assignment)
+    ax = [value1]                     // ax = 10
+    ax = [value1] + [value2]          // ax = 10 + 20 = 30
+    bx = [value2] - [value1]          // bx = 20 - 10 = 10
+    [result] = ax                     // result = 30
+    ax = [signedVal] + [unsgnVal]     // ax = -10 + 200 = 190
+    ax = [value1] + [value2] - 5      // chained: ax = 10 + 20 - 5 = 25
+    ax = [value1] * 3                 // ax = 10 * 3 = 30
+    ax = ![value1]                    // ax = ~10
 
     // signed-aware operations: div auto-selects IDIV when operand is signed
-    ax = signedVal div 5              // signed dividend → CWD + IDIV
-    ax = value1 div 5                 // unsigned dividend → XOR DX,DX + DIV
-    ax = 100 div signedVal            // signed divisor → CWD + IDIV
+    ax = [signedVal] div 5            // signed dividend → CWD + IDIV
+    ax = [value1] div 5               // unsigned dividend → XOR DX,DX + DIV
+    ax = 100 div [signedVal]          // signed divisor → CWD + IDIV
 
     // explicit signed division with sdiv keyword
-    ax = unsgnVal sdiv 10             // explicit sdiv → always CWD + IDIV
+    ax = [unsgnVal] sdiv 10           // explicit sdiv → always CWD + IDIV
 
     // signed-aware right shift: SAR for signed vars, SHR for unsigned
-    ax = signedVal >> 2               // signed → SAR ax, 2
-    ax = value1 >> 2                  // unsigned → SHR ax, 2
-    ax = signedVal >> 2 + 1           // chained: signed → SAR, then ADD
+    ax = [signedVal] >> 2             // signed → SAR ax, 2
+    ax = [value1] >> 2                // unsigned → SHR ax, 2
+    ax = [signedVal] >> 2 + 1         // chained: signed → SAR, then ADD
 
     return
 }

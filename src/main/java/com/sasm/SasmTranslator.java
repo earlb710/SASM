@@ -1588,8 +1588,13 @@ public class SasmTranslator {
         String rhs = m.group(2).trim();
         if (dst.isEmpty() || rhs.isEmpty()) return null;
 
-        // Auto-wrap bare variable names on the destination side
-        dst = wrapIfVar(dst);
+        // Reject bare variable names on the destination side — brackets are required
+        if (isBareVar(dst)) {
+            errors.add("line " + currentLine
+                    + ": bare variable name '" + dst
+                    + "' used as expression destination — use [" + dst + "] instead");
+            dst = "[" + dst + "]";
+        }
 
         // Tokenize the RHS into operands and operators
         List<String> operands = new ArrayList<>();
@@ -1622,9 +1627,15 @@ public class SasmTranslator {
             }
         }
 
-        // Auto-wrap bare variable names in operands
+        // Reject bare variable names in operands — brackets are required
         for (int i = 0; i < operands.size(); i++) {
-            operands.set(i, wrapIfVar(operands.get(i)));
+            String op = operands.get(i);
+            if (isBareVar(op)) {
+                errors.add("line " + currentLine
+                        + ": bare variable name '" + op
+                        + "' used in expression — use [" + op + "] instead");
+                operands.set(i, "[" + op + "]");
+            }
         }
 
         if (operands.isEmpty()) return null;
@@ -1660,7 +1671,7 @@ public class SasmTranslator {
             if (sole.startsWith("!")) {
                 String inner = sole.substring(1).trim();
                 if (inner.isEmpty()) return null;
-                inner = wrapIfVar(inner);
+                inner = wrapIfBareVar(inner);
                 boolean sameAsDst = dst.equalsIgnoreCase(inner);
                 return sameAsDst
                         ? "    NOT " + dst
@@ -2064,6 +2075,32 @@ public class SasmTranslator {
         if (operand.startsWith("[")) return operand;            // already bracketed
         if (regWidth(operand) != null) return operand;          // register name
         if (declaredVars.containsKey(operand)) return "[" + operand + "]";
+        return operand;
+    }
+
+    /**
+     * Returns {@code true} if the given operand is a bare (un-bracketed)
+     * identifier that was declared with {@code var} or {@code data}.
+     * Registers, immediates, and already-bracketed names return {@code false}.
+     */
+    private boolean isBareVar(String operand) {
+        if (operand.startsWith("[")) return false;              // already bracketed
+        if (regWidth(operand) != null) return false;            // register name
+        return declaredVars.containsKey(operand);
+    }
+
+    /**
+     * Like {@link #wrapIfVar} but also emits an error when wrapping is needed
+     * (used in the unary NOT path inside buildExpressionCore where operands
+     * have already been validated but the NOT inner operand has not).
+     */
+    private String wrapIfBareVar(String operand) {
+        if (isBareVar(operand)) {
+            errors.add("line " + currentLine
+                    + ": bare variable name '" + operand
+                    + "' used in expression — use [" + operand + "] instead");
+            return "[" + operand + "]";
+        }
         return operand;
     }
 
