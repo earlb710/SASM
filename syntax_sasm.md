@@ -146,8 +146,9 @@ and accesses the **value stored at that address**:
 | `[result]` | The value stored at address `result` | `[result]` (memory dereference) |
 
 **Rule:** `result` is always the pointer/memory address; `[result]` is always
-the value at that pointer. Use brackets whenever you intend to **read or write**
-the value.
+the value at that pointer. Brackets are **required** whenever you intend to
+**read or write** the value. Using a bare variable name without brackets in an
+expression assignment is a syntax error.
 
 ```sasm
 data val1   as word = 5
@@ -159,8 +160,8 @@ data result as word = 0
 // Reads the value at val1, multiplies by the value at val2,
 // adds the contents of ax, and stores the result at the address 'result'.
 
-// Also correct — the translator auto-wraps bare variable names in brackets:
-result = val1 * val2 + ax        // equivalent to [result] = [val1] * [val2] + ax
+// ERROR — bare variable names are NOT allowed in expression assignments:
+// result = [val1] * [val2] + ax      ← syntax error: use [result] instead
 ```
 
 To obtain a variable's **address** as a value (rather than the stored content), use
@@ -1749,8 +1750,6 @@ produces one assembly instruction:
 | `ax = [myVar] + 5` | `MOV ax, [myVar]` / `ADD ax, 5` | Variable (memory) as operand |
 | `[counter] = [counter] + 1` | `ADD [counter], 1` | Variable as both destination and operand |
 | `ax = [buf + si] && 0xFF` | `MOV ax, [buf + si]` / `AND ax, 0xFF` | Indexed memory with bitwise AND |
-| `ax = myVar + 5` | `MOV ax, [myVar]` / `ADD ax, 5` | Bare variable name (auto-wrapped) |
-| `result = ax` | `MOV [result], ax` | Bare variable destination (auto-wrapped) |
 
 #### Inline `++`/`--` in Expressions
 
@@ -1774,25 +1773,25 @@ cx = ++bx               // INC bx; MOV cx, bx (increment, then copy)
 | `cx = ax * ++bx` | `INC bx` / `MOV cx, ax` / `IMUL cx, bx` | Pre-increment: INC before expression |
 | `cx = ax + bx--` | `MOV cx, ax` / `ADD cx, bx` / `DEC bx` | Post-decrement: DEC after expression |
 | `cx = ax + --bx` | `DEC bx` / `MOV cx, ax` / `ADD cx, bx` | Pre-decrement: DEC before expression |
-| `ax = counter++ + 5` | `MOV ax, [counter]` / `ADD ax, 5` / `INC [counter]` | Variable with post-increment |
-| `ax = ++counter + 5` | `INC [counter]` / `MOV ax, [counter]` / `ADD ax, 5` | Variable with pre-increment |
+| `ax = [counter]++ + 5` | `MOV ax, [counter]` / `ADD ax, 5` / `INC [counter]` | Variable with post-increment |
+| `ax = ++[counter] + 5` | `INC [counter]` / `MOV ax, [counter]` / `ADD ax, 5` | Variable with pre-increment |
 
 Operands may be registers, immediates, or memory references (variables).
-When a variable defined with `var` is used in an expression, you can wrap it in
-square brackets (e.g. `[myVar]`) to access its value, or use the bare variable
-name directly — the translator automatically wraps known variable names in
-brackets:
+Variables must be enclosed in square brackets (e.g. `[myVar]`) to access
+their value — bare variable names are not permitted in expression
+assignments:
 
 ```sasm
-var total word = 0
-var count word = 10
+var total as word = 0
+var count as word = 10
 
-// The following pairs are equivalent:
+// CORRECT — brackets required for variable access:
 ax = [total] + [count]      // explicit brackets
-ax = total + count           // bare names (auto-wrapped)
-
 [total] = ax                 // explicit bracket destination
-total = ax                   // bare name destination (auto-wrapped)
+
+// ERROR — bare variable names are NOT allowed:
+// ax = total + count        ← syntax error: use [total] and [count]
+// total = ax                ← syntax error: use [total]
 ```
 
 The `+` and `-` characters inside square brackets (e.g. `[buffer + bx]`) are
