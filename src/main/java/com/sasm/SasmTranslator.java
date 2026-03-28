@@ -1343,7 +1343,8 @@ public class SasmTranslator {
         if (m.matches()) {
             String name = m.group(1);
             String dir  = sizeDirective(m.group(2));
-            return name + ": " + dir + " " + m.group(3).trim();
+            String value = expandStringLiterals(m.group(3).trim());
+            return name + ": " + dir + " " + value;
         }
         return null;
     }
@@ -1357,7 +1358,7 @@ public class SasmTranslator {
             boolean signed = "signed".equals(m.group(4));
             declaredVars.put(name, signed);
             String dir   = sizeDirective(m.group(2));
-            String value = m.group(5).trim();
+            String value = expandStringLiterals(m.group(5).trim());
             if (dims != null) {
                 int count = parseTotalCount(dims);
                 return name + ": TIMES " + count + " " + dir + " " + value;
@@ -2093,6 +2094,53 @@ public class SasmTranslator {
             case "double" -> "DQ";
             default       -> "DB";
         };
+    }
+
+    /** Pattern matching a double-quoted string literal, including escape sequences. */
+    private static final Pattern STRING_LITERAL = Pattern.compile("\"((?:[^\"\\\\]|\\\\.)*)\"");
+
+    /**
+     * Expands double-quoted string literals in a value expression to individual
+     * single-quoted character bytes separated by commas.  For example,
+     * {@code "abc"} becomes {@code 'a','b','c'} and {@code "hi", 0} becomes
+     * {@code 'h','i', 0}.  Recognised escape sequences:
+     * {@code \n} (10), {@code \t} (9), {@code \r} (13), {@code \0} (0),
+     * {@code \\} (backslash), {@code \"} (double-quote).
+     * Non-string parts of the expression are kept unchanged.
+     */
+    static String expandStringLiterals(String value) {
+        if (!value.contains("\"")) return value;
+
+        StringBuilder result = new StringBuilder();
+        Matcher m = STRING_LITERAL.matcher(value);
+        int lastEnd = 0;
+        while (m.find()) {
+            result.append(value, lastEnd, m.start());
+            String content = m.group(1);
+            StringBuilder expanded = new StringBuilder();
+            for (int i = 0; i < content.length(); i++) {
+                if (expanded.length() > 0) expanded.append(',');
+                if (content.charAt(i) == '\\' && i + 1 < content.length()) {
+                    char next = content.charAt(i + 1);
+                    switch (next) {
+                        case 'n':  expanded.append("10"); break;
+                        case 't':  expanded.append("9");  break;
+                        case 'r':  expanded.append("13"); break;
+                        case '0':  expanded.append("0");  break;
+                        case '\\': expanded.append("'\\\\'"); break;
+                        case '"':  expanded.append("'\"'"); break;
+                        default:   expanded.append("'").append(next).append("'"); break;
+                    }
+                    i++;
+                } else {
+                    expanded.append("'").append(content.charAt(i)).append("'");
+                }
+            }
+            result.append(expanded);
+            lastEnd = m.end();
+        }
+        result.append(value, lastEnd, value.length());
+        return result.toString();
     }
 
     /**

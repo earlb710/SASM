@@ -490,4 +490,90 @@ class SasmTranslatorTest {
         assertFalse(asm.contains("MOV dx, DX"),
                 "should not emit redundant MOV when dst is remainder reg");
     }
+
+    // ── string literal expansion in data/var declarations ──────────────
+
+    @Test
+    void stringLiteralInData_expandedToCharBytes() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .data",
+                "data msg as byte = \"abcde\"");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("msg: DB 'a','b','c','d','e'"),
+                "double-quoted string should expand to individual char bytes");
+    }
+
+    @Test
+    void stringLiteralInVar_expandedToCharBytes() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .data",
+                "var greeting as byte = \"Hi\"");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("greeting: DB 'H','i'"),
+                "double-quoted string in var should expand to individual char bytes");
+    }
+
+    @Test
+    void stringLiteralWithTrailingNull() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .data",
+                "data msg as byte = \"Hello\", 0");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("'H','e','l','l','o', 0"),
+                "string with trailing null should expand correctly");
+    }
+
+    @Test
+    void stringLiteralEscapeNewline() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .data",
+                "data nl as byte = \"a\\n\"");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("'a',10"),
+                "\\n should expand to numeric 10");
+    }
+
+    @Test
+    void stringLiteralEscapeNull() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .data",
+                "data nul as byte = \"ab\\0\"");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("'a','b',0"),
+                "\\0 should expand to numeric 0");
+    }
+
+    @Test
+    void noStringLiterals_passThroughUnchanged() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .data",
+                "data arr as byte = 'x','y','z'");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("arr: DB 'x','y','z'"),
+                "single-quoted chars should pass through unchanged");
+    }
+
+    @Test
+    void expandStringLiterals_directUnitTest() {
+        assertEquals("'a','b','c','d','e'",
+                SasmTranslator.expandStringLiterals("\"abcde\""));
+        assertEquals("'H','i', 0",
+                SasmTranslator.expandStringLiterals("\"Hi\", 0"));
+        assertEquals("'a',10",
+                SasmTranslator.expandStringLiterals("\"a\\n\""));
+        assertEquals("'a','b',0",
+                SasmTranslator.expandStringLiterals("\"ab\\0\""));
+        assertEquals("42",
+                SasmTranslator.expandStringLiterals("42"),
+                "no quotes should return unchanged");
+        assertEquals("'x','y','z'",
+                SasmTranslator.expandStringLiterals("'x','y','z'"),
+                "single-quoted chars should be unchanged");
+    }
 }
