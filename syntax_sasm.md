@@ -1790,7 +1790,7 @@ ax = [total] + [count]      // explicit brackets
 [total] = ax                 // explicit bracket destination
 
 // ERROR — bare variable names are NOT allowed:
-// ax = total + count        ← syntax error: use [total] and [count]
+// ax = total + count        ← syntax error: use [total] + [count]
 // total = ax                ← syntax error: use [total]
 ```
 
