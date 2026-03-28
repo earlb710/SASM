@@ -22,16 +22,16 @@ var result  as word = 0
    ----------------------------------------------------------------- *)
 proc test_expression_auto_wrap {
     -- simple assignment: bare name vs explicit brackets
-    ax = total                       -- MOV ax, [total]
-    ax = [total]                     -- MOV ax, [total]  (same)
+    ax = total                       -- bare name → MOV ax, [total]
+    ax = [total]                     -- explicit brackets → MOV ax, [total]  (identical output)
 
     -- arithmetic: bare names vs explicit brackets
-    ax = total + count               -- MOV ax, [total] / ADD ax, [count]
-    ax = [total] + [count]           -- MOV ax, [total] / ADD ax, [count]
+    ax = total + count               -- bare names → MOV ax, [total] / ADD ax, [count]
+    ax = [total] + [count]           -- explicit brackets → MOV ax, [total] / ADD ax, [count]  (identical)
 
     -- variable as destination
-    result = ax                      -- MOV [result], ax
-    [result] = ax                    -- MOV [result], ax  (same)
+    result = ax                      -- bare name → MOV [result], ax
+    [result] = ax                    -- explicit brackets → MOV [result], ax  (identical)
 
     return
 }

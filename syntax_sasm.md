@@ -1218,8 +1218,8 @@ contexts:
 In these contexts, `result` and `[result]` are **identical**:
 
 ```sasm
-var total word = 0
-var count word = 10
+var total as word = 0
+var count as word = 10
 
 -- The following pairs produce the same assembly:
 ax = [total] + [count]      -- explicit brackets → MOV ax, [total] / ADD ax, [count]
@@ -1239,7 +1239,7 @@ etc.) do **not** auto-wrap variable names.  You must write the brackets
 yourself to dereference the variable's value:
 
 ```sasm
-var total word = 0
+var total as word = 0
 
 move [total] to ax            -- correct: MOV ax, [total]  (loads the value)
 compare ax with [total]       -- correct: CMP ax, [total]  (compares value)
