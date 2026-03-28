@@ -1483,8 +1483,9 @@ either value may be negative.
 ### Expression Assignment Shorthand
 
 In addition to the English-phrase syntax above, SASM supports a compact
-**expression assignment** form using the operators `=`, `+`, `-`, `*`, `div`,
-`sdiv` (signed division), `<<` (left shift), `>>` (right shift),
+**expression assignment** form using the operators `=`, `+`, `-`, `*`, `%` (modulo),
+`div`, `sdiv` (signed division), `mod`, `smod` (signed modulo),
+`<<` (left shift), `>>` (right shift),
 `&&` (bitwise AND), `||` (bitwise OR), `^^` (bitwise XOR),
 and `!` (bitwise NOT):
 
@@ -1495,6 +1496,9 @@ and `!` (bitwise NOT):
 <dst> = <op1> * <op2>        // multiplication (signed, IMUL)
 <dst> = <op1> div <op2>      // division (auto: DIV or IDIV based on var signedness)
 <dst> = <op1> sdiv <op2>     // explicit signed division (always IDIV)
+<dst> = <op1> % <op2>        // modulo (auto: DIV or IDIV; remainder → dst)
+<dst> = <op1> mod <op2>      // modulo keyword form (same as %)
+<dst> = <op1> smod <op2>     // explicit signed modulo (always IDIV; remainder → dst)
 <dst> = <op1> << <op2>       // logical left shift (SHL)
 <dst> = <op1> >> <op2>       // right shift (auto: SHR or SAR based on var signedness)
 <dst> = <op1> && <op2>       // bitwise AND
@@ -1525,6 +1529,11 @@ produces one assembly instruction:
 | `eax = ecx div ebx` | `MOV EAX, ecx` / `XOR EDX, EDX` / `DIV ebx` | 32-bit unsigned version |
 | `eax = sVal div ebx` | `MOV EAX, [sVal]` / `CDQ` / `IDIV ebx` | 32-bit signed version (sVal is signed) |
 | `rax = rcx div rbx` | `MOV RAX, rcx` / `XOR RDX, RDX` / `DIV rbx` | 64-bit unsigned version |
+| `ax = cx % bx` | `MOV AX, cx` / `XOR DX, DX` / `DIV bx` / `MOV ax, DX` | Unsigned modulo; remainder → ax |
+| `eax = ecx % ebx` | `MOV EAX, ecx` / `XOR EDX, EDX` / `DIV ebx` / `MOV eax, EDX` | 32-bit unsigned modulo |
+| `rax = rcx % rbx` | `MOV RAX, rcx` / `XOR RDX, RDX` / `DIV rbx` / `MOV rax, RDX` | 64-bit unsigned modulo |
+| `ax = cx mod bx` | `MOV AX, cx` / `XOR DX, DX` / `DIV bx` / `MOV ax, DX` | `mod` keyword (same as `%`) |
+| `ax = cx smod bx` | `MOV AX, cx` / `CWD` / `IDIV bx` / `MOV ax, DX` | Explicit signed modulo (always IDIV) |
 | `ax = bx + 3 + dx` | `MOV ax, bx` / `ADD ax, 3` / `ADD ax, dx` | Chained addition with immediate constant |
 | `ax = bx + 3 + dx * 2` | `MOV ax, bx` / `ADD ax, 3` / `ADD ax, dx` / `IMUL ax, 2` | Mixed operators, left-to-right |
 | `ax = ax + 3 + bx` | `ADD ax, 3` / `ADD ax, bx` | First operand matches `dst` — `MOV` elided |

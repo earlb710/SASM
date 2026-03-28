@@ -1489,7 +1489,7 @@ public class SasmTranslator {
 
         // Tokenize the RHS into operands and operators
         List<String> operands = new ArrayList<>();
-        List<Integer> operators = new ArrayList<>(); // '+', '-', '*', 'd' (div), 'S' (sdiv), 'L' (<<), 'R' (>>), 'A' (&& bitwise AND), 'O' (|| bitwise OR), 'X' (^^ bitwise XOR); unary '!' handled separately
+        List<Integer> operators = new ArrayList<>(); // '+', '-', '*', '%' (mod), 'd' (div), 'S' (sdiv), 'm' (mod keyword), 'M' (smod keyword), 'L' (<<), 'R' (>>), 'A' (&& bitwise AND), 'O' (|| bitwise OR), 'X' (^^ bitwise XOR); unary '!' handled separately
         splitExprTokens(rhs, operands, operators);
 
         // ── Detect inline ++/-- on operands (pre/post-increment/decrement) ──
@@ -1608,13 +1608,19 @@ public class SasmTranslator {
                 case 'd' -> buildDiv(dst, op1, op2,
                         isSignedVar(op1) || isSignedVar(op2));
                 case 'S' -> buildDiv(dst, op1, op2, true);
+                case '%' -> buildMod(dst, op1, op2,
+                        isSignedVar(op1) || isSignedVar(op2));
+                case 'm' -> buildMod(dst, op1, op2,
+                        isSignedVar(op1) || isSignedVar(op2));
+                case 'M' -> buildMod(dst, op1, op2, true);
                 default  -> null;
             };
         }
 
         // Multiple operators: emit left-to-right instruction sequence.
         for (int opKind : operators) {
-            if (opKind == 'd' || opKind == 'S') return null;
+            if (opKind == 'd' || opKind == 'S' || opKind == '%'
+                    || opKind == 'm' || opKind == 'M') return null;
         }
 
         boolean firstSigned = isSignedVar(operands.get(0));
@@ -1698,6 +1704,42 @@ public class SasmTranslator {
     }
 
     /**
+     * Builds the NASM instruction sequence for a modulo expression
+     * {@code dst = op1 % op2} (or {@code mod}/{@code smod}).
+     *
+     * <p>Works like {@link #buildDiv} but moves the <em>remainder</em>
+     * (from the high register: AH/DX/EDX/RDX) into the destination
+     * instead of the quotient.</p>
+     */
+    private static String buildMod(String dst, String op1, String op2,
+                                   boolean signed) {
+        String[] pair = divRegisters(dst, op1);
+        String quot = pair[0]; // AL / AX / EAX / RAX  (quotient register)
+        String high = pair[1]; // AH / DX / EDX / RDX  (remainder register)
+
+        StringBuilder sb = new StringBuilder();
+        if (!op1.equalsIgnoreCase(quot)) {
+            sb.append("    MOV ").append(quot).append(", ").append(op1).append('\n');
+        }
+        if (signed) {
+            String ext = signExtendInsn(high);
+            if (ext != null) {
+                sb.append("    ").append(ext).append('\n');
+            }
+        } else {
+            if (high != null) {
+                sb.append("    XOR ").append(high).append(", ").append(high).append('\n');
+            }
+        }
+        sb.append(signed ? "    IDIV " : "    DIV ").append(op2);
+        // Remainder is in the high register — move it to dst if needed
+        if (high != null && !dst.equalsIgnoreCase(high)) {
+            sb.append('\n').append("    MOV ").append(dst).append(", ").append(high);
+        }
+        return sb.toString();
+    }
+
+    /**
      * Returns the sign-extension mnemonic for the given high register.
      * <ul>
      *   <li>{@code AH} → {@code CBW} (sign-extend AL → AX)</li>
@@ -1758,9 +1800,9 @@ public class SasmTranslator {
      * Splits an expression RHS into operands and operators.
      *
      * <p>Scans the string left to right at bracket depth&nbsp;0,
-     * splitting on {@code +}, {@code -}, {@code *}, {@code <<},
-     * {@code >>}, {@code &&}, {@code ||}, and the keywords {@code div}
-     * and {@code sdiv}.
+     * splitting on {@code +}, {@code -}, {@code *}, {@code %},
+     * {@code <<}, {@code >>}, {@code &&}, {@code ||}, and the keywords
+     * {@code div}, {@code sdiv}, {@code mod}, and {@code smod}.
      * Operators inside square brackets or quotes are ignored.
      * A leading {@code -} (unary minus) is treated as part of the
      * first operand, not as a binary operator.</p>
@@ -1768,12 +1810,13 @@ public class SasmTranslator {
      * @param rhs       the right-hand side of the expression
      * @param operands  (out) list of operand strings, trimmed
      * @param operators (out) list of operator kinds: {@code '+'}, {@code '-'},
-     *                  {@code '*'}, {@code 'L'} (for {@code <<}),
+     *                  {@code '*'}, {@code '%'}, {@code 'L'} (for {@code <<}),
      *                  {@code 'R'} (for {@code >>}), {@code 'A'}
      *                  (for {@code &&}), {@code 'O'} (for {@code ||}),
      *                  {@code 'X'} (for {@code ^^}),
-     *                  {@code 'd'} (for {@code div}), or
-     *                  {@code 'S'} (for {@code sdiv})
+     *                  {@code 'd'} (for {@code div}), {@code 'S'}
+     *                  (for {@code sdiv}), {@code 'm'} (for {@code mod}),
+     *                  or {@code 'M'} (for {@code smod})
      */
     private static void splitExprTokens(String rhs,
                                          List<String> operands,
@@ -1821,7 +1864,7 @@ public class SasmTranslator {
             // Single-character operators
             // i > 0 allows a leading '-' (unary minus) to be treated as part
             // of the first operand rather than as a binary subtraction operator.
-            if ((c == '+' || c == '-' || c == '*') && i > 0) {
+            if ((c == '+' || c == '-' || c == '*' || c == '%') && i > 0) {
                 String before = rhs.substring(start, i).trim();
                 if (!before.isEmpty()) {
                     operands.add(before);
@@ -1859,6 +1902,40 @@ public class SasmTranslator {
                     if (!before.isEmpty()) {
                         operands.add(before);
                         operators.add((int) 'd');
+                        start = i + 3;
+                        continue;
+                    }
+                }
+            }
+            // 'smod' keyword with word boundaries (signed modulo)
+            if (c == 's' && i > 0 && i + 3 < rhs.length()
+                    && rhs.charAt(i + 1) == 'm' && rhs.charAt(i + 2) == 'o'
+                    && rhs.charAt(i + 3) == 'd') {
+                boolean wBefore = !isIdentChar(rhs.charAt(i - 1));
+                boolean wAfter  = i + 4 >= rhs.length()
+                        || !isIdentChar(rhs.charAt(i + 4));
+                if (wBefore && wAfter) {
+                    String before = rhs.substring(start, i).trim();
+                    if (!before.isEmpty()) {
+                        operands.add(before);
+                        operators.add((int) 'M');  // 'M' for signed mod
+                        start = i + 4;
+                        continue;
+                    }
+                }
+            }
+            // 'mod' keyword with word boundaries
+            if (c == 'm' && i + 2 < rhs.length()
+                    && rhs.charAt(i + 1) == 'o' && rhs.charAt(i + 2) == 'd'
+                    && i > 0) {
+                boolean wBefore = !isIdentChar(rhs.charAt(i - 1));
+                boolean wAfter  = i + 3 >= rhs.length()
+                        || !isIdentChar(rhs.charAt(i + 3));
+                if (wBefore && wAfter) {
+                    String before = rhs.substring(start, i).trim();
+                    if (!before.isEmpty()) {
+                        operands.add(before);
+                        operators.add((int) 'm');  // 'm' for unsigned mod
                         start = i + 3;
                         continue;
                     }

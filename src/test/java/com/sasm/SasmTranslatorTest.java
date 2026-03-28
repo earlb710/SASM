@@ -386,4 +386,108 @@ class SasmTranslatorTest {
         assertTrue(asm.contains("__float32__(1.5)"),
                 "data float macro parentheses should be preserved");
     }
+
+    // ── Modulo (%) operator ──────────────────────────────────────────────
+
+    /**
+     * {@code ax = cx % bx} should emit unsigned DIV and move remainder
+     * from DX into ax.
+     */
+    @Test
+    void modPercent_16bit_unsigned() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "ax = cx % bx");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("MOV AX, cx"), "should move dividend into AX");
+        assertTrue(asm.contains("XOR DX, DX"), "should zero-extend DX");
+        assertTrue(asm.contains("DIV bx"), "should emit unsigned DIV");
+        assertTrue(asm.contains("MOV ax, DX"), "should move remainder (DX) to dst");
+    }
+
+    /**
+     * {@code eax = ecx % ebx} should emit 32-bit unsigned DIV and move
+     * remainder from EDX.
+     */
+    @Test
+    void modPercent_32bit_unsigned() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "eax = ecx % ebx");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("MOV EAX, ecx"), "should move dividend into EAX");
+        assertTrue(asm.contains("XOR EDX, EDX"), "should zero-extend EDX");
+        assertTrue(asm.contains("DIV ebx"), "should emit unsigned DIV");
+        assertTrue(asm.contains("MOV eax, EDX"), "should move remainder (EDX) to dst");
+    }
+
+    /**
+     * {@code rax = rcx % rbx} should emit 64-bit unsigned DIV and move
+     * remainder from RDX.
+     */
+    @Test
+    void modPercent_64bit_unsigned() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "rax = rcx % rbx");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("MOV RAX, rcx"), "should move dividend into RAX");
+        assertTrue(asm.contains("XOR RDX, RDX"), "should zero-extend RDX");
+        assertTrue(asm.contains("DIV rbx"), "should emit unsigned DIV");
+        assertTrue(asm.contains("MOV rax, RDX"), "should move remainder (RDX) to dst");
+    }
+
+    /**
+     * {@code ax = cx mod bx} using the 'mod' keyword should emit
+     * unsigned DIV and extract remainder.
+     */
+    @Test
+    void modKeyword_unsigned() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "ax = cx mod bx");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("MOV AX, cx"), "should move dividend into AX");
+        assertTrue(asm.contains("XOR DX, DX"), "should zero-extend DX");
+        assertTrue(asm.contains("DIV bx"), "should emit unsigned DIV");
+        assertTrue(asm.contains("MOV ax, DX"), "should move remainder (DX) to dst");
+    }
+
+    /**
+     * {@code ax = cx smod bx} using the 'smod' keyword should emit
+     * signed IDIV and extract remainder.
+     */
+    @Test
+    void smodKeyword_signed() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "ax = cx smod bx");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("MOV AX, cx"), "should move dividend into AX");
+        assertTrue(asm.contains("CWD"), "should sign-extend AX -> DX:AX");
+        assertTrue(asm.contains("IDIV bx"), "should emit signed IDIV");
+        assertTrue(asm.contains("MOV ax, DX"), "should move remainder (DX) to dst");
+    }
+
+    /**
+     * When the destination is already the remainder register (e.g. dx),
+     * the final MOV should be elided.
+     */
+    @Test
+    void modPercent_dstIsRemainderReg_noExtraMov() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "dx = cx % bx");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("DIV bx"), "should emit DIV");
+        // DX already holds the remainder, no need for MOV dx, DX
+        assertFalse(asm.contains("MOV dx, DX"),
+                "should not emit redundant MOV when dst is remainder reg");
+    }
 }

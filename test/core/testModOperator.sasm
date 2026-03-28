@@ -1,0 +1,35 @@
+// Test: Modulo operator (%, mod, smod)
+//
+// Verifies that the modulo operator generates the correct NASM output.
+// Modulo uses DIV/IDIV like division but returns the remainder
+// from the high register (DX/EDX/RDX) instead of the quotient.
+
+section .data
+    var dividend as word = 17
+    var divisor  as word = 5
+
+section .text
+
+// ── % operator (unsigned modulo) ─────────────────────────────────
+// 17 % 5 = 2
+
+// 16-bit: remainder in DX
+ax = cx % bx
+
+// 32-bit: remainder in EDX
+eax = ecx % ebx
+
+// 64-bit: remainder in RDX
+rax = rcx % rbx
+
+// ── mod keyword (same as %) ──────────────────────────────────────
+
+ax = cx mod bx
+
+// ── smod keyword (signed modulo, always IDIV) ────────────────────
+
+ax = cx smod bx
+
+// ── with memory operands ─────────────────────────────────────────
+
+ax = [dividend] % [divisor]
