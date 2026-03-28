@@ -134,6 +134,109 @@ qword [rbx]           // force 64-bit access (x86-64 only)
 
 **RIP-relative addressing** (x86-64): Using `[rip + offset]` generates a PC-relative memory reference. Assemblers and linkers typically encode global variable accesses as `[rip + symbol]` automatically in 64-bit code; in SASM you can name the variable directly and the compiler emits the appropriate RIP-relative encoding.
 
+### Variable Names vs. Bracketed References (Addresses vs. Values)
+
+A variable name used **without** brackets represents its **memory address**
+(pointer), while enclosing the name in square brackets dereferences the pointer
+and accesses the **value stored at that address**:
+
+| Syntax | Meaning | ASM Equivalent |
+|--------|---------|----------------|
+| `result` | The memory address (pointer) of `result` | `result` (label address) |
+| `[result]` | The value stored at address `result` | `[result]` (memory dereference) |
+
+**Rule:** `result` is always the pointer/memory address; `[result]` is always
+the value at that pointer. Use brackets whenever you intend to **read or write**
+the value.
+
+```sasm
+data val1   as word = 5
+data val2   as word = 10
+data result as word = 0
+
+// CORRECT — brackets dereference each variable to its value:
+[result] = [val1] * [val2] + ax
+// Reads the value at val1, multiplies by the value at val2,
+// adds the contents of ax, and stores the result at the address 'result'.
+
+// Also correct — the translator auto-wraps bare variable names in brackets:
+result = val1 * val2 + ax        // equivalent to [result] = [val1] * [val2] + ax
+```
+
+To obtain a variable's **address** as a value (rather than the stored content), use
+the `address of` instruction (LEA):
+
+```sasm
+address of result to bx          // bx = memory address of 'result'  (LEA bx, [result])
+move word [bx] to ax             // ax = value stored at that address
+```
+
+### Accessing Arrays and Multi-Dimensional Arrays
+
+Array names, like all variable names, resolve to the **address** of the first
+element. Square brackets with a byte-offset register index into the array to
+read or write element values.
+
+**1-D arrays** — the register holds a **byte offset**, not an element index:
+
+| Element type | Element size | Byte offset formula |
+|--------------|-------------|---------------------|
+| `byte`       | 1 byte      | `offset = index` |
+| `word`       | 2 bytes     | `offset = index × 2` |
+| `dword`      | 4 bytes     | `offset = index × 4` |
+| `qword`      | 8 bytes     | `offset = index × 8` |
+
+```sasm
+data scores as byte[8]
+data table  as word[4]
+data coords as dword[4]
+
+// byte array — index equals byte offset
+move byte [scores + bx] to al           // al = scores[bx]
+
+// word array — byte offset = index × 2
+move 4 to si                            // si = 2 × 2 (element index 2)
+move word [table + si] to ax            // ax = table[2]
+
+// dword array — byte offset = index × 4
+move 8 to ebx                           // ebx = 2 × 4 (element index 2)
+move dword [coords + ebx] to eax        // eax = coords[2]
+```
+
+**Multi-dimensional arrays** are stored in **row-major** order (last dimension
+varies fastest, as in C). The programmer computes a flat byte offset:
+
+| Dimensions | Byte offset formula |
+|-----------|---------------------|
+| 2-D `[ROWS][COLS]` | `(row × COLS + col) × element_size` |
+| 3-D `[D1][D2][D3]` | `(i × D2 × D3 + j × D3 + k) × element_size` |
+
+```sasm
+data screen as byte[25][80]              // 25 rows × 80 cols
+
+// Access screen[12][40]:
+// byte offset = (12 × 80 + 40) × 1 = 1000
+move 1000 to bx
+move 0x41 to byte [screen + bx]          // screen[12][40] = 'A'
+move byte [screen + bx] to al            // al = screen[12][40]
+
+data matrix as dword[4][4]               // 4×4 dword matrix
+
+// Access matrix[2][3]:
+// byte offset = (2 × 4 + 3) × 4 = 44
+move 44 to ebx
+move dword [matrix + ebx] to eax         // eax = matrix[2][3]
+
+data cube as dword[2][3][4]              // 2×3×4 dword 3-D array
+
+// Access cube[1][2][3]:
+// byte offset = (1×3×4 + 2×4 + 3) × 4 = (12+8+3)×4 = 92
+move 92 to ebx
+move dword [cube + ebx] to eax           // eax = cube[1][2][3]
+```
+
+See [Static Data Arrays](#static-data-arrays) and [Local Array Variables](#local-array-variables) for full declaration syntax and stack layout details.
+
 ---
 
 ## Code Block Structure
