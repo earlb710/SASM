@@ -85,6 +85,16 @@ public class SasmTranslator {
     private final Map<String, Boolean> declaredVars = new HashMap<>();
 
     /**
+     * Tracks the declared type keyword for each variable so that the correct
+     * scratch register width can be chosen when a memory destination requires
+     * routing through an accumulator register.
+     * <p>Key: variable name.  Value: lower-case type keyword
+     * ({@code "byte"}, {@code "word"}, {@code "dword"}, {@code "qword"},
+     * {@code "float"}, {@code "double"}).</p>
+     */
+    private final Map<String, String> varTypes = new HashMap<>();
+
+    /**
      * Holds the step code, loop label, and end label for a {@code for} loop.
      * Pushed onto {@link #blockStack} when a {@code for (...) \{} line is
      * translated; popped when the matching {@code \}} is encountered.
@@ -1441,6 +1451,7 @@ public class SasmTranslator {
             String dims  = m.group(3);          // nullable — dimension brackets
             boolean signed = "signed".equals(m.group(4));
             declaredVars.put(name, signed);
+            varTypes.put(name, m.group(2).trim().toLowerCase());
             String dir   = sizeDirective(m.group(2));
             String value = expandStringLiterals(m.group(5).trim());
             if (dims != null) {
@@ -1456,6 +1467,7 @@ public class SasmTranslator {
             String dims  = m.group(3);          // nullable — dimension brackets
             boolean signed = "signed".equals(m.group(4));
             declaredVars.put(name, signed);
+            varTypes.put(name, m.group(2).trim().toLowerCase());
             String dir   = sizeDirective(m.group(2));
             if (dims != null) {
                 int count = parseTotalCount(dims);
@@ -1688,6 +1700,92 @@ public class SasmTranslator {
         return result.toString();
     }
 
+    // ── Memory-destination helpers ──────────────────────────────────────────
+
+    /** Returns {@code true} if {@code s} is a bracketed memory reference. */
+    private static boolean isMemRef(String s) {
+        return s.startsWith("[") && s.endsWith("]");
+    }
+
+    /**
+     * Returns the best scratch register to hold intermediate values when the
+     * expression destination is a memory reference.  Priority:
+     * <ol>
+     *   <li>The declared type of the destination variable (from {@link #varTypes})</li>
+     *   <li>The register class of the first register-shaped operand</li>
+     *   <li>Default: {@code "AX"} (16-bit)</li>
+     * </ol>
+     */
+    private String scratchReg(String dst, List<String> operands) {
+        String name = dst;
+        if (name.startsWith("[") && name.endsWith("]")) {
+            name = name.substring(1, name.length() - 1).trim();
+        }
+        String type = varTypes.get(name);
+        if (type != null) {
+            return switch (type) {
+                case "byte"            -> "AL";
+                case "dword", "float"  -> "EAX";
+                case "qword", "double" -> "RAX";
+                default                -> "AX";   // word
+            };
+        }
+        // Infer from operands
+        for (String op : operands) {
+            String[] rw = regWidth(op);
+            if (rw != null) return rw[0];
+        }
+        return "AX";
+    }
+
+    /**
+     * Builds an expression sequence that uses a scratch accumulator register
+     * when the destination is a memory reference.  This avoids illegal
+     * memory-to-memory moves/operations that x86 does not support.
+     *
+     * <p>Emits:</p>
+     * <pre>
+     *   MOV scratch, op0         ; (skipped if scratch already contains op0)
+     *   OP  scratch, op1
+     *   OP  scratch, op2
+     *   ...
+     *   MOV [dst], scratch
+     * </pre>
+     */
+    private String buildWithScratch(String dst, List<String> operands,
+                                    List<Integer> operators) {
+        String scratch = scratchReg(dst, operands);
+        boolean firstSigned = isSignedVar(operands.get(0));
+        StringBuilder sb = new StringBuilder();
+
+        String first = operands.get(0);
+        if (!scratch.equalsIgnoreCase(first)) {
+            sb.append("    MOV ").append(scratch).append(", ").append(first);
+        }
+
+        for (int i = 0; i < operators.size(); i++) {
+            int opKind = operators.get(i);
+            String operand = operands.get(i + 1);
+            if (sb.length() > 0) sb.append('\n');
+            switch (opKind) {
+                case '+' -> sb.append("    ADD ").append(scratch).append(", ").append(operand);
+                case '-' -> sb.append("    SUB ").append(scratch).append(", ").append(operand);
+                case '*' -> sb.append("    IMUL ").append(scratch).append(", ").append(operand);
+                case 'L' -> sb.append("    SHL ").append(scratch).append(", ").append(operand);
+                case 'R' -> sb.append(firstSigned ? "    SAR " : "    SHR ")
+                              .append(scratch).append(", ").append(operand);
+                case 'A' -> sb.append("    AND ").append(scratch).append(", ").append(operand);
+                case 'O' -> sb.append("    OR ").append(scratch).append(", ").append(operand);
+                case 'X' -> sb.append("    XOR ").append(scratch).append(", ").append(operand);
+                default  -> { }
+            }
+        }
+        if (!scratch.equalsIgnoreCase(dst)) {
+            sb.append('\n').append("    MOV ").append(dst).append(", ").append(scratch);
+        }
+        return sb.toString();
+    }
+
     /**
      * Builds the core NASM instructions for an expression assignment
      * (without any surrounding pre/post-increment/decrement lines).
@@ -1703,9 +1801,20 @@ public class SasmTranslator {
                 if (inner.isEmpty()) return null;
                 inner = wrapIfBareVar(inner);
                 boolean sameAsDst = dst.equalsIgnoreCase(inner);
-                return sameAsDst
-                        ? "    NOT " + dst
-                        : "    MOV " + dst + ", " + inner + "\n    NOT " + dst;
+                if (sameAsDst) return "    NOT " + dst;
+                // MOV [dst],[mem] would be illegal; route through scratch
+                if (isMemRef(dst) && isMemRef(inner)) {
+                    String s = scratchReg(dst, operands);
+                    return "    MOV " + s + ", " + inner
+                            + "\n    NOT " + s
+                            + "\n    MOV " + dst + ", " + s;
+                }
+                return "    MOV " + dst + ", " + inner + "\n    NOT " + dst;
+            }
+            // Simple assignment: [dst] = [src] — route through scratch if both are memory
+            if (isMemRef(dst) && isMemRef(sole) && !dst.equalsIgnoreCase(sole)) {
+                String s = scratchReg(dst, operands);
+                return "    MOV " + s + ", " + sole + "\n    MOV " + dst + ", " + s;
             }
             return "    MOV " + dst + ", " + sole;
         }
@@ -1718,6 +1827,15 @@ public class SasmTranslator {
 
             if (op1.isEmpty() || op2.isEmpty()) {
                 return "    MOV " + dst + ", " + rhs;
+            }
+
+            // Route through scratch when dst is memory and any operand is also memory.
+            // buildDiv/buildMod already route through accumulator registers so they
+            // handle memory destinations natively — skip the scratch path for them.
+            if (isMemRef(dst) && (isMemRef(op1) || isMemRef(op2))
+                    && opKind != 'd' && opKind != 'S'
+                    && opKind != '%' && opKind != 'm' && opKind != 'M') {
+                return buildWithScratch(dst, operands, operators);
             }
 
             boolean sameAsDst = dst.equalsIgnoreCase(op1);
@@ -1766,6 +1884,11 @@ public class SasmTranslator {
         for (int opKind : operators) {
             if (opKind == 'd' || opKind == 'S' || opKind == '%'
                     || opKind == 'm' || opKind == 'M') return null;
+        }
+
+        // Route through scratch when dst is memory and any operand is also memory
+        if (isMemRef(dst) && operands.stream().anyMatch(SasmTranslator::isMemRef)) {
+            return buildWithScratch(dst, operands, operators);
         }
 
         boolean firstSigned = isSignedVar(operands.get(0));
@@ -1819,7 +1942,7 @@ public class SasmTranslator {
      *   <li>{@code MOV dst, quotient} (if dst ≠ quotient reg)</li>
      * </ol>
      */
-    private static String buildDiv(String dst, String op1, String op2,
+    private String buildDiv(String dst, String op1, String op2,
                                    boolean signed) {
         String[] pair = divRegisters(dst, op1);
         String quot = pair[0]; // AL / AX / EAX / RAX  (quotient register)
@@ -1856,7 +1979,7 @@ public class SasmTranslator {
      * (from the high register: AH/DX/EDX/RDX) into the destination
      * instead of the quotient.</p>
      */
-    private static String buildMod(String dst, String op1, String op2,
+    private String buildMod(String dst, String op1, String op2,
                                    boolean signed) {
         String[] pair = divRegisters(dst, op1);
         String quot = pair[0]; // AL / AX / EAX / RAX  (quotient register)
@@ -1906,14 +2029,28 @@ public class SasmTranslator {
 
     /**
      * Determines the quotient register and high-word register pair to use
-     * for a {@code DIV} instruction, based on the register width of the
-     * operands.
+     * for a {@code DIV} instruction, based on the declared type of the
+     * destination variable (preferred) or the register width of the operands.
      *
      * @return {@code {quotientReg, highReg}} where quotientReg receives
      *         the division result and highReg must be zeroed beforehand.
      */
-    private static String[] divRegisters(String dst, String op1) {
-        // Check dst first, then op1, for width hints
+    private String[] divRegisters(String dst, String op1) {
+        // First: consult the declared variable type of dst for a reliable size hint
+        String dstName = dst;
+        if (dstName.startsWith("[") && dstName.endsWith("]")) {
+            dstName = dstName.substring(1, dstName.length() - 1).trim();
+        }
+        String type = varTypes.get(dstName);
+        if (type != null) {
+            return switch (type) {
+                case "byte"            -> new String[]{"AL",  "AH"};
+                case "dword", "float"  -> new String[]{"EAX", "EDX"};
+                case "qword", "double" -> new String[]{"RAX", "RDX"};
+                default                -> new String[]{"AX",  "DX"};   // word
+            };
+        }
+        // Fall back to register-width detection on dst and op1
         String[] r = regWidth(dst);
         if (r != null) return r;
         r = regWidth(op1);

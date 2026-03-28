@@ -55,8 +55,9 @@ Brackets are **required** around variable names in expression assignments.
 Bare variable names produce a syntax error:
 
 ```sasm
-// CORRECT:
-[result] = [val1] * [val2] + ax
+// CORRECT — brackets required for variable access:
+[result] = [val1] * [val2] + ax   // both operands are memory refs — OK
+[result] = [val1] + [val2]         // memory destination with two memory operands — OK
 
 // ERROR — bare variable name as destination:
 result = [val1] * [val2] + ax    // syntax error
@@ -64,6 +65,11 @@ result = [val1] * [val2] + ax    // syntax error
 // ERROR — bare variable names as operands:
 ax = val1 + val2                 // syntax error; use [val1] + [val2]
 ```
+
+When the destination is a memory variable and any operand is also a memory
+variable, the translator automatically routes the computation through a
+scratch accumulator register (`AL`/`AX`/`EAX`/`RAX` based on the declared
+type) and then stores the result.  No manual intermediate register is needed.
 
 ### Comment headers
 
@@ -405,8 +411,9 @@ All SASM keywords grouped by category. **Bold** entries have a short form.
 - [x] Syntax error for bare variable names in expression operands
 - [ ] Consider warning when `clear direction` / `set direction` is not
   called before string operations
-- [ ] Consider warning for memory-to-memory operations (which x86 does
-  not support)
+- [x] Memory-to-memory expressions (`[dst] = [op1] + [op2]`) are now
+  handled transparently via a scratch accumulator register — no warning
+  or error needed
 - [ ] Consider line-number tracking in error messages for all error types
 
 ### Documentation

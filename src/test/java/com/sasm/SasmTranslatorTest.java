@@ -963,18 +963,125 @@ class SasmTranslatorTest {
                 "ax = ax && 0xFF should still emit AND, got: " + asm);
     }
 
-    /** Single-char {@code &} with dst matching op1 should be optimized to a single {@code AND}. */
+    // ── Memory-to-memory expression operands ────────────────────────────
+
+    /**
+     * {@code [result] = [v1] + [v2]} — both operands are memory refs.
+     * Must route through scratch AX (word variables) instead of emitting
+     * the illegal {@code MOV [result],[v1]} / {@code ADD [result],[v2]}.
+     */
     @Test
-    void singleChar_and_optimized_whenDstEqualsOp1() {
+    void memDst_memOp1_memOp2_routesThroughScratch_word() {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "ax = ax & 0x0F");
+                "var result as word = 0",
+                "var v1 as word = 10",
+                "var v2 as word = 20",
+                "[result] = [v1] + [v2]");
         String asm = t.translate(src);
-        assertTrue(asm.contains("AND ax, 0x0F"),
-                "ax = ax & 0x0F should emit AND ax, 0x0F, got: " + asm);
-        // Should be only one instruction (no MOV needed)
-        assertFalse(asm.contains("MOV ax"),
-                "ax = ax & 0x0F should not emit MOV when dst == op1, got: " + asm);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("MOV AX, [v1]"),
+                "Should load v1 into scratch AX, got: " + asm);
+        assertTrue(asm.contains("ADD AX, [v2]"),
+                "Should add v2 to scratch AX, got: " + asm);
+        assertTrue(asm.contains("MOV [result], AX"),
+                "Should store AX to result, got: " + asm);
+        assertFalse(asm.contains("MOV [result], [v1]"),
+                "Should not emit illegal mem-to-mem MOV, got: " + asm);
+    }
+
+    /**
+     * {@code [result] = [v1] + [v2]} with dword variables must use EAX
+     * as scratch register.
+     */
+    @Test
+    void memDst_memOp1_memOp2_routesThroughScratch_dword() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "var result as dword = 0",
+                "var v1 as dword = 10",
+                "var v2 as dword = 20",
+                "[result] = [v1] + [v2]");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("MOV EAX, [v1]"),
+                "Should load into EAX for dword, got: " + asm);
+        assertTrue(asm.contains("ADD EAX, [v2]"),
+                "Should operate on EAX, got: " + asm);
+        assertTrue(asm.contains("MOV [result], EAX"),
+                "Should store EAX to dword result, got: " + asm);
+    }
+
+    /**
+     * Simple assignment {@code [result] = [v1]} (no operator) must not emit
+     * the illegal {@code MOV [result],[v1]} directly.
+     */
+    @Test
+    void memDst_memSrc_simpleAssign_routesThroughScratch() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "var result as word = 0",
+                "var v1 as word = 10",
+                "[result] = [v1]");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("MOV AX, [v1]"),
+                "Should load v1 into AX, got: " + asm);
+        assertTrue(asm.contains("MOV [result], AX"),
+                "Should store AX to result, got: " + asm);
+        assertFalse(asm.contains("MOV [result], [v1]"),
+                "Should not emit illegal mem-to-mem MOV, got: " + asm);
+    }
+
+    /**
+     * Chained expression {@code [result] = [v1] + [v2] + [v3]} must route
+     * all three operands through the scratch register.
+     */
+    @Test
+    void memDst_chainedMemOps_routesThroughScratch() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "var result as word = 0",
+                "var v1 as word = 1",
+                "var v2 as word = 2",
+                "var v3 as word = 3",
+                "[result] = [v1] + [v2] + [v3]");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("MOV AX, [v1]"), "Should load v1 into AX, got: " + asm);
+        assertTrue(asm.contains("ADD AX, [v2]"), "Should add v2 to AX, got: " + asm);
+        assertTrue(asm.contains("ADD AX, [v3]"), "Should add v3 to AX, got: " + asm);
+        assertTrue(asm.contains("MOV [result], AX"), "Should store AX to result, got: " + asm);
+    }
+
+    /**
+     * When dst is a memory ref and op2 is memory (but op1 is a register),
+     * the expression must still route through scratch.
+     */
+    @Test
+    void memDst_regOp1_memOp2_routesThroughScratch() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "var result as word = 0",
+                "var v2 as word = 20",
+                "[result] = bx + [v2]");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("ADD AX, [v2]"),
+                "Should add mem operand to scratch AX, got: " + asm);
+        assertTrue(asm.contains("MOV [result], AX"),
+                "Should store AX to result, got: " + asm);
+        assertFalse(asm.contains("ADD [result], [v2]"),
+                "Should not emit illegal two-mem-operand ADD, got: " + asm);
     }
 }

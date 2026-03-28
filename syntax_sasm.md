@@ -1751,6 +1751,8 @@ produces one assembly instruction:
 | `ax = [myVar] + 5` | `MOV ax, [myVar]` / `ADD ax, 5` | Variable (memory) as operand |
 | `[counter] = [counter] + 1` | `ADD [counter], 1` | Variable as both destination and operand |
 | `ax = [buf + si] && 0xFF` | `MOV ax, [buf + si]` / `AND ax, 0xFF` | Indexed memory with bitwise AND |
+| `[result] = [v1] + [v2]` | `MOV AX, [v1]` / `ADD AX, [v2]` / `MOV [result], AX` | Both operands are memory — scratch AX used automatically |
+| `[result] = [v1] + [v2] - [v3]` | `MOV AX, [v1]` / `ADD AX, [v2]` / `SUB AX, [v3]` / `MOV [result], AX` | Chained mem-to-mem; scratch size matches declared type |
 
 #### Inline `++`/`--` in Expressions
 
@@ -1789,11 +1791,19 @@ var count as word = 10
 // CORRECT — brackets required for variable access:
 ax = [total] + [count]      // explicit brackets
 [total] = ax                 // explicit bracket destination
+[total] = [total] + [count]  // memory destination with two memory operands — OK
 
 // ERROR — bare variable names are NOT allowed:
 // ax = total + count        ← syntax error: use [total] + [count]
 // total = ax                ← syntax error: use [total]
 ```
+
+When the destination **and** one or more operands are all memory references,
+the translator automatically routes the computation through a scratch register
+(`AL`/`AX`/`EAX`/`RAX` chosen from the destination variable's declared type)
+and stores the result back.  x86 does not allow two memory operands in a
+single instruction; the translator inserts the intermediate register
+transparently.
 
 The `+` and `-` characters inside square brackets (e.g. `[buffer + bx]`) are
 treated as address arithmetic, not expression operators.
