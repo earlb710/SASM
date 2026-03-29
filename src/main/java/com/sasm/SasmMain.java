@@ -850,11 +850,81 @@ public class SasmMain {
 
     // ── variant context-menu actions ─────────────────────────────────────────
 
-    /** Placeholder for building a variant (assembling its SASM files). */
+    /** Opens a build output dialog and runs the variant build in a background thread. */
     private static void promptBuildVariant() {
+        if (currentProject == null) return;
         String dirName = idePanel.getSelectedDirectoryName();
         if (dirName == null || "core".equals(dirName) || "lib".equals(dirName)) return;
-        statusBar.setText(" Build: " + dirName + " — (not yet implemented)");
+
+        // Find the VariantEntry for the selected directory
+        ProjectFile.VariantEntry ve = null;
+        for (ProjectFile.VariantEntry v : currentProject.getVariants()) {
+            if (dirName.equals(v.variantName)) { ve = v; break; }
+        }
+        if (ve == null) {
+            statusBar.setText(" No variant entry found for: " + dirName);
+            return;
+        }
+
+        // ── Build output dialog ───────────────────────────────────────────────
+        JDialog buildDlg = new JDialog(mainFrame, "Build — " + dirName, false);
+        buildDlg.setLayout(new BorderLayout(4, 4));
+
+        JTextArea outputArea = new JTextArea(22, 80);
+        outputArea.setEditable(false);
+        outputArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        outputArea.setBackground(new Color(0x0A, 0x14, 0x28));
+        outputArea.setForeground(new Color(0x7F, 0xDB, 0xCA));
+        outputArea.setCaretColor(new Color(0x7F, 0xDB, 0xCA));
+        outputArea.setTabSize(4);
+        buildDlg.add(new JScrollPane(outputArea), BorderLayout.CENTER);
+
+        JButton closeBtn = new JButton("Close");
+        closeBtn.setEnabled(false); // enabled only when build finishes
+        JPanel bp = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
+        bp.add(closeBtn);
+        buildDlg.add(bp, BorderLayout.SOUTH);
+
+        closeBtn.addActionListener(e -> buildDlg.dispose());
+        buildDlg.addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) { buildDlg.dispose(); }
+        });
+        buildDlg.pack();
+        buildDlg.setMinimumSize(new Dimension(720, 420));
+        buildDlg.setLocationRelativeTo(mainFrame);
+        buildDlg.setVisible(true);
+
+        // ── Run build in a background thread ──────────────────────────────────
+        SasmBuilder builder = new SasmBuilder(currentProject, ve);
+        final ProjectFile.VariantEntry finalVe = ve;
+
+        SwingWorker<Boolean, String> worker = new SwingWorker<Boolean, String>() {
+            @Override
+            protected Boolean doInBackground() {
+                return builder.build(line -> publish(line));
+            }
+
+            @Override
+            protected void process(List<String> chunks) {
+                for (String line : chunks) outputArea.append(line + "\n");
+                // Auto-scroll to the latest output
+                outputArea.setCaretPosition(outputArea.getDocument().getLength());
+            }
+
+            @Override
+            protected void done() {
+                boolean success = false;
+                try { success = get(); } catch (Exception ex) {
+                    outputArea.append("Build failed: " + ex.getMessage() + "\n");
+                }
+                outputArea.setCaretPosition(outputArea.getDocument().getLength());
+                closeBtn.setEnabled(true);
+                statusBar.setText(success
+                        ? " Build succeeded: " + finalVe.variantName
+                        : " Build FAILED: "    + finalVe.variantName);
+            }
+        };
+        worker.execute();
     }
 
     /** Prompts for a new name and renames the selected variant directory. */
