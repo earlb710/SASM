@@ -36,7 +36,8 @@ quick-reference for short-form keywords, and tracks planned improvements.
 | Procedure names | `snake_case` | `read_input`, `calc_sum` |
 | Variable names | `snake_case` | `loop_count`, `max_val` |
 | Labels (internal) | `.lower_case` with leading dot | `.loop_top`, `.done` |
-| Labels (entry point) | `_start` or `main` | `_start:` |
+| Labels (entry point) | `start:` keyword | emits `global _start` + `_start:` |
+| Labels (cleanup/exit) | `exit:` keyword (optional) | emits `_exit:` |
 | Constants (data) | `UPPER_SNAKE` or `lower_snake` | `MAX_SIZE`, `buffer` |
 | Library symbols | `<module>_<name>` | `math_square`, `io_print` |
 
@@ -57,7 +58,7 @@ Bare variable names produce a syntax error:
 ```sasm
 // CORRECT — brackets required for variable access:
 [result] = [val1] * [val2] + ax   // both operands are memory refs — OK
-[result] = [val1] + [val2]         // memory destination with two memory operands — OK
+[result] = [val1] + [val2]         // memory destination with two memory operands — OK (translator routes through scratch register automatically)
 
 // ERROR — bare variable name as destination:
 result = [val1] * [val2] + ax    // syntax error

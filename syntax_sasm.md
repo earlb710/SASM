@@ -271,6 +271,35 @@ block <name> {
 
 A named block is a call-only code region delimited by curly braces. Like a `proc`, it can only be entered with `call <name>` and the closing `}` emits an implicit `RET`. Use `block` when no parameter declarations are needed; use `proc` when a parameter contract is required.
 
+### Program Entry and Exit Labels
+
+Programs (not libraries) may use the `start:` and `exit:` convenience labels.
+
+**`start:`** — program entry point.  Emits `global _start` followed by `_start:` in one step, replacing the two-line boilerplate `global _start` / `_start:`.
+
+**`exit:`** — optional cleanup section.  Emits the `_exit:` label so that any code in the program can jump to it with `goto exit`.  The body is plain code; no implicit syscall is inserted.
+
+```sasm
+section .text
+
+start:
+    move 42 to eax
+    // ... program body ...
+    goto exit       // jump to cleanup
+
+exit:
+    move eax to ebx     // preserve result as exit code
+    move 1 to eax       // sys_exit
+    interrupt 0x80
+```
+
+Libraries included via `#REF` do not need (and should not use) `start:` or `exit:`.
+
+| Keyword | NASM output | Notes |
+|---------|-------------|-------|
+| `start:` | `global _start` + `_start:` | Entry point; required for ELF executables |
+| `exit:` | `_exit:` | Optional; use `goto exit` to reach it |
+
 ### Conditional Blocks
 
 ```sasm
@@ -859,7 +888,7 @@ inline proc <name> ( <params> ) {
 * When `call <name>` is encountered, the translator inserts the body directly at the call site.
 * `return` statements inside the inline body are **suppressed** (no `RET` emitted) — execution flows into the code after the call site.
 * The parameter list (if present) is emitted as a NASM comment for documentation.
-* Multiple calls to the same inline proc expand independently.
+* **Local-label mangling:** every local label (any token starting with a dot followed by word characters, e.g. `.done`, `.loop_top`) inside the body is automatically suffixed with a unique per-expansion counter (e.g. `.done` → `.done_1`, `.done_2`, …) so that the same inline proc can be called multiple times without duplicate-label errors in the NASM output.
 
 **Example:**
 
@@ -2329,9 +2358,11 @@ library files that are shared across all variants of the project.
     onward, and all 64-bit Windows versions via WoW64.
   - `math.sasm` — Integer and floating-point math routines (`square`,
     `sqrt_int`, `max`, `min`, `max_array`, `min_array`, `square_float`,
-    `sqrt_float`, `sin_float`, `cos_float`, `max_float`, `min_float`,
+    `sqrt`, `sin`, `cos`, `tan`, `max_float`, `min_float`,
     `max_array_float`, `min_array_float`, `max_array_double`,
     `min_array_double`).
+    All routines are `inline proc` — the body is expanded at each call
+    site with no CALL/RET overhead.
     Platform-independent; uses x87 FPU for float/double and square root
     operations.  `max_float` and `min_float` work with both single- and
     double-precision values since the x87 FPU uses 80-bit extended

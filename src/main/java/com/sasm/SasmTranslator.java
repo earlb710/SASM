@@ -67,6 +67,13 @@ public class SasmTranslator {
     private int inlineBraceDepth = 0;
 
     /**
+     * Monotonically-increasing counter incremented once per inline expansion.
+     * Used to generate unique suffixes for local labels so that the same
+     * inline proc can be called multiple times without duplicate-label errors.
+     */
+    private int inlineExpansionCount = 0;
+
+    /**
      * Collects error messages produced during translation.
      * Populated when source violates ordering rules (e.g. a {@code #REF}
      * or {@code #COMPAT} directive appears after code).
@@ -244,6 +251,7 @@ public class SasmTranslator {
         collectingInlineName = null;
         collectingInlineBody = null;
         inlineBraceDepth = 0;
+        inlineExpansionCount = 0;
         seenCode = false;
         inBlockComment = false;
         currentLine = 0;
@@ -423,6 +431,8 @@ public class SasmTranslator {
         }
 
         // ── labels ───────────────────────────────────────────────────────────
+        if (code.equals("start:")) return "global _start\n_start:";
+        if (code.equals("exit:"))  return "_exit:";
         if (code.endsWith(":") && !code.contains(" ")) return code;
 
         // ── structural keywords ──────────────────────────────────────────────
@@ -1512,17 +1522,26 @@ public class SasmTranslator {
      * concatenating the NASM output.  {@code return} statements are
      * suppressed (no {@code RET} emitted) so the inlined code flows
      * into the code that follows the call site.
+     *
+     * <p>Local labels (any token matching {@code \.\w+}) are mangled by
+     * appending a unique numeric suffix so that the same inline proc can
+     * be expanded at multiple call sites without producing duplicate labels
+     * in the NASM output.</p>
      */
     private String expandInline(String name) {
         List<String> body = inlineProcs.get(name);
+        int id = ++inlineExpansionCount;
         StringBuilder sb = new StringBuilder();
         sb.append("; -- inline " + name + " --");
         for (String bodyLine : body) {
             if (bodyLine.equals("return")) continue;
-            String asm = tryTranslateCode(bodyLine);
+            // Mangle local labels (.foo → .foo_N) to avoid collisions across
+            // multiple expansions of the same inline proc.
+            String mangledLine = bodyLine.replaceAll("\\.(\\w+)", ".$1_" + id);
+            String asm = tryTranslateCode(mangledLine);
             if (asm == null) {
                 // Unrecognised line — pass through (raw ASM)
-                asm = "    " + bodyLine;
+                asm = "    " + mangledLine;
             }
             if (!asm.isEmpty()) {
                 sb.append('\n').append(asm);

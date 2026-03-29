@@ -17,9 +17,10 @@
 //
 // Float/double routines (x87 FPU stack):
 //     call @math.square_float    // ST(0) = ST(0) * ST(0)
-//     call @math.sqrt_float      // ST(0) = √ST(0)
-//     call @math.sin_float       // ST(0) = sin(ST(0))  (radians)
-//     call @math.cos_float       // ST(0) = cos(ST(0))  (radians)
+//     call @math.sqrt            // ST(0) = √ST(0)
+//     call @math.sin             // ST(0) = sin(ST(0))  (radians)
+//     call @math.cos             // ST(0) = cos(ST(0))  (radians)
+//     call @math.tan             // ST(0) = tan(ST(0))  (radians)
 //     call @math.max_float       // ST(0) = max(ST(0), ST(1)); pops ST(1)  (works with doubles too)
 //     call @math.min_float       // ST(0) = min(ST(0), ST(1)); pops ST(1)  (works with doubles too)
 //     call @math.max_array_float // ST(0) = max of float array (ESI=ptr, ECX=count)
@@ -46,7 +47,7 @@ section .text
 // Example:
 //   move 7 to eax
 //   call @math.square      // eax = 49, edx = 0
-proc square ( in eax as value, out eax as result ) {
+inline proc square ( in eax as value, out eax as result ) {
     multiply by eax            // MUL EAX → EDX:EAX = EAX * EAX
     return
 }
@@ -64,7 +65,7 @@ proc square ( in eax as value, out eax as result ) {
 // Example:
 //   move 49 to eax
 //   call @math.sqrt_int    // eax = 7
-proc sqrt_int ( in eax as value, out eax as result ) {
+inline proc sqrt_int ( in eax as value, out eax as result ) {
     push ebp
     move esp to ebp
     esp = esp - 4        // local: [ebp-4] = temp dword
@@ -92,7 +93,7 @@ proc sqrt_int ( in eax as value, out eax as result ) {
 //   move 10 to eax
 //   move 20 to ebx
 //   call @math.max         // eax = 20
-proc max ( in eax as first, in ebx as second, out eax as result ) {
+inline proc max ( in eax as first, in ebx as second, out eax as result ) {
     compare eax with ebx
     goto .max_done if greater or equal
     move ebx to eax
@@ -112,7 +113,7 @@ proc max ( in eax as first, in ebx as second, out eax as result ) {
 //   move 10 to eax
 //   move 20 to ebx
 //   call @math.min         // eax = 10
-proc min ( in eax as first, in ebx as second, out eax as result ) {
+inline proc min ( in eax as first, in ebx as second, out eax as result ) {
     compare eax with ebx
     goto .min_done if less or equal
     move ebx to eax
@@ -132,7 +133,7 @@ proc min ( in eax as first, in ebx as second, out eax as result ) {
 //   move arr to esi
 //   move 5 to ecx
 //   call @math.max_array   // eax = max element
-proc max_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
+inline proc max_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
     move dword [esi] to eax    // start with first element
     esi = esi + 4
     ecx = ecx - 1
@@ -162,7 +163,7 @@ proc max_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
 //   move arr to esi
 //   move 5 to ecx
 //   call @math.min_array   // eax = min element
-proc min_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
+inline proc min_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
     move dword [esi] to eax    // start with first element
     esi = esi + 4
     ecx = ecx - 1
@@ -201,12 +202,12 @@ proc min_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
 //   call @math.square_float   // ST(0) = my_double²
 //   fstp qword [dresult]
 // overload: proc square_float ( in double value, out double result )
-proc square_float ( in float value, out float result ) {
+inline proc square_float ( in float value, out float result ) {
     fmul st0, st0              // ST(0) = ST(0) * ST(0)
     return
 }
 
-// ── sqrt_float ──────────────────────────────────────────────────
+// ── sqrt ────────────────────────────────────────────────────────
 // Computes the floating-point square root of ST(0).
 //
 // Input:  ST(0) = value (must be >= 0)
@@ -215,20 +216,20 @@ proc square_float ( in float value, out float result ) {
 //
 // Example (float):
 //   fld dword [my_float]
-//   call @math.sqrt_float     // ST(0) = √my_float
+//   call @math.sqrt           // ST(0) = √my_float
 //   fstp dword [result]
 //
 // Example (double):
 //   fld qword [my_double]
-//   call @math.sqrt_float     // ST(0) = √my_double
+//   call @math.sqrt           // ST(0) = √my_double
 //   fstp qword [dresult]
-// overload: proc sqrt_float ( in double value, out double result )
-proc sqrt_float ( in float value, out float result ) {
+// overload: proc sqrt ( in double value, out double result )
+inline proc sqrt ( in float value, out float result ) {
     fsqrt                       // ST(0) = √ST(0)
     return
 }
 
-// ── sin_float ─────────────────────────────────────────────────
+// ── sin ───────────────────────────────────────────────────────
 // Computes the sine of ST(0).
 //
 // Input:  ST(0) = angle in radians (IEEE 754 single or double)
@@ -237,20 +238,20 @@ proc sqrt_float ( in float value, out float result ) {
 //
 // Example (float):
 //   fld dword [my_angle]
-//   call @math.sin_float      // ST(0) = sin(my_angle)
+//   call @math.sin            // ST(0) = sin(my_angle)
 //   fstp dword [result]
 //
 // Example (double):
 //   fld qword [my_dangle]
-//   call @math.sin_float      // ST(0) = sin(my_dangle)
+//   call @math.sin            // ST(0) = sin(my_dangle)
 //   fstp qword [dresult]
-// overload: proc sin_float ( in double angle, out double result )
-proc sin_float ( in float angle, out float result ) {
+// overload: proc sin ( in double angle, out double result )
+inline proc sin ( in float angle, out float result ) {
     fsin                        // ST(0) = sin(ST(0))
     return
 }
 
-// ── cos_float ─────────────────────────────────────────────────
+// ── cos ───────────────────────────────────────────────────────
 // Computes the cosine of ST(0).
 //
 // Input:  ST(0) = angle in radians (IEEE 754 single or double)
@@ -259,16 +260,41 @@ proc sin_float ( in float angle, out float result ) {
 //
 // Example (float):
 //   fld dword [my_angle]
-//   call @math.cos_float      // ST(0) = cos(my_angle)
+//   call @math.cos            // ST(0) = cos(my_angle)
 //   fstp dword [result]
 //
 // Example (double):
 //   fld qword [my_dangle]
-//   call @math.cos_float      // ST(0) = cos(my_dangle)
+//   call @math.cos            // ST(0) = cos(my_dangle)
 //   fstp qword [dresult]
-// overload: proc cos_float ( in double angle, out double result )
-proc cos_float ( in float angle, out float result ) {
+// overload: proc cos ( in double angle, out double result )
+inline proc cos ( in float angle, out float result ) {
     fcos                        // ST(0) = cos(ST(0))
+    return
+}
+
+// ── tan ───────────────────────────────────────────────────────
+// Computes the tangent of ST(0).
+//
+// Input:  ST(0) = angle in radians (IEEE 754 single or double)
+// Output: ST(0) = tan(angle)
+// Clobbers: ST(1) temporarily (FPTAN replaces ST(0) with the tangent,
+//           then pushes 1.0, so after FPTAN: ST(0)=1.0, ST(1)=tan;
+//           the trailing FSTP ST0 discards 1.0, leaving tan in ST(0))
+//
+// Example (float):
+//   fld dword [my_angle]
+//   call @math.tan            // ST(0) = tan(my_angle)
+//   fstp dword [result]
+//
+// Example (double):
+//   fld qword [my_dangle]
+//   call @math.tan            // ST(0) = tan(my_dangle)
+//   fstp qword [dresult]
+// overload: proc tan ( in double angle, out double result )
+inline proc tan ( in float angle, out float result ) {
+    fptan                       // replaces ST(0) with tan(angle), then pushes 1.0: ST(0)=1.0, ST(1)=tan
+    fstp st0                    // discard the 1.0; ST(0) = tan result
     return
 }
 
@@ -294,7 +320,7 @@ proc cos_float ( in float angle, out float result ) {
 //   call @math.max_float      // ST(0) = max(b, a)
 //   fstp qword [dresult]
 // overload: proc max_float ( in double first, in double second, out double result )
-proc max_float ( in float first, in float second, out float result ) {
+inline proc max_float ( in float first, in float second, out float result ) {
     fcom st1                    // compare ST(0) to ST(1)
     fstsw ax                    // store FPU status word in AX
     sahf                        // load status flags from AH
@@ -328,7 +354,7 @@ proc max_float ( in float first, in float second, out float result ) {
 //   call @math.min_float      // ST(0) = min(b, a)
 //   fstp qword [dresult]
 // overload: proc min_float ( in double first, in double second, out double result )
-proc min_float ( in float first, in float second, out float result ) {
+inline proc min_float ( in float first, in float second, out float result ) {
     fcom st1                    // compare ST(0) to ST(1)
     fstsw ax                    // store FPU status word in AX
     sahf                        // load status flags from AH
@@ -353,7 +379,7 @@ proc min_float ( in float first, in float second, out float result ) {
 //   move 4 to ecx
 //   call @math.max_array_float  // ST(0) = max element
 //   fstp dword [result]
-proc max_array_float ( in esi as array_ptr, in ecx as count ) {
+inline proc max_array_float ( in esi as array_ptr, in ecx as count ) {
     fld dword [esi]             // ST(0) = first element
     esi = esi + 4
     ecx = ecx - 1
@@ -390,7 +416,7 @@ proc max_array_float ( in esi as array_ptr, in ecx as count ) {
 //   move 4 to ecx
 //   call @math.min_array_float  // ST(0) = min element
 //   fstp dword [result]
-proc min_array_float ( in esi as array_ptr, in ecx as count ) {
+inline proc min_array_float ( in esi as array_ptr, in ecx as count ) {
     fld dword [esi]             // ST(0) = first element
     esi = esi + 4
     ecx = ecx - 1
@@ -427,7 +453,7 @@ proc min_array_float ( in esi as array_ptr, in ecx as count ) {
 //   move 4 to ecx
 //   call @math.max_array_double  // ST(0) = max element
 //   fstp qword [result]
-proc max_array_double ( in esi as array_ptr, in ecx as count ) {
+inline proc max_array_double ( in esi as array_ptr, in ecx as count ) {
     fld qword [esi]             // ST(0) = first element
     esi = esi + 8
     ecx = ecx - 1
@@ -464,7 +490,7 @@ proc max_array_double ( in esi as array_ptr, in ecx as count ) {
 //   move 4 to ecx
 //   call @math.min_array_double  // ST(0) = min element
 //   fstp qword [result]
-proc min_array_double ( in esi as array_ptr, in ecx as count ) {
+inline proc min_array_double ( in esi as array_ptr, in ecx as count ) {
     fld qword [esi]             // ST(0) = first element
     esi = esi + 8
     ecx = ecx - 1

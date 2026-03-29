@@ -13,9 +13,10 @@
 //
 // Float/double routines (x87 FPU stack):
 //   @math.square_float      — square ST(0): ST(0) = ST(0) * ST(0)
-//   @math.sqrt_float        — square root ST(0): ST(0) = √ST(0)
-//   @math.sin_float         — sine ST(0): ST(0) = sin(ST(0))  (radians; works with doubles too)
-//   @math.cos_float         — cosine ST(0): ST(0) = cos(ST(0))  (radians; works with doubles too)
+//   @math.sqrt              — square root ST(0): ST(0) = √ST(0)
+//   @math.sin               — sine ST(0): ST(0) = sin(ST(0))  (radians; works with doubles too)
+//   @math.cos               — cosine ST(0): ST(0) = cos(ST(0))  (radians; works with doubles too)
+//   @math.tan               — tangent ST(0): ST(0) = tan(ST(0))  (radians; works with doubles too)
 //   @math.max_float         — max of ST(0) and ST(1): ST(0) = max  (works with doubles too)
 //   @math.min_float         — min of ST(0) and ST(1): ST(0) = min  (works with doubles too)
 //   @math.max_array_float   — max of float array → ST(0)
@@ -59,14 +60,16 @@ data dtemps as double = __float64__(22.5), __float64__(18.0), __float64__(30.1),
 
 // Trig test values
 var angle_pi2 as float = __float32__(1.5707963)
+var angle_pi4 as float = __float32__(0.7853982)
 var angle_0   as float = __float32__(0.0)
 var sin_r     as float
 var cos_r     as float
+var tan_r     as float
 
 section .text
-global _start
 
-_start:
+start:
+
     // ── Integer: 12² = 144 ──────────────────────────────────────
     move 12 to eax
     call @math.square              // eax = 144
@@ -110,18 +113,23 @@ _start:
 
     // ── Float: √25.0 = 5.0 ─────────────────────────────────────
     fld dword [fsquared]           // ST(0) = 25.0
-    call @math.sqrt_float          // ST(0) = 5.0
+    call @math.sqrt                // ST(0) = 5.0
     fstp dword [froot]             // store result
 
     // ── Float: sin(π/2) ≈ 1.0 ────────────────────────────────
     fld dword [angle_pi2]          // ST(0) = π/2
-    call @math.sin_float           // ST(0) = sin(π/2) ≈ 1.0
+    call @math.sin                 // ST(0) = sin(π/2) ≈ 1.0
     fstp dword [sin_r]
 
     // ── Float: cos(0) = 1.0 ──────────────────────────────────
     fld dword [angle_0]            // ST(0) = 0.0
-    call @math.cos_float           // ST(0) = cos(0) = 1.0
+    call @math.cos                 // ST(0) = cos(0) = 1.0
     fstp dword [cos_r]
+
+    // ── Float: tan(π/4) ≈ 1.0 ────────────────────────────────
+    fld dword [angle_pi4]          // ST(0) = π/4
+    call @math.tan                 // ST(0) = tan(π/4) ≈ 1.0
+    fstp dword [tan_r]
 
     // ── Float: max(4.0, 9.5) = 9.5 ─────────────────────────────
     fld dword [fa]                 // push 4.0
@@ -171,6 +179,7 @@ _start:
     call @math.min_array_double    // ST(0) = 18.0
     fstp qword [dmin_r]
 
+exit:
     // ── Exit with the integer result as exit code ────────────────
     move eax to ebx                // ebx = last result (exit code)
     move 1 to eax                  // sys_exit

@@ -45,38 +45,38 @@ class SasmTranslatorTest {
     }
 
     /**
-     * Verifies that {@code call @math.sqrt_float} resolves to
-     * {@code CALL math_sqrt_float} for both float and double usage.
+     * Verifies that {@code call @math.sqrt} (renamed from {@code sqrt_float})
+     * resolves to {@code CALL math_sqrt} for both float and double usage.
      */
     @Test
-    void overloadedSqrtFloat_resolvesToSameLabel() {
+    void overloadedSqrt_resolvesToLabel() {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "#REF lib/math.sasm math",
                 "section .text",
                 "fld dword [val]",
-                "call @math.sqrt_float",
+                "call @math.sqrt",
                 "fstp dword [res]");
         String asm = t.translate(src);
-        assertTrue(asm.contains("CALL math_sqrt_float"),
-                "sqrt_float should resolve to CALL math_sqrt_float");
+        assertTrue(asm.contains("CALL math_sqrt"),
+                "sqrt should resolve to CALL math_sqrt");
 
         t = new SasmTranslator();
         String dblSrc = String.join("\n",
                 "#REF lib/math.sasm math",
                 "section .text",
                 "fld qword [val]",
-                "call @math.sqrt_float",
+                "call @math.sqrt",
                 "fstp qword [res]");
         String dblAsm = t.translate(dblSrc);
-        assertTrue(dblAsm.contains("CALL math_sqrt_float"),
-                "sqrt_float with double should resolve to CALL math_sqrt_float");
+        assertTrue(dblAsm.contains("CALL math_sqrt"),
+                "sqrt with double should resolve to CALL math_sqrt");
     }
 
     /**
-     * Verifies that {@code call @math.sin_float} and
-     * {@code call @math.cos_float} resolve correctly for both
-     * float and double usage.
+     * Verifies that {@code call @math.sin}, {@code call @math.cos}, and
+     * {@code call @math.tan} (renamed from {@code sin_float}/{@code cos_float};
+     * {@code tan} is new) resolve correctly for both float and double usage.
      */
     @Test
     void overloadedTrigFunctions_resolveToCorrectLabels() {
@@ -85,16 +85,21 @@ class SasmTranslatorTest {
                 "#REF lib/math.sasm math",
                 "section .text",
                 "fld dword [angle]",
-                "call @math.sin_float",
+                "call @math.sin",
                 "fstp dword [res_sin]",
                 "fld qword [angle_d]",
-                "call @math.cos_float",
-                "fstp qword [res_cos]");
+                "call @math.cos",
+                "fstp qword [res_cos]",
+                "fld dword [angle]",
+                "call @math.tan",
+                "fstp dword [res_tan]");
         String asm = t.translate(src);
-        assertTrue(asm.contains("CALL math_sin_float"),
-                "sin_float should resolve to CALL math_sin_float");
-        assertTrue(asm.contains("CALL math_cos_float"),
-                "cos_float should resolve to CALL math_cos_float");
+        assertTrue(asm.contains("CALL math_sin"),
+                "sin should resolve to CALL math_sin");
+        assertTrue(asm.contains("CALL math_cos"),
+                "cos should resolve to CALL math_cos");
+        assertTrue(asm.contains("CALL math_tan"),
+                "tan should resolve to CALL math_tan");
     }
 
     /**
@@ -128,6 +133,10 @@ class SasmTranslatorTest {
      * resolve to the correct labels. Each float function that also
      * works with doubles should resolve to the same label regardless
      * of the data width used by the caller.
+     * <p>Note: {@code sqrt_float} was renamed to {@code sqrt};
+     * {@code sin_float} was renamed to {@code sin};
+     * {@code cos_float} was renamed to {@code cos};
+     * {@code tan} is new.</p>
      */
     @Test
     void allOverloadedFunctions_resolveCorrectly() {
@@ -142,52 +151,59 @@ class SasmTranslatorTest {
                 "call @math.square_float",
                 "fstp dword [res1]",
                 "fld dword [val_f]",
-                "call @math.sqrt_float",
+                "call @math.sqrt",
                 "fstp dword [res2]",
                 "fld dword [angle]",
-                "call @math.sin_float",
+                "call @math.sin",
                 "fstp dword [res3]",
                 "fld dword [angle]",
-                "call @math.cos_float",
+                "call @math.cos",
                 "fstp dword [res4]",
-                "fld dword [a]",
-                "fld dword [b]",
-                "call @math.max_float",
+                "fld dword [angle]",
+                "call @math.tan",
                 "fstp dword [res5]",
                 "fld dword [a]",
                 "fld dword [b]",
-                "call @math.min_float",
+                "call @math.max_float",
                 "fstp dword [res6]",
+                "fld dword [a]",
+                "fld dword [b]",
+                "call @math.min_float",
+                "fstp dword [res7]",
                 "// double usage — same functions",
                 "fld qword [val_d]",
                 "call @math.square_float",
-                "fstp qword [res7]",
-                "fld qword [val_d]",
-                "call @math.sqrt_float",
                 "fstp qword [res8]",
-                "fld qword [angle_d]",
-                "call @math.sin_float",
+                "fld qword [val_d]",
+                "call @math.sqrt",
                 "fstp qword [res9]",
                 "fld qword [angle_d]",
-                "call @math.cos_float",
+                "call @math.sin",
                 "fstp qword [res10]",
+                "fld qword [angle_d]",
+                "call @math.cos",
+                "fstp qword [res11]",
+                "fld qword [angle_d]",
+                "call @math.tan",
+                "fstp qword [res12]",
                 "fld qword [da]",
                 "fld qword [db]",
                 "call @math.max_float",
-                "fstp qword [res11]",
+                "fstp qword [res13]",
                 "fld qword [da]",
                 "fld qword [db]",
                 "call @math.min_float",
-                "fstp qword [res12]");
+                "fstp qword [res14]");
         String asm = t.translate(src);
 
-        // All six overloaded functions should appear exactly twice
+        // Each overloaded function should appear exactly twice
         // (once for float, once for double), both resolving to the same label.
         String[] expectedCalls = {
                 "CALL math_square_float",
-                "CALL math_sqrt_float",
-                "CALL math_sin_float",
-                "CALL math_cos_float",
+                "CALL math_sqrt",
+                "CALL math_sin",
+                "CALL math_cos",
+                "CALL math_tan",
                 "CALL math_max_float",
                 "CALL math_min_float"
         };
@@ -1083,5 +1099,131 @@ class SasmTranslatorTest {
                 "Should store AX to result, got: " + asm);
         assertFalse(asm.contains("ADD [result], [v2]"),
                 "Should not emit illegal two-mem-operand ADD, got: " + asm);
+    }
+
+    // ── start: and exit: program labels ────────────────────────────────
+
+    /**
+     * {@code start:} must emit {@code global _start} and {@code _start:}
+     * in a single step, making it the standard ELF entry point without
+     * requiring the programmer to write the {@code global} declaration
+     * separately.
+     */
+    @Test
+    void startLabel_emitsGlobalAndEntryLabel() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "start:",
+                "    move 1 to eax",
+                "    move 0 to ebx",
+                "    interrupt 0x80");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("global _start"),
+                "start: should emit 'global _start', got: " + asm);
+        assertTrue(asm.contains("_start:"),
+                "start: should emit '_start:', got: " + asm);
+        // The global declaration must precede the label in the output
+        int globalPos = asm.indexOf("global _start");
+        int labelPos  = asm.indexOf("_start:");
+        assertTrue(globalPos < labelPos,
+                "global _start must appear before _start: in output");
+    }
+
+    /**
+     * {@code exit:} must emit the {@code _exit:} label, providing a named
+     * cleanup section that code can jump to.  It must not generate any
+     * implicit syscall instructions.
+     */
+    @Test
+    void exitLabel_emitsCleanupLabel() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "start:",
+                "    move 1 to eax",
+                "    goto exit",
+                "exit:",
+                "    move 0 to ebx",
+                "    interrupt 0x80");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("_exit:"),
+                "exit: should emit '_exit:', got: " + asm);
+        // goto exit should jump to exit label
+        assertTrue(asm.contains("JMP exit"),
+                "goto exit should emit 'JMP exit', got: " + asm);
+    }
+
+    /**
+     * A program can use both {@code start:} and an optional {@code exit:}
+     * label together cleanly.
+     */
+    @Test
+    void startAndExit_usedTogether() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "start:",
+                "    move 42 to eax",
+                "    goto exit",
+                "exit:",
+                "    move eax to ebx",
+                "    move 1 to eax",
+                "    interrupt 0x80");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "start+exit program should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("global _start") && asm.contains("_start:"),
+                "start: should emit global _start + _start:, got: " + asm);
+        assertTrue(asm.contains("_exit:"),
+                "exit: should emit _exit:, got: " + asm);
+    }
+
+    // ── Inline proc label mangling ─────────────────────────────────────────
+
+    /**
+     * When an inline proc that contains local labels is expanded at two
+     * different call sites, the labels in each expansion must be unique
+     * (suffixed with a per-expansion counter).  Without mangling, two
+     * expansions would define the same label name and NASM would report
+     * a duplicate-label error.
+     */
+    @Test
+    void inlineProc_labelMangling_uniquePerExpansion() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "section .text",
+                "inline proc clamp_max ( in eax as v, in ebx as cap ) {",
+                "    compare eax with ebx",
+                "    goto .done if less or equal",
+                "    move ebx to eax",
+                ".done:",
+                "    return",
+                "}",
+                "start:",
+                "    move 5 to eax",
+                "    move 10 to ebx",
+                "    call clamp_max",
+                "    move 15 to eax",
+                "    move 12 to ebx",
+                "    call clamp_max");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // Each expansion must have a unique label definition suffix
+        assertTrue(asm.contains(".done_1"),
+                "First expansion should define .done_1, got: " + asm);
+        assertTrue(asm.contains(".done_2"),
+                "Second expansion should define .done_2, got: " + asm);
+        // The goto references must also be mangled to match their labels
+        assertTrue(asm.contains(".done_1") && asm.contains(".done_2"),
+                "Both goto targets and label definitions must be mangled, got: " + asm);
+        // Each expansion's conditional jump should reference its own label
+        long count1 = asm.lines().filter(l -> l.contains(".done_1")).count();
+        long count2 = asm.lines().filter(l -> l.contains(".done_2")).count();
+        assertEquals(2, count1, ".done_1 should appear exactly twice (JLE + label def), got: " + asm);
+        assertEquals(2, count2, ".done_2 should appear exactly twice (JLE + label def), got: " + asm);
+        assertFalse(asm.contains("CALL clamp_max"),
+                "Inline proc must not emit CALL instruction, got: " + asm);
     }
 }
