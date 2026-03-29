@@ -23,6 +23,13 @@ public class ProjectFile {
     /** Absolute path to the directory where project files are stored. */
     public String workingDirectory;
 
+    /**
+     * Absolute path to the directory where compiled output is written.
+     * Defaults to {@code <workingDirectory>/target} when a new project is
+     * created.  May be overridden to any absolute path by the user.
+     */
+    public String targetDirectory;
+
     /** Ordered list of variants added to this project via "Add Variant". */
     public List<VariantEntry> variants;
 

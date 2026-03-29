@@ -6,13 +6,17 @@ import javax.swing.*;
 import javax.swing.event.*;
 
 /**
- * "New Project" dialog — collects only a project name and working directory.
+ * "New Project" dialog — collects only a project name, working directory,
+ * and target directory.
  *
- * <p>Two rows are stacked vertically on a scrollable canvas:</p>
+ * <p>Three rows are stacked vertically on a scrollable canvas:</p>
  * <ol>
  *   <li>Name — free-text field</li>
  *   <li>Working Directory — free-text field with a folder-browse button
  *       (pre-filled with the user's home directory)</li>
+ *   <li>Target Directory — free-text field with a folder-browse button
+ *       (auto-defaults to {@code <workingDirectory>/target}; can be
+ *       overridden by the user)</li>
  * </ol>
  * <p>OK and Cancel buttons appear at the bottom.  OK is enabled only when
  * both fields contain a non-blank value and the name is valid.</p>
@@ -26,9 +30,24 @@ public class NewProjectWizard extends JDialog {
     private static final String PROJECT_NAME_PATTERN = "[A-Za-z0-9_\\-]+";
 
     // ── form fields ──────────────────────────────────────────────────────────
-    private final JTextField nameField  = new JTextField(50);
-    private final JTextField dirField   = new JTextField(50);
-    private final JButton    browseBtn  = new JButton("Browse…");
+    private final JTextField nameField        = new JTextField(50);
+    private final JTextField dirField         = new JTextField(50);
+    private final JButton    browseBtn        = new JButton("Browse…");
+    private final JTextField targetField      = new JTextField(50);
+    private final JButton    targetBrowseBtn  = new JButton("Browse…");
+
+    /**
+     * {@code true} once the user has manually edited the Target Directory
+     * field (by typing or using its Browse button), after which automatic
+     * synchronisation with the Working Directory is suppressed.
+     */
+    private boolean targetManuallySet = false;
+
+    /**
+     * Guards against {@code onTargetTyped()} firing during programmatic
+     * updates to {@code targetField} (such as auto-sync from Working Directory).
+     */
+    private boolean suppressTargetManualFlag = false;
 
     // ── buttons ──────────────────────────────────────────────────────────────
     private final JButton okBtn     = new JButton("OK");
@@ -60,11 +79,18 @@ public class NewProjectWizard extends JDialog {
             nameField.setText(existing.name != null ? existing.name : "");
             dirField.setText(existing.workingDirectory != null
                     ? existing.workingDirectory : "");
+            if (existing.targetDirectory != null && !existing.targetDirectory.isEmpty()) {
+                targetField.setText(existing.targetDirectory);
+                targetManuallySet = true;
+            } else {
+                // Derive default from workingDirectory
+                syncTargetDefault();
+            }
             refreshOkButton();
         }
         pack();
         setResizable(true);
-        setMinimumSize(new Dimension(600, 260));
+        setMinimumSize(new Dimension(600, 320));
         setLocationRelativeTo(owner);
     }
 
@@ -75,6 +101,7 @@ public class NewProjectWizard extends JDialog {
 
     public String getProjectName()      { return nameField.getText().trim(); }
     public String getWorkingDirectory() { return dirField.getText().trim(); }
+    public String getTargetDirectory()  { return targetField.getText().trim(); }
     /** Returns the {@code .json} file written on OK, or {@code null} if cancelled. */
     public java.io.File getSavedProjectFile() { return savedProjectFile; }
 
@@ -118,6 +145,17 @@ public class NewProjectWizard extends JDialog {
         gbRow = addLabeledControl(canvas, gbRow, "Working Directory:", dirPanel,
                 "All generated files (.sasm, .o, binary) will be written into this folder.");
 
+        // ── Target Directory ──────────────────────────────────────────────────
+        syncTargetDefault();   // populate from the default dirField value
+
+        JPanel targetPanel = new JPanel(new BorderLayout(4, 0));
+        targetPanel.setBackground(Color.WHITE);
+        targetPanel.add(targetField, BorderLayout.CENTER);
+        targetPanel.add(targetBrowseBtn, BorderLayout.EAST);
+        gbRow = addLabeledControl(canvas, gbRow, "Target Directory:", targetPanel,
+                "Compiled output (object files, binaries) will be placed here. "
+                + "Defaults to <working directory>/target.");
+
         // spacer row keeps content pinned to top
         GridBagConstraints sp = new GridBagConstraints();
         sp.gridx = 0; sp.gridy = gbRow; sp.gridwidth = 2;
@@ -136,13 +174,30 @@ public class NewProjectWizard extends JDialog {
 
         // ── wire events ─────────────────────────────────────────────────────
         browseBtn.addActionListener(e -> browseForDirectory());
+        targetBrowseBtn.addActionListener(e -> browseForTargetDirectory());
+
         DocumentListener refreshListener = new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { refreshOkButton(); }
             public void removeUpdate(DocumentEvent e) { refreshOkButton(); }
             public void changedUpdate(DocumentEvent e) { refreshOkButton(); }
         };
+        // When the working directory changes, auto-update the target field
+        // unless the user has already manually chosen a custom target path.
+        DocumentListener dirSyncListener = new DocumentListener() {
+            public void insertUpdate(DocumentEvent e) { onDirChanged(); }
+            public void removeUpdate(DocumentEvent e) { onDirChanged(); }
+            public void changedUpdate(DocumentEvent e) { onDirChanged(); }
+        };
+        // Typing directly into targetField marks it as manually set.
+        DocumentListener targetManualListener = new DocumentListener() {
+            public void insertUpdate(DocumentEvent e) { onTargetTyped(); }
+            public void removeUpdate(DocumentEvent e) { onTargetTyped(); }
+            public void changedUpdate(DocumentEvent e) { onTargetTyped(); }
+        };
         nameField.getDocument().addDocumentListener(refreshListener);
         dirField.getDocument().addDocumentListener(refreshListener);
+        dirField.getDocument().addDocumentListener(dirSyncListener);
+        targetField.getDocument().addDocumentListener(targetManualListener);
         okBtn.addActionListener(e -> onOkPressed());
         cancelBtn.addActionListener(e -> dispose());
         addWindowListener(new WindowAdapter() {
@@ -213,6 +268,68 @@ public class NewProjectWizard extends JDialog {
         }
     }
 
+    private void browseForTargetDirectory() {
+        FileDialog fd = new FileDialog(this, "Select Target Directory", FileDialog.LOAD);
+        String currentDir = targetField.getText().trim();
+        if (!currentDir.isEmpty()) {
+            fd.setDirectory(currentDir);
+        } else {
+            String workDir = dirField.getText().trim();
+            if (!workDir.isEmpty()) fd.setDirectory(workDir);
+        }
+        System.setProperty("apple.awt.fileDialogForDirectories", "true");
+        fd.setVisible(true);
+        System.setProperty("apple.awt.fileDialogForDirectories", "false");
+
+        String dir = fd.getDirectory();
+        if (dir != null && !dir.isEmpty()) {
+            targetManuallySet = true;
+            targetField.setText(dir);
+            refreshOkButton();
+        }
+    }
+
+    /**
+     * Sets the Target Directory to {@code <workingDir>/target} without marking
+     * it as manually set.  Called during initial layout and when loading a
+     * project whose {@code targetDirectory} was null.
+     */
+    private void syncTargetDefault() {
+        suppressTargetManualFlag = true;
+        try {
+            String workDir = dirField.getText().trim();
+            if (!workDir.isEmpty()) {
+                targetField.setText(workDir + java.io.File.separator + "target");
+            } else {
+                targetField.setText("");
+            }
+        } finally {
+            suppressTargetManualFlag = false;
+        }
+    }
+
+    /**
+     * Called when the Working Directory field changes.  If the user has not
+     * yet manually set the Target Directory, the target is automatically kept
+     * in sync as {@code <workingDir>/target}.
+     */
+    private void onDirChanged() {
+        if (!targetManuallySet) {
+            syncTargetDefault();
+        }
+        refreshOkButton();
+    }
+
+    /**
+     * Called when the user types directly into the Target Directory field.
+     * Marks the field as manually set so auto-sync stops.
+     */
+    private void onTargetTyped() {
+        if (!suppressTargetManualFlag) {
+            targetManuallySet = true;
+        }
+    }
+
     /** Enables OK only when both fields are non-blank and the name is valid. */
     private void refreshOkButton() {
         String name = nameField.getText().trim();
@@ -248,6 +365,7 @@ public class NewProjectWizard extends JDialog {
         ProjectFile pf = new ProjectFile();
         pf.name             = name;
         pf.workingDirectory = dirField.getText().trim();
+        pf.targetDirectory  = targetField.getText().trim();
 
         java.io.File dir = new java.io.File(pf.workingDirectory);
         if (!dir.exists() && !dir.mkdirs()) {

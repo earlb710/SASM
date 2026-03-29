@@ -759,6 +759,7 @@ public class SasmMain {
         if (wizard.isConfirmed()) {
             currentProject.name             = wizard.getProjectName();
             currentProject.workingDirectory = wizard.getWorkingDirectory();
+            currentProject.targetDirectory  = wizard.getTargetDirectory();
 
             // Re-save the project file
             File dir = new File(currentProject.workingDirectory);
@@ -1108,6 +1109,7 @@ public class SasmMain {
         ProjectFile pf = new ProjectFile();
         pf.name             = w.getProjectName();
         pf.workingDirectory = w.getWorkingDirectory();
+        pf.targetDirectory  = w.getTargetDirectory();
         return pf;
     }
 
