@@ -1,0 +1,426 @@
+// testMathFPU.sasm
+// Project : Test-projects
+//
+// Exercises the 18 new x87 FPU math routines added to the math library.
+// Every function is called at least once with both float (dword) and
+// double (qword) data to demonstrate that the x87 FPU handles both
+// precisions identically through the same routine.
+//
+// Functions exercised:
+//   @math.abs_float    — ST(0) = |ST(0)|
+//   @math.neg_float    — ST(0) = -ST(0)
+//   @math.round        — ST(0) = round(ST(0))  nearest-even
+//   @math.floor        — ST(0) = floor(ST(0))  toward -inf
+//   @math.ceil         — ST(0) = ceil(ST(0))   toward +inf
+//   @math.trunc        — ST(0) = trunc(ST(0))  toward zero
+//   @math.sincos       — ST(0) = cos(angle), pushes ST(1) = sin(angle)
+//   @math.atan         — ST(0) = atan(ST(0))
+//   @math.atan2        — ST(0) = atan2(ST(1), ST(0));  pops ST(1)
+//   @math.ln           — ST(0) = ln(ST(0))
+//   @math.log2         — ST(0) = log2(ST(0))
+//   @math.log10        — ST(0) = log10(ST(0))
+//   @math.exp          — ST(0) = e^ST(0)
+//   @math.pow          — ST(0) = ST(1)^ST(0);  pops ST(1)
+//   @math.add_float    — ST(0) = ST(0) + ST(1);  pops ST(1)
+//   @math.sub_float    — ST(0) = ST(0) - ST(1);  pops ST(1)
+//   @math.mul_float    — ST(0) = ST(0) * ST(1);  pops ST(1)
+//   @math.div_float    — ST(0) = ST(0) / ST(1);  pops ST(1)
+//
+// Target: 32-bit Linux ELF executable (uses int 0x80 for exit).
+//
+// Build with:
+//   nasm -f elf32 testMathFPU.asm -o testMathFPU.o
+//   ld -m elf_i386 testMathFPU.o -o testMathFPU
+//
+// NOTE: This file tests SASM-to-NASM translation only.
+//       Running the executable requires Linux with x87 FPU support.
+
+#REF lib/math.sasm math
+
+section .data
+
+// ── float (single-precision) test data ──────────────────────────
+
+var f_pos        as float = __float32__(3.5)      // positive value
+var f_neg        as float = __float32__(-3.5)     // negative value
+var f_half       as float = __float32__(0.5)      // for rounding tests
+var f_one        as float = __float32__(1.0)
+var f_two        as float = __float32__(2.0)
+var f_eight      as float = __float32__(8.0)
+var f_zero       as float = __float32__(0.0)
+var f_angle      as float = __float32__(0.7853982)  // π/4 ≈ 45°
+var f_y          as float = __float32__(1.0)        // for atan2: y=1
+var f_x          as float = __float32__(1.0)        //             x=1  → atan2 = π/4
+
+// float result storage
+var r_abs_f      as float
+var r_neg_f      as float
+var r_round_f    as float
+var r_floor_f    as float
+var r_ceil_f     as float
+var r_trunc_f    as float
+var r_sincos_cos as float
+var r_sincos_sin as float
+var r_atan_f     as float
+var r_atan2_f    as float
+var r_ln_f       as float
+var r_log2_f     as float
+var r_log10_f    as float
+var r_exp_f      as float
+var r_pow_f      as float
+var r_add_f      as float
+var r_sub_f      as float
+var r_mul_f      as float
+var r_div_f      as float
+
+// ── double (double-precision) test data ─────────────────────────
+
+var d_pos        as double = __float64__(3.5)
+var d_neg        as double = __float64__(-3.5)
+var d_half       as double = __float64__(0.5)
+var d_one        as double = __float64__(1.0)
+var d_two        as double = __float64__(2.0)
+var d_eight      as double = __float64__(8.0)
+var d_zero       as double = __float64__(0.0)
+var d_angle      as double = __float64__(0.7853981633974483)  // π/4
+var d_y          as double = __float64__(1.0)   // for atan2: y=1
+var d_x          as double = __float64__(1.0)   //             x=1
+
+// double result storage
+var r_abs_d      as double
+var r_neg_d      as double
+var r_round_d    as double
+var r_floor_d    as double
+var r_ceil_d     as double
+var r_trunc_d    as double
+var r_sincos_cos_d as double
+var r_sincos_sin_d as double
+var r_atan_d     as double
+var r_atan2_d    as double
+var r_ln_d       as double
+var r_log2_d     as double
+var r_log10_d    as double
+var r_exp_d      as double
+var r_pow_d      as double
+var r_add_d      as double
+var r_sub_d      as double
+var r_mul_d      as double
+var r_div_d      as double
+
+section .text
+
+start:
+
+    // ═════════════════════════════════════════════════════════════
+    //  abs_float — |value|
+    // ═════════════════════════════════════════════════════════════
+
+    // ── float: |-3.5| = 3.5 ──────────────────────────────────────
+    fld dword [f_neg]              // ST(0) = -3.5
+    call @math.abs_float           // ST(0) = 3.5
+    fstp dword [r_abs_f]
+
+    // ── double: |-3.5| = 3.5 ─────────────────────────────────────
+    fld qword [d_neg]              // ST(0) = -3.5
+    call @math.abs_float           // ST(0) = 3.5
+    fstp qword [r_abs_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  neg_float — negate
+    // ═════════════════════════════════════════════════════════════
+
+    // ── float: -3.5 → 3.5 ────────────────────────────────────────
+    fld dword [f_neg]              // ST(0) = -3.5
+    call @math.neg_float           // ST(0) = 3.5
+    fstp dword [r_neg_f]
+
+    // ── double: 3.5 → -3.5 ───────────────────────────────────────
+    fld qword [d_pos]              // ST(0) = 3.5
+    call @math.neg_float           // ST(0) = -3.5
+    fstp qword [r_neg_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  round — round to nearest-even integer
+    // ═════════════════════════════════════════════════════════════
+
+    // ── float: round(0.5) = 0.0  (round-to-even) ─────────────────
+    fld dword [f_half]             // ST(0) = 0.5
+    call @math.round               // ST(0) = 0.0  (nearest-even)
+    fstp dword [r_round_f]
+
+    // ── double: round(3.5) = 4.0  (round-to-even) ────────────────
+    fld qword [d_pos]              // ST(0) = 3.5
+    call @math.round               // ST(0) = 4.0
+    fstp qword [r_round_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  floor — round toward -infinity
+    // ═════════════════════════════════════════════════════════════
+
+    // ── float: floor(3.5) = 3.0 ──────────────────────────────────
+    fld dword [f_pos]              // ST(0) = 3.5
+    call @math.floor               // ST(0) = 3.0
+    fstp dword [r_floor_f]
+
+    // ── double: floor(-3.5) = -4.0 ───────────────────────────────
+    fld qword [d_neg]              // ST(0) = -3.5
+    call @math.floor               // ST(0) = -4.0
+    fstp qword [r_floor_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  ceil — round toward +infinity
+    // ═════════════════════════════════════════════════════════════
+
+    // ── float: ceil(3.5) = 4.0 ───────────────────────────────────
+    fld dword [f_pos]              // ST(0) = 3.5
+    call @math.ceil                // ST(0) = 4.0
+    fstp dword [r_ceil_f]
+
+    // ── double: ceil(-3.5) = -3.0 ────────────────────────────────
+    fld qword [d_neg]              // ST(0) = -3.5
+    call @math.ceil                // ST(0) = -3.0
+    fstp qword [r_ceil_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  trunc — round toward zero
+    // ═════════════════════════════════════════════════════════════
+
+    // ── float: trunc(3.5) = 3.0 ──────────────────────────────────
+    fld dword [f_pos]              // ST(0) = 3.5
+    call @math.trunc               // ST(0) = 3.0
+    fstp dword [r_trunc_f]
+
+    // ── double: trunc(-3.5) = -3.0 ───────────────────────────────
+    fld qword [d_neg]              // ST(0) = -3.5
+    call @math.trunc               // ST(0) = -3.0
+    fstp qword [r_trunc_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  sincos — compute sin and cos simultaneously
+    //  After call: ST(0) = cos(angle), ST(1) = sin(angle)
+    // ═════════════════════════════════════════════════════════════
+
+    // ── float: sincos(π/4) → cos≈0.7071, sin≈0.7071 ─────────────
+    fld dword [f_angle]            // ST(0) = π/4
+    call @math.sincos              // ST(0) = cos(π/4), ST(1) = sin(π/4)
+    fstp dword [r_sincos_cos]      // pop and store cos
+    fstp dword [r_sincos_sin]      // pop and store sin
+
+    // ── double: sincos(π/4) ───────────────────────────────────────
+    fld qword [d_angle]            // ST(0) = π/4
+    call @math.sincos              // ST(0) = cos(π/4), ST(1) = sin(π/4)
+    fstp qword [r_sincos_cos_d]    // pop and store cos
+    fstp qword [r_sincos_sin_d]    // pop and store sin
+
+    // ═════════════════════════════════════════════════════════════
+    //  atan — atan(value)  result in (-π/2, π/2)
+    // ═════════════════════════════════════════════════════════════
+
+    // ── float: atan(1.0) = π/4 ───────────────────────────────────
+    fld dword [f_one]              // ST(0) = 1.0
+    call @math.atan                // ST(0) = atan(1.0) = π/4
+    fstp dword [r_atan_f]
+
+    // ── double: atan(1.0) = π/4 ──────────────────────────────────
+    fld qword [d_one]              // ST(0) = 1.0
+    call @math.atan                // ST(0) = atan(1.0) = π/4
+    fstp qword [r_atan_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  atan2 — atan2(y, x) = atan(y/x) with quadrant information
+    //  Input:  ST(0) = x, ST(1) = y
+    // ═════════════════════════════════════════════════════════════
+
+    // ── float: atan2(1.0, 1.0) = π/4 ─────────────────────────────
+    fld dword [f_y]                // push y = 1.0
+    fld dword [f_x]                // push x = 1.0  (ST(0)=x, ST(1)=y)
+    call @math.atan2               // ST(0) = atan2(1.0, 1.0) = π/4
+    fstp dword [r_atan2_f]
+
+    // ── double: atan2(1.0, 1.0) = π/4 ────────────────────────────
+    fld qword [d_y]                // push y = 1.0
+    fld qword [d_x]                // push x = 1.0
+    call @math.atan2               // ST(0) = π/4
+    fstp qword [r_atan2_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  ln — natural logarithm
+    // ═════════════════════════════════════════════════════════════
+
+    // ── float: ln(1.0) = 0.0 ─────────────────────────────────────
+    fld dword [f_one]              // ST(0) = 1.0
+    call @math.ln                  // ST(0) = ln(1.0) = 0.0
+    fstp dword [r_ln_f]
+
+    // ── double: ln(e) ≈ 1.0  (use 2.0 as a simple check) ─────────
+    fld qword [d_two]              // ST(0) = 2.0
+    call @math.ln                  // ST(0) = ln(2) ≈ 0.6931
+    fstp qword [r_ln_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  log2 — base-2 logarithm
+    // ═════════════════════════════════════════════════════════════
+
+    // ── float: log2(8.0) = 3.0 ───────────────────────────────────
+    fld dword [f_eight]            // ST(0) = 8.0
+    call @math.log2                // ST(0) = log2(8.0) = 3.0
+    fstp dword [r_log2_f]
+
+    // ── double: log2(8.0) = 3.0 ──────────────────────────────────
+    fld qword [d_eight]            // ST(0) = 8.0
+    call @math.log2                // ST(0) = 3.0
+    fstp qword [r_log2_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  log10 — base-10 logarithm
+    // ═════════════════════════════════════════════════════════════
+
+    // ── float: log10(1.0) = 0.0 ──────────────────────────────────
+    fld dword [f_one]              // ST(0) = 1.0
+    call @math.log10               // ST(0) = log10(1.0) = 0.0
+    fstp dword [r_log10_f]
+
+    // ── double: log10(1.0) = 0.0 ─────────────────────────────────
+    fld qword [d_one]              // ST(0) = 1.0
+    call @math.log10               // ST(0) = 0.0
+    fstp qword [r_log10_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  exp — e^x
+    // ═════════════════════════════════════════════════════════════
+
+    // ── float: e^0 = 1.0 ─────────────────────────────────────────
+    fld dword [f_zero]             // ST(0) = 0.0
+    call @math.exp                 // ST(0) = e^0 = 1.0
+    fstp dword [r_exp_f]
+
+    // ── double: e^1 ≈ 2.71828  (use 1.0 as input) ────────────────
+    fld qword [d_one]              // ST(0) = 1.0
+    call @math.exp                 // ST(0) = e^1 ≈ 2.71828
+    fstp qword [r_exp_d]
+
+    // ── chain: exp(ln(2.0)) ≈ 2.0 ────────────────────────────────
+    fld dword [f_two]              // ST(0) = 2.0
+    call @math.ln                  // ST(0) = ln(2.0)
+    call @math.exp                 // ST(0) = e^ln(2.0) ≈ 2.0
+    fstp dword [r_exp_f]
+
+    // ═════════════════════════════════════════════════════════════
+    //  pow — base^exponent
+    //  Input: ST(0) = exponent (pushed last), ST(1) = base (pushed first)
+    // ═════════════════════════════════════════════════════════════
+
+    // ── float: 2^8 = 256 ─────────────────────────────────────────
+    fld dword [f_two]              // push base = 2.0
+    fld dword [f_eight]            // push exponent = 8.0  (ST(0)=8.0, ST(1)=2.0)
+    call @math.pow                 // ST(0) = 2^8 = 256
+    fstp dword [r_pow_f]
+
+    // ── double: 2^8 = 256 ─────────────────────────────────────────
+    fld qword [d_two]              // push base = 2.0
+    fld qword [d_eight]            // push exponent = 8.0
+    call @math.pow                 // ST(0) = 256.0
+    fstp qword [r_pow_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  add_float — ST(0) = ST(0) + ST(1);  pops ST(1)
+    // ═════════════════════════════════════════════════════════════
+
+    // ── float: 1.0 + 2.0 = 3.0 ───────────────────────────────────
+    fld dword [f_one]              // push 1.0
+    fld dword [f_two]              // push 2.0  (ST(0)=2.0, ST(1)=1.0)
+    call @math.add_float           // ST(0) = 1.0 + 2.0 = 3.0
+    fstp dword [r_add_f]
+
+    // ── double: 1.0 + 2.0 = 3.0 ──────────────────────────────────
+    fld qword [d_one]              // push 1.0
+    fld qword [d_two]              // push 2.0
+    call @math.add_float           // ST(0) = 3.0
+    fstp qword [r_add_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  sub_float — ST(0) = ST(0) - ST(1);  pops ST(1)
+    // ═════════════════════════════════════════════════════════════
+
+    // ── float: 8.0 - 2.0 = 6.0 ───────────────────────────────────
+    fld dword [f_two]              // push 2.0 (ST(1) after next push)
+    fld dword [f_eight]            // push 8.0  (ST(0)=8.0, ST(1)=2.0)
+    call @math.sub_float           // ST(0) = 8.0 - 2.0 = 6.0
+    fstp dword [r_sub_f]
+
+    // ── double: 8.0 - 2.0 = 6.0 ──────────────────────────────────
+    fld qword [d_two]              // push 2.0
+    fld qword [d_eight]            // push 8.0
+    call @math.sub_float           // ST(0) = 6.0
+    fstp qword [r_sub_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  mul_float — ST(0) = ST(0) * ST(1);  pops ST(1)
+    // ═════════════════════════════════════════════════════════════
+
+    // ── float: 2.0 * 8.0 = 16.0 ──────────────────────────────────
+    fld dword [f_two]              // push 2.0
+    fld dword [f_eight]            // push 8.0  (ST(0)=8.0, ST(1)=2.0)
+    call @math.mul_float           // ST(0) = 2.0 * 8.0 = 16.0
+    fstp dword [r_mul_f]
+
+    // ── double: 2.0 * 8.0 = 16.0 ─────────────────────────────────
+    fld qword [d_two]              // push 2.0
+    fld qword [d_eight]            // push 8.0
+    call @math.mul_float           // ST(0) = 16.0
+    fstp qword [r_mul_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  div_float — ST(0) = ST(0) / ST(1);  pops ST(1)
+    // ═════════════════════════════════════════════════════════════
+
+    // ── float: 8.0 / 2.0 = 4.0 ───────────────────────────────────
+    fld dword [f_two]              // push 2.0 (denominator → ST(1))
+    fld dword [f_eight]            // push 8.0 (numerator   → ST(0))
+    call @math.div_float           // ST(0) = 8.0 / 2.0 = 4.0
+    fstp dword [r_div_f]
+
+    // ── double: 8.0 / 2.0 = 4.0 ──────────────────────────────────
+    fld qword [d_two]              // push 2.0
+    fld qword [d_eight]            // push 8.0
+    call @math.div_float           // ST(0) = 4.0
+    fstp qword [r_div_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  Compound chains — verify functions compose correctly
+    // ═════════════════════════════════════════════════════════════
+
+    // ── sin²(π/4) + cos²(π/4) = 1 (Pythagorean identity) ─────────
+    //    Compute sin(π/4)², cos(π/4)², then add them; result ≈ 1.0
+    fld dword [f_angle]            // ST(0) = π/4
+    call @math.sincos              // ST(0) = cos, ST(1) = sin
+    fmul st0, st0                  // ST(0) = cos²
+    fxch                           // ST(0) = sin, ST(1) = cos²
+    fmul st0, st0                  // ST(0) = sin²
+    call @math.add_float           // ST(0) = sin² + cos² ≈ 1.0
+    fstp dword [r_add_f]           // store (should be ≈ 1.0)
+
+    // ── pow(2, 3) = 8; log2(8) = 3.0 ─────────────────────────────
+    fld dword [f_two]              // push base = 2.0
+    fld dword [f_pos]              // push exponent = 3.5 (for a non-trivial test)
+    call @math.pow                 // ST(0) = 2^3.5
+    call @math.log2                // ST(0) = log2(2^3.5) = 3.5
+    fstp dword [r_log2_f]
+
+    // ── floor(ceil(-3.5)) = floor(-3.0) = -3.0 ────────────────────
+    fld dword [f_neg]              // ST(0) = -3.5
+    call @math.ceil                // ST(0) = -3.0
+    call @math.floor               // ST(0) = -3.0
+    fstp dword [r_floor_f]
+
+    // ── abs(neg(3.5)) = abs(-3.5) = 3.5 ──────────────────────────
+    fld dword [f_pos]              // ST(0) = 3.5
+    call @math.neg_float           // ST(0) = -3.5
+    call @math.abs_float           // ST(0) = 3.5
+    fstp dword [r_abs_f]
+
+exit:
+    // ── exit cleanly ────────────────────────────────────────────
+    move 1 to eax                  // sys_exit
+    move 0 to ebx                  // exit code 0
+    interrupt 0x80

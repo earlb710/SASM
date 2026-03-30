@@ -6,6 +6,11 @@
 // Verifies that the correct library functions are called when using
 // the overloaded float/double parameter signatures.
 //
+// See also: testMathFPU.sasm — exercises the additional FPU functions
+//   (abs_float, neg_float, round, floor, ceil, trunc, sincos, atan,
+//    atan2, ln, log2, log10, exp, pow, add_float, sub_float,
+//    mul_float, div_float).
+//
 // Usage:
 //     #REF lib/math.sasm math
 //
