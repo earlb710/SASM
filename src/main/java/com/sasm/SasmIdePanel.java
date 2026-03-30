@@ -225,6 +225,11 @@ public class SasmIdePanel extends JPanel {
         asmOutput.setText("");
         editorHeader.setText("  (no file open)");
         treeHeader.setText(pf != null && pf.name != null ? pf.name : "Project Files");
+        // Tell the translator where to find library files referenced by #REF
+        // so that inline proc bodies can be expanded at call sites.
+        translator.setWorkingDirectory(
+                pf != null && pf.workingDirectory != null
+                        ? new File(pf.workingDirectory) : null);
         refreshFileList();
     }
 

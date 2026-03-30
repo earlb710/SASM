@@ -1,5 +1,8 @@
 package com.sasm;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
@@ -72,6 +75,27 @@ public class SasmTranslator {
      * inline proc can be called multiple times without duplicate-label errors.
      */
     private int inlineExpansionCount = 0;
+
+    /**
+     * Base directory used to resolve {@code #REF} library file paths during
+     * translation.  When non-{@code null}, the translator reads each referenced
+     * library file and registers its {@code inline proc} definitions so that
+     * calls to {@code @alias.symbol} are expanded inline rather than emitting
+     * a {@code CALL} instruction.  Set via {@link #setWorkingDirectory(File)}.
+     */
+    private File workingDirectory = null;
+
+    /**
+     * Sets the base directory used to resolve {@code #REF} library paths.
+     * Pass the project working directory so that the translator can read
+     * library files and expand their {@code inline proc} bodies at call sites.
+     *
+     * @param dir the directory to resolve paths against, or {@code null} to
+     *            disable library-based inline expansion
+     */
+    public void setWorkingDirectory(File dir) {
+        this.workingDirectory = dir;
+    }
 
     /**
      * Collects error messages produced during translation.
@@ -311,6 +335,17 @@ public class SasmTranslator {
             }
             String file  = refM.group(1);
             String alias = refM.group(2);
+            // Load inline proc bodies from the library file so that calls to
+            // @alias.procName are expanded inline rather than emitting CALL.
+            if (workingDirectory != null) {
+                File libFile = new File(workingDirectory, file);
+                try {
+                    String libContent = Files.readString(libFile.toPath());
+                    loadInlineProcsFromLibrary(alias, libContent);
+                } catch (IOException ignored) {
+                    // File not found or unreadable — fall back to CALL.
+                }
+            }
             return "%include \"" + file + "\"  ; alias: " + alias;
         }
 
@@ -1564,6 +1599,85 @@ public class SasmTranslator {
             }
         }
         return sb.toString();
+    }
+
+    /**
+     * Parses a SASM library file (given as a content string) and registers
+     * every {@code inline proc} found in it into {@link #inlineProcs}.
+     *
+     * <p>The key stored is {@code alias + "_" + procName}, which matches the
+     * identifier that {@link #resolveAliasRefs} produces for an
+     * {@code @alias.procName} reference.  For example, if {@code alias} is
+     * {@code "math"} and the library defines {@code inline proc abs_float},
+     * the entry {@code "math_abs_float"} is added.  Subsequent calls to
+     * {@code call @math.abs_float} will then expand the body inline rather
+     * than emitting a {@code CALL} instruction.</p>
+     *
+     * <p>Body lines are stored after stripping inline ({@code //}) comments,
+     * identical to how local inline proc bodies are stored during translation.
+     * Blank lines and pure-comment lines are skipped.  Block comments
+     * ({@code (* ... *)}) are also skipped.</p>
+     *
+     * @param alias   the import alias (from {@code #REF <file> <alias>})
+     * @param content the full text of the library file
+     */
+    private void loadInlineProcsFromLibrary(String alias, String content) {
+        String[] libLines = content.split("\\r?\\n", -1);
+        Pattern decl = Pattern.compile("inline\\s+proc\\s+(\\w+)\\s*.*\\{");
+        String collectName = null;
+        List<String> collectBody = null;
+        int braceDepth = 0;
+        boolean inBlock = false;
+
+        for (String rawLine : libLines) {
+            String code = rawLine.trim();
+
+            // Skip blank lines (same treatment as translateLine()).
+            if (code.isEmpty()) continue;
+
+            // Handle block comments (* ... *).
+            if (code.startsWith("(*")) {
+                if (!code.endsWith("*)")) inBlock = true;
+                continue;
+            }
+            if (inBlock) {
+                if (code.endsWith("*)")) inBlock = false;
+                continue;
+            }
+
+            // Skip pure line-comments.
+            if (code.startsWith("//")) continue;
+
+            // Strip trailing inline comment before storing.
+            int ci = indexOfComment(code);
+            if (ci >= 0) code = code.substring(0, ci).trim();
+            if (code.isEmpty()) continue;
+
+            if (collectName != null) {
+                if (code.equals("}")) {
+                    if (braceDepth > 0) {
+                        braceDepth--;
+                        collectBody.add(code);
+                    } else {
+                        // Closing brace of the inline proc — store the body.
+                        inlineProcs.put(alias + "_" + collectName,
+                                new ArrayList<>(collectBody));
+                        collectName = null;
+                        collectBody = null;
+                    }
+                } else {
+                    if (code.endsWith("{")) braceDepth++;
+                    collectBody.add(code);
+                }
+            } else {
+                Matcher m = decl.matcher(code);
+                if (m.find()) {
+                    collectName = m.group(1);
+                    collectBody = new ArrayList<>();
+                    braceDepth  = 0;
+                }
+            }
+        }
     }
 
     private String translateProc(String code) {

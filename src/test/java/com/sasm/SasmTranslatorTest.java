@@ -1,6 +1,11 @@
 package com.sasm;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -1650,5 +1655,101 @@ class SasmTranslatorTest {
         String asm = t.translate(src);
         assertTrue(asm.contains("CALL math_sqrt"),
                 "Bare '@math.sqrt' with comment should emit CALL math_sqrt");
+    }
+
+    // ── Library inline proc expansion (setWorkingDirectory) ─────────────────
+
+    /**
+     * When a working directory is set, {@code call @alias.procName} targeting
+     * a library {@code inline proc} should expand the body inline rather than
+     * emitting a {@code CALL} instruction.
+     */
+    @Test
+    void libInlineProc_expandedWhenWorkingDirectorySet(@TempDir Path tempDir)
+            throws IOException {
+        // Create a minimal library file: lib/utils.sasm
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        String libContent = String.join("\n",
+                "// utils.sasm — test library",
+                "inline proc negate_eax ( in eax as value, out eax as result ) {",
+                "    negate eax",
+                "    return",
+                "}");
+        Files.writeString(libDir.resolve("utils.sasm"), libContent);
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String src = String.join("\n",
+                "#REF lib/utils.sasm utils",
+                "section .text",
+                "move 5 to eax",
+                "call @utils.negate_eax");
+        String asm = t.translate(src);
+
+        assertFalse(asm.contains("CALL utils_negate_eax"),
+                "Library inline proc call should NOT emit CALL instruction");
+        assertTrue(asm.contains("NEG eax"),
+                "Library inline proc body should be expanded at call site");
+    }
+
+    /**
+     * Without a working directory, {@code call @alias.procName} falls back
+     * to emitting a {@code CALL} instruction (no file I/O possible).
+     */
+    @Test
+    void libInlineProc_fallsBackToCallWhenNoWorkingDirectory() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/utils.sasm utils",
+                "section .text",
+                "move 5 to eax",
+                "call @utils.negate_eax");
+        String asm = t.translate(src);
+
+        assertTrue(asm.contains("CALL utils_negate_eax"),
+                "Without working directory, library proc call should emit CALL");
+    }
+
+    /**
+     * A library inline proc with local labels should have those labels
+     * mangled with a unique suffix on each expansion, just like local
+     * inline procs.
+     */
+    @Test
+    void libInlineProc_labelMangledAcrossMultipleExpansions(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        String libContent = String.join("\n",
+                "inline proc clamp_pos ( in eax as v, out eax as result ) {",
+                "    compare eax with 0",
+                "    goto .done if greater or equal",
+                "    move 0 to eax",
+                ".done:",
+                "    return",
+                "}");
+        Files.writeString(libDir.resolve("util.sasm"), libContent);
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String src = String.join("\n",
+                "#REF lib/util.sasm u",
+                "section .text",
+                "move -1 to eax",
+                "call @u.clamp_pos",
+                "move -5 to eax",
+                "call @u.clamp_pos");
+        String asm = t.translate(src);
+
+        // First expansion: .done_1, second expansion: .done_2
+        assertTrue(asm.contains(".done_1"),
+                "First expansion should mangle label to .done_1");
+        assertTrue(asm.contains(".done_2"),
+                "Second expansion should mangle label to .done_2");
+        assertFalse(asm.contains("CALL u_clamp_pos"),
+                "Library inline proc should not produce CALL");
     }
 }
