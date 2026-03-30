@@ -14,6 +14,12 @@
 //     call @math.min             // EAX = min(EAX, EBX) signed
 //     call @math.max_array       // EAX = max of dword array (ESI=ptr, ECX=count)
 //     call @math.min_array       // EAX = min of dword array (ESI=ptr, ECX=count)
+//     call @math.abs_int         // EAX = |EAX|
+//     call @math.sign            // EAX = sign(EAX): -1, 0, or 1
+//     call @math.clamp           // EAX = clamp(EAX, EBX, ECX) to [EBX..ECX]
+//     call @math.leading_zeros   // EAX = count of leading zero bits (32 if EAX=0)
+//     call @math.trailing_zeros  // EAX = count of trailing zero bits (32 if EAX=0)
+//     call @math.is_power_of_two // EAX = 1 if EAX is a power of two, 0 otherwise
 //
 // Float/double routines (x87 FPU stack):
 //     call @math.square_float    // ST(0) = ST(0) * ST(0)
@@ -45,6 +51,11 @@
 //     call @math.min_array_float // ST(0) = min of float array (ESI=ptr, ECX=count)
 //     call @math.max_array_double // ST(0) = max of double array (ESI=ptr, ECX=count)
 //     call @math.min_array_double // ST(0) = min of double array (ESI=ptr, ECX=count)
+//     call @math.fmod            // ST(0) = fmod(ST(1), ST(0));  pops ST(1)
+//     call @math.modf            // ST(0) = frac(ST(0)), pushes ST(1) = trunc(ST(0))
+//     call @math.frexp           // ST(0) = significand [1,2), pushes ST(1) = exponent
+//     call @math.log1p           // ST(0) = ln(1 + ST(0))   (accurate near zero)
+//     call @math.expm1           // ST(0) = e^ST(0) - 1     (accurate near zero)
 
 #COMPAT Linux x86 (i386)
 
@@ -196,6 +207,149 @@ proc min_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
     ecx = ecx - 1
     goto .min_array_loop
 .min_array_done:
+    return
+}
+
+// ── abs_int ─────────────────────────────────────────────────────
+// Returns the absolute value of a signed 32-bit integer.
+// Branchless: sign-extend to EDX, XOR, then subtract sign mask.
+//
+// Input:  EAX = signed 32-bit value
+// Output: EAX = |value|
+// Clobbers: EDX
+//
+// Example:
+//   move -7 to eax
+//   call @math.abs_int     // eax = 7
+inline proc abs_int ( in eax as value, out eax as result ) {
+    cdq                         // EDX = sign mask: 0 if EAX >= 0, 0xFFFFFFFF if EAX < 0
+    xor eax, edx               // if negative: flip all bits
+    sub eax, edx               // if negative: subtract -1 → two's complement negation
+    return
+}
+
+// ── sign ────────────────────────────────────────────────────────
+// Returns the sign of a signed 32-bit integer as -1, 0, or 1.
+//
+// Input:  EAX = signed 32-bit value
+// Output: EAX = -1 if value < 0,  0 if value == 0,  1 if value > 0
+// Clobbers: none
+//
+// Example:
+//   move -5 to eax
+//   call @math.sign        // eax = -1
+//   move 3 to eax
+//   call @math.sign        // eax = 1
+inline proc sign ( in eax as value, out eax as result ) {
+    compare eax with 0
+    goto .negative if less
+    goto .done if equal
+    move 1 to eax
+    goto .done
+.negative:
+    move -1 to eax
+.done:
+    return
+}
+
+// ── clamp ───────────────────────────────────────────────────────
+// Clamps a signed 32-bit integer to the range [lo, hi].
+// Equivalent to max(lo, min(value, hi)).
+//
+// Input:  EAX = value to clamp (signed 32-bit)
+//         EBX = lo  (lower bound, inclusive)
+//         ECX = hi  (upper bound, inclusive)
+// Output: EAX = clamped value
+// Clobbers: none
+//
+// Example:
+//   move -5 to eax
+//   move 0  to ebx
+//   move 10 to ecx
+//   call @math.clamp       // eax = 0
+inline proc clamp ( in eax as value, in ebx as lo, in ecx as hi, out eax as result ) {
+    compare eax with ebx
+    goto .hi_check if greater or equal
+    move ebx to eax
+.hi_check:
+    compare eax with ecx
+    goto .done if less or equal
+    move ecx to eax
+.done:
+    return
+}
+
+// ── leading_zeros ───────────────────────────────────────────────
+// Counts the number of leading zero bits in a 32-bit integer.
+// Uses BSR (Bit Scan Reverse).  Returns 32 when EAX = 0.
+//
+// Input:  EAX = unsigned 32-bit value
+// Output: EAX = count of leading zero bits (0..32)
+//              = 32 if EAX was 0
+// Clobbers: ECX
+//
+// Example:
+//   move 1 to eax
+//   call @math.leading_zeros  // eax = 31
+inline proc leading_zeros ( in eax as value, out eax as result ) {
+    bsr ecx, eax               // ECX = index of highest set bit; ZF set if EAX=0
+    jz .lz_zero
+    move 31 to eax
+    sub eax, ecx               // 31 - bit_index = leading zero count
+    goto .lz_done
+.lz_zero:
+    move 32 to eax
+.lz_done:
+    return
+}
+
+// ── trailing_zeros ──────────────────────────────────────────────
+// Counts the number of trailing zero bits in a 32-bit integer.
+// Uses BSF (Bit Scan Forward).  Returns 32 when EAX = 0.
+//
+// Input:  EAX = unsigned 32-bit value
+// Output: EAX = count of trailing zero bits (0..32)
+//              = 32 if EAX was 0
+// Clobbers: ECX
+//
+// Example:
+//   move 8 to eax
+//   call @math.trailing_zeros // eax = 3
+inline proc trailing_zeros ( in eax as value, out eax as result ) {
+    bsf ecx, eax               // ECX = index of lowest set bit; ZF set if EAX=0
+    jz .tz_zero
+    move ecx to eax
+    goto .tz_done
+.tz_zero:
+    move 32 to eax
+.tz_done:
+    return
+}
+
+// ── is_power_of_two ─────────────────────────────────────────────
+// Tests whether EAX is an exact power of two (1, 2, 4, 8, ...).
+// Zero is NOT considered a power of two.
+//
+// Input:  EAX = unsigned 32-bit value
+// Output: EAX = 1 if EAX is a power of two, 0 otherwise
+// Clobbers: ECX
+//
+// Example:
+//   move 8 to eax
+//   call @math.is_power_of_two // eax = 1
+//   move 6 to eax
+//   call @math.is_power_of_two // eax = 0
+inline proc is_power_of_two ( in eax as value, out eax as result ) {
+    test eax, eax              // check EAX != 0
+    jz .not_pow2
+    lea ecx, [eax-1]           // ECX = EAX - 1
+    test eax, ecx              // EAX & (EAX-1): 0 iff EAX is a power of two
+    jnz .not_pow2
+    move 1 to eax
+    goto .pow2_done
+.not_pow2:
+    xor eax, eax
+.pow2_done:
     return
 }
 
@@ -921,5 +1075,130 @@ inline proc mul_float ( in float first, in float second, out float result ) {
 inline proc div_float ( in float first, in float second, out float result ) {
     fdiv st0, st1               // ST(0) = ST(0) / ST(1)
     fstp st1                    // ST(1) = result, pop → ST(0) = result
+    return
+}
+
+// ── fmod ────────────────────────────────────────────────────────
+// Computes the IEEE 754 floating-point remainder of ST(1) / ST(0).
+// Equivalent to the C standard library fmod(y, x).
+// Loops until FPREM1 completes the reduction (C2 status flag = 0).
+//
+// Input:  ST(0) = divisor  x  (pushed last, top of stack)
+//         ST(1) = dividend y  (pushed first)
+// Output: ST(0) = y - trunc(y/x) * x  (remainder; same sign as y)
+//         ST(1) is popped.  (net pop of one FPU stack entry)
+// Clobbers: AX
+//
+// Note: x = 0 produces an IEEE 754 invalid-operation result (NaN).
+//
+// Example:
+//   fld dword [y]             // push y
+//   fld dword [x]             // push x  (ST(0)=x, ST(1)=y)
+//   call @math.fmod           // ST(0) = fmod(y, x)
+//   fstp dword [result]
+// overload: proc fmod ( in double y, in double x, out double result )
+inline proc fmod ( in float y, in float x, out float result ) {
+.fmod_loop:
+    fprem1                      // partial IEEE 754 remainder; sets C2 in status if incomplete
+    fstsw ax                    // AX = FPU status word
+    test ah, 4                  // test C2 bit (bit 10 of status word → bit 2 of AH)
+    jnz .fmod_loop              // loop until reduction is complete
+    fstp st1                    // pop divisor; ST(0) = remainder
+    return
+}
+
+// ── modf ────────────────────────────────────────────────────────
+// Splits ST(0) into its integer and fractional parts.
+// Equivalent to the C standard library modf(x, &int_part).
+//
+// Input:  ST(0) = value (IEEE 754 single or double)
+// Output: ST(0) = fractional part  (same sign as input, in (-1, 1))
+//         ST(1) = integer  part    (one entry pushed onto FPU stack)
+// Clobbers: AX, FPU control word (restored before return)
+//
+// Example:
+//   fld dword [my_float]      // push 3.75
+//   call @math.modf           // ST(0) = 0.75,  ST(1) = 3.0
+//   fstp dword [frac]         // pop and store fractional part
+//   fstp dword [int_part]     // pop and store integer part
+// overload: proc modf ( in double value, out double int_part, out double frac_part )
+proc modf ( in float value, out float int_part, out float frac_part ) {
+    esp = esp - 4
+    fstcw word [esp]            // save FPU control word
+    mov ax, word [esp]
+    and ax, 0xF3FF              // clear RC bits (10-11)
+    or  ax, 0x0C00              // RC = 11 = truncate toward zero
+    mov word [esp+2], ax
+    fldcw word [esp+2]          // load modified control word
+    fld st0                     // duplicate: ST(0)=x, ST(1)=x
+    frndint                     // ST(0) = int_part,  ST(1) = x
+    fldcw word [esp]            // restore original control word
+    esp = esp + 4
+    fxch st1                    // ST(0) = x, ST(1) = int_part
+    fsub st0, st1               // ST(0) = x - int_part = frac_part
+    return
+}
+
+// ── frexp ───────────────────────────────────────────────────────
+// Decomposes ST(0) into its binary exponent and significand via FXTRACT.
+//
+// Input:  ST(0) = value (IEEE 754 single or double; must be finite and != 0)
+// Output: ST(0) = significand  in [1.0, 2.0)  (FXTRACT pushes significand as new ST(0))
+//         ST(1) = unbiased binary exponent     (FXTRACT leaves exponent in former ST(0))
+// Clobbers: none
+//
+// Note: The C frexp() convention uses significand in [0.5, 1) with exponent
+//       incremented by 1.  To match C: halve ST(0) and add 1.0 to ST(1).
+//
+// Example:
+//   fld dword [my_float]      // push 6.0  (= 1.5 * 2^2)
+//   call @math.frexp          // ST(0) = 1.5  (significand), ST(1) = 2.0 (exponent)
+//   fstp dword [sig]
+//   fistp dword [exp]
+// overload: proc frexp ( in double value, out double significand, out double exponent )
+inline proc frexp ( in float value, out float significand, out float exponent ) {
+    fxtract                     // ST(0)=significand in [1,2), ST(1)=exponent; pushes one entry
+    return
+}
+
+// ── log1p ───────────────────────────────────────────────────────
+// Computes ln(1 + ST(0)), numerically accurate when ST(0) is near zero.
+// Equivalent to the C standard library log1p(x).
+//
+// Input:  ST(0) = x  (must satisfy |x| < sqrt(2) - 1 ≈ 0.414
+//                     for FYL2XP1 to be accurate; use @math.ln for larger x)
+// Output: ST(0) = ln(1 + x)
+// Clobbers: none (result replaces input on FPU stack)
+//
+// Example:
+//   fld dword [my_float]      // push small x  (e.g. 0.1)
+//   call @math.log1p          // ST(0) = ln(1.1) ≈ 0.09531
+//   fstp dword [result]
+// overload: proc log1p ( in double value, out double result )
+inline proc log1p ( in float value, out float result ) {
+    fldln2                      // push ln(2); ST(0) = ln(2), ST(1) = x
+    fxch                        // ST(0) = x, ST(1) = ln(2)
+    fyl2xp1                     // ST(0) = ln(2) * log2(1+x) = ln(1+x); pops ST(1)
+    return
+}
+
+// ── expm1 ───────────────────────────────────────────────────────
+// Computes e^ST(0) - 1, numerically accurate when ST(0) is near zero.
+// Equivalent to the C standard library expm1(x).
+//
+// Input:  ST(0) = x  (must satisfy |x| <= ln(2) ≈ 0.693 for F2XM1
+//                     to be applied directly; use @math.exp for larger |x|)
+// Output: ST(0) = e^x - 1
+// Clobbers: none (result replaces input on FPU stack)
+//
+// Example:
+//   fld dword [my_float]      // push small x  (e.g. 0.1)
+//   call @math.expm1          // ST(0) = e^0.1 - 1 ≈ 0.10517
+//   fstp dword [result]
+// overload: proc expm1 ( in double value, out double result )
+inline proc expm1 ( in float value, out float result ) {
+    fldl2e                      // push log2(e); ST(0) = log2(e), ST(1) = x
+    fmulp                       // ST(0) = x * log2(e)
+    f2xm1                       // ST(0) = 2^(x * log2(e)) - 1 = e^x - 1
     return
 }
