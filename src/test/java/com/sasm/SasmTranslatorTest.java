@@ -2080,4 +2080,199 @@ class SasmTranslatorTest {
         assertTrue(asm.contains("MOV EBX, 4"), "Second positional -> EBX");
         assertTrue(asm.contains("ADD eax, ebx"), "add2 body should be inlined");
     }
+
+    // ── New val/addr proc parameter syntax ──────────────────────────────────
+
+    /**
+     * New-style definition {@code inline proc name (val dword n) out val dword}:
+     * single val param → register from val pool starting at eax.
+     * Positional call {@code call @a.name( 7 )} should emit {@code MOV EAX, 7}.
+     */
+    @Test
+    void newStyle_valDword_singleParam(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "inline proc square (val dword value) out val dword {",
+                "    multiply by eax",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.square( 7 )"));
+
+        assertTrue(asm.contains("MOV EAX, 7"),     "val dword first param → EAX");
+        assertTrue(asm.contains("MUL eax"),         "Inline body should expand");
+        assertFalse(asm.contains("CALL math_square"), "Inline must NOT emit CALL");
+    }
+
+    /**
+     * Two {@code val dword} params (no addr) → val pool starts at eax:
+     * first → eax, second → ebx.
+     */
+    @Test
+    void newStyle_valDword_twoParams(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "inline proc max (val dword first, val dword second) out val dword {",
+                "    compare eax to ebx",
+                "    goto .done if >=",
+                "    move ebx to eax",
+                ".done:",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.max( 10, 20 )"));
+
+        assertTrue(asm.contains("MOV EAX, 10"), "first val dword → EAX");
+        assertTrue(asm.contains("MOV EBX, 20"), "second val dword → EBX (val-only pool)");
+    }
+
+    /**
+     * Three {@code val dword} params → eax, ebx, ecx.
+     */
+    @Test
+    void newStyle_valDword_threeParams(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "inline proc clamp (val dword value, val dword lo, val dword hi) out val dword {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.clamp( 5, 0, 10 )"));
+
+        assertTrue(asm.contains("MOV EAX, 5"),  "value → EAX");
+        assertTrue(asm.contains("MOV EBX, 0"),  "lo → EBX");
+        assertTrue(asm.contains("MOV ECX, 10"), "hi → ECX");
+    }
+
+    /**
+     * {@code addr} param first, then {@code val dword} → val pool starts at
+     * ecx (x86 idiom: ESI=source pointer, ECX=count).
+     * This is the canonical {@code proc max_array (addr array_ptr, val dword count)} pattern.
+     */
+    @Test
+    void newStyle_addrThenVal_ecxPool(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc my_array_max (addr array_ptr, val dword count) out val dword {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.my_array_max( my_arr, 5 )"));
+
+        assertTrue(asm.contains("MOV ESI, my_arr"),       "addr → ESI");
+        assertTrue(asm.contains("MOV ECX, 5"),             "val after addr → ECX (not EAX)");
+        assertTrue(asm.contains("CALL math_my_array_max"), "Regular proc emits CALL");
+        assertFalse(asm.contains("MOV EAX, 5"),            "val after addr must NOT go to EAX");
+    }
+
+    /**
+     * FPU proc defined with {@code val float} — the NASM comment should contain
+     * the new-style signature when declared locally, and positional FPU call
+     * with {@code [var]} should still produce the {@code fld} / {@code fstp} sequence.
+     */
+    @Test
+    void newStyle_valFloat_fpuCallUnchanged(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "inline proc my_sin (val float angle) out val float {",
+                "    fsin",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .data",
+                "var angle as float = __float32__(1.5707963)",
+                "var result as float",
+                "section .text",
+                "[result] = @math.my_sin( [angle] )"));
+
+        // FPU path still works with new-style declaration.
+        assertTrue(asm.contains("fld dword [angle]"),    "Should fld the float arg");
+        assertTrue(asm.contains("fsin"),                  "Should expand fsin body");
+        assertTrue(asm.contains("fstp dword [result]"),   "Should fstp the result");
+        assertFalse(asm.contains("CALL math_my_sin"),     "Inline must NOT emit CALL");
+
+        // Local inline proc declaration emits the new-style NASM comment.
+        SasmTranslator t2 = new SasmTranslator();
+        String localSrc = String.join("\n",
+                "section .data",
+                "var angle as float = __float32__(1.5707963)",
+                "var result as float",
+                "section .text",
+                "inline proc my_sin (val float angle) out val float {",
+                "    fsin",
+                "    return",
+                "}",
+                "[result] = my_sin[ [angle] ]");
+        String localAsm = t2.translate(localSrc);
+        assertTrue(localAsm.contains("(val float angle) out val float"),
+                "Local proc NASM comment should use new-style signature");
+    }
+
+    /**
+     * New-style regular proc with no {@code out} clause (e.g. array-float procs
+     * that return in FPU ST(0) without an explicit {@code out val}):
+     * {@code proc max_array_float (addr array_ptr, val dword count)} — the
+     * NASM comment should omit the out clause.
+     */
+    @Test
+    void newStyle_noOutClause(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc af_max (addr array_ptr, val dword count) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.af_max( float_arr, 4 )"));
+
+        assertTrue(asm.contains("MOV ESI, float_arr"), "addr → ESI");
+        assertTrue(asm.contains("MOV ECX, 4"),          "val after addr → ECX");
+        assertTrue(asm.contains("CALL math_af_max"),    "Regular proc emits CALL");
+    }
 }

@@ -1914,59 +1914,163 @@ public class SasmTranslator {
 
     /**
      * Parses a proc parameter list string and returns the register names for
-     * every {@code in} parameter, in declaration order.
+     * every input parameter, in declaration order.
      *
-     * <p>Supported forms for each parameter token (after splitting on commas):</p>
+     * <h4>New-style syntax ({@code val}/{@code addr})</h4>
+     * <p>Each token is one of:</p>
      * <ul>
-     *   <li>{@code in <reg> as <name>}   — existing register-alias style</li>
-     *   <li>{@code in <reg> as [<name>]} — by-value annotation (bracket around name)</li>
+     *   <li>{@code val <type> <name>} — by-value input; assigned a register from
+     *       the val pool.  {@code float}/{@code double} types use the FPU stack
+     *       and are <em>not</em> assigned a general register.</li>
+     *   <li>{@code addr <name>} — by-address input; assigned a register from
+     *       the addr pool.</li>
+     * </ul>
+     * <p>Register pools:</p>
+     * <ul>
+     *   <li>addr pool (always): {@code esi}, {@code edi}</li>
+     *   <li>val pool when the <em>first</em> parameter is {@code val}:
+     *       {@code eax, ebx, ecx, edx}</li>
+     *   <li>val pool when at least one {@code addr} parameter precedes the
+     *       first {@code val} parameter:
+     *       {@code ecx, edx, ebx} — matching the x86 idiom of
+     *       ESI=source-pointer, ECX=count</li>
+     * </ul>
+     * <p>The optional {@code out val <type>} / {@code out addr} return-value
+     * clause that may follow the closing {@code )} is stripped before parsing.</p>
+     *
+     * <h4>Old-style syntax (backward-compatible)</h4>
+     * <p>Tokens starting with {@code in}:</p>
+     * <ul>
+     *   <li>{@code in <reg> as <name>}   — register-alias form</li>
+     *   <li>{@code in <reg> as [<name>]} — by-value annotation</li>
      *   <li>{@code in <reg> [<name>]}    — shorthand by-value</li>
-     *   <li>{@code in <reg> <name>}      — shorthand by-pointer (bare name)</li>
-     *   <li>{@code in <type> ...}        — typed (FPU) params — no register, skipped</li>
-     *   <li>{@code out ...}              — output-only params — skipped</li>
+     *   <li>{@code in <reg> <name>}      — shorthand by-pointer</li>
+     *   <li>{@code in <type> ...}        — FPU typed param — skipped</li>
+     *   <li>{@code out ...}              — output params — skipped</li>
      * </ul>
      *
-     * @param paramsStr the raw parameter string, optionally surrounded by
-     *                  {@code ( )} parentheses
-     * @return ordered list of lower-case register names for all {@code in}
-     *         parameters; empty if the proc has no register-based {@code in}
-     *         params
+     * @param paramsStr the raw parameter string captured between the proc name
+     *                  and the opening brace, e.g.
+     *                  {@code "(val dword value1) out val dword "} or
+     *                  {@code "( in eax as [value], out eax as [result] ) "}
+     * @return ordered list of lower-case register names for all input
+     *         parameters; empty if the proc has no register-based input params
      */
     private List<String> parseInParamRegs(String paramsStr) {
         List<String> regs = new ArrayList<>();
-        String inner = paramsStr.trim();
-        if (inner.startsWith("(")) inner = inner.substring(1).trim();
-        if (inner.endsWith(")")) inner = inner.substring(0, inner.length() - 1).trim();
-        if (inner.isEmpty() || inner.startsWith("uses")) return regs;
+        String s = paramsStr.trim();
+        if (s.isEmpty() || s.startsWith("uses")) return regs;
 
-        for (String token : splitArgs(inner)) {
+        // Extract the content inside the FIRST matched pair of parentheses.
+        // New-style: "(val dword v1) out val dword" — the "out …" part follows ")".
+        // Old-style: "( in eax as [v], out eax as [r] )" — out is inside the parens.
+        // Finding the matching ")" strips the out clause for new-style automatically.
+        String inner;
+        int openParen = s.indexOf('(');
+        if (openParen >= 0) {
+            int depth = 0;
+            int closeParen = -1;
+            for (int i = openParen; i < s.length(); i++) {
+                if (s.charAt(i) == '(') depth++;
+                else if (s.charAt(i) == ')') {
+                    depth--;
+                    if (depth == 0) { closeParen = i; break; }
+                }
+            }
+            inner = (closeParen > openParen)
+                    ? s.substring(openParen + 1, closeParen).trim()
+                    : s.substring(openParen + 1).trim();
+        } else {
+            inner = s;
+        }
+        if (inner.isEmpty()) return regs;
+
+        List<String> tokens = splitArgs(inner);
+
+        // Detect new-style: a token whose leading word is "val" or "addr".
+        boolean isNewStyle = tokens.stream().anyMatch(t -> {
+            String fw = firstWord(t);
+            return "val".equals(fw) || "addr".equals(fw);
+        });
+
+        if (isNewStyle) {
+            return parseNewStyleInParams(tokens);
+        }
+
+        // ── Old style ─────────────────────────────────────────────────────────
+        for (String token : tokens) {
             String pt = token.trim();
-            // Only process "in ..." tokens (skip "out" and "in out").
             if (!pt.startsWith("in ")) continue;
             String rest = pt.substring(3).trim();
-            // "in out ..." — the first word after "in " would be "out", skip.
             if (rest.startsWith("out ")) continue;
-
-            // First word after "in " is either a register name or a type keyword.
             int sp = rest.indexOf(' ');
             String first = (sp < 0) ? rest : rest.substring(0, sp);
-            // If it's a register name, record it.
             if (regWidth(first) != null) {
                 regs.add(first.toLowerCase());
             }
-            // If it's a type keyword (float, double, byte, word, dword, qword),
-            // this is an FPU / typed param — no specific register, skip.
+        }
+        return regs;
+    }
+
+    /** Returns the first whitespace-separated word of {@code s}, lower-cased. */
+    private static String firstWord(String s) {
+        String t = s.trim();
+        int sp = t.indexOf(' ');
+        return (sp < 0 ? t : t.substring(0, sp)).toLowerCase();
+    }
+
+    /**
+     * Assigns registers to new-style parameter tokens
+     * ({@code val <type> <name>} / {@code addr <name>}).
+     *
+     * <p>Register pool selection (see {@link #parseInParamRegs} for rationale):</p>
+     * <ul>
+     *   <li>addr pool: {@code esi, edi}</li>
+     *   <li>val pool (no preceding addr): {@code eax, ebx, ecx, edx}</li>
+     *   <li>val pool (addr precedes first val): {@code ecx, edx, ebx}</li>
+     * </ul>
+     */
+    private List<String> parseNewStyleInParams(List<String> tokens) {
+        List<String> regs = new ArrayList<>();
+
+        // Determine whether any addr param appears before the first val param.
+        boolean addrPrecedesFirstVal = false;
+        for (String token : tokens) {
+            String fw = firstWord(token);
+            if ("addr".equals(fw)) { addrPrecedesFirstVal = true; break; }
+            if ("val".equals(fw))  { break; }
+        }
+
+        String[] addrRegs = {"esi", "edi"};
+        String[] valRegs  = addrPrecedesFirstVal
+                ? new String[]{"ecx", "edx", "ebx"}
+                : new String[]{"eax", "ebx", "ecx", "edx"};
+        int addrIdx = 0;
+        int valIdx  = 0;
+
+        for (String token : tokens) {
+            String tt = token.trim();
+            String fw = firstWord(tt);
+            if ("addr".equals(fw)) {
+                if (addrIdx < addrRegs.length) regs.add(addrRegs[addrIdx++]);
+            } else if ("val".equals(fw)) {
+                // val float / val double → FPU stack; no general-purpose register.
+                String[] parts = tt.split("\\s+", 3);
+                String type = (parts.length >= 2) ? parts[1].toLowerCase() : "";
+                if (!"float".equals(type) && !"double".equals(type)) {
+                    if (valIdx < valRegs.length) regs.add(valRegs[valIdx++]);
+                }
+            }
         }
         return regs;
     }
 
     private String translateProc(String code) {
         //   proc <name> {                                              (no params)
-        //   proc <name> ( in <reg> as <alias>, out <reg> as <alias> ) {  (register params)
-        //   proc <name> ( in <reg> [<name>], out <reg> [<name>] ) {      (by-value notation)
-        //   proc <name> ( in <reg> <name>, out <reg> <name> ) {           (by-pointer notation)
-        //   proc <name> ( in <type> <name>, out <type> <name> ) {         (typed params)
-        //   proc <name> uses stack ( <p1>, <p2>, ... ) {                  (stack params)
+        //   proc <name> (val <type> <n>, addr <n>) [out val <type>|out addr] {  (new style)
+        //   proc <name> ( in <reg> as [<alias>], out <reg> as [<alias>] ) {    (old style)
+        //   proc <name> ( in <type> <name>, out <type> <name> ) {              (typed params)
+        //   proc <name> uses stack ( <p1>, <p2>, ... ) {                        (stack params)
         //
         // All forms generate the same NASM label.  When a parameter list
         // is present the translator emits it as a NASM comment so the

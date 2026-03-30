@@ -89,7 +89,7 @@ section .text
 // Example:
 //   move 7 to eax
 //   call @math.square      // eax = 49, edx = 0
-inline proc square ( in eax as [value], out eax as [result] ) {
+inline proc square (val dword value) out val dword {
     multiply by eax            // MUL EAX → EDX:EAX = EAX * EAX
     return
 }
@@ -107,7 +107,7 @@ inline proc square ( in eax as [value], out eax as [result] ) {
 // Example:
 //   move 49 to eax
 //   call @math.sqrt_int    // eax = 7
-proc sqrt_int ( in eax as [value], out eax as [result] ) {
+proc sqrt_int (val dword value) out val dword {
     push ebp
     move esp to ebp
     esp = esp - 4        // local: [ebp-4] = temp dword
@@ -135,7 +135,7 @@ proc sqrt_int ( in eax as [value], out eax as [result] ) {
 //   move 10 to eax
 //   move 20 to ebx
 //   call @math.max         // eax = 20
-inline proc max ( in eax as [first], in ebx as [second], out eax as [result] ) {
+inline proc max (val dword first, val dword second) out val dword {
     compare eax with ebx
     goto .max_done if greater or equal
     move ebx to eax
@@ -155,7 +155,7 @@ inline proc max ( in eax as [first], in ebx as [second], out eax as [result] ) {
 //   move 10 to eax
 //   move 20 to ebx
 //   call @math.min         // eax = 10
-inline proc min ( in eax as [first], in ebx as [second], out eax as [result] ) {
+inline proc min (val dword first, val dword second) out val dword {
     compare eax with ebx
     goto .min_done if less or equal
     move ebx to eax
@@ -175,7 +175,7 @@ inline proc min ( in eax as [first], in ebx as [second], out eax as [result] ) {
 //   move arr to esi
 //   move 5 to ecx
 //   call @math.max_array   // eax = max element
-proc max_array ( in esi as array_ptr, in ecx as [count], out eax as [result] ) {
+proc max_array (addr array_ptr, val dword count) out val dword {
     move dword [esi] to eax    // start with first element
     esi = esi + 4
     ecx = ecx - 1
@@ -205,7 +205,7 @@ proc max_array ( in esi as array_ptr, in ecx as [count], out eax as [result] ) {
 //   move arr to esi
 //   move 5 to ecx
 //   call @math.min_array   // eax = min element
-proc min_array ( in esi as array_ptr, in ecx as [count], out eax as [result] ) {
+proc min_array (addr array_ptr, val dword count) out val dword {
     move dword [esi] to eax    // start with first element
     esi = esi + 4
     ecx = ecx - 1
@@ -234,7 +234,7 @@ proc min_array ( in esi as array_ptr, in ecx as [count], out eax as [result] ) {
 // Example:
 //   move -7 to eax
 //   call @math.abs_int     // eax = 7
-inline proc abs_int ( in eax as [value], out eax as [result] ) {
+inline proc abs_int (val dword value) out val dword {
     cdq                         // EDX = sign mask: 0 if EAX >= 0, 0xFFFFFFFF if EAX < 0
     xor eax, edx               // if negative: flip all bits
     sub eax, edx               // if negative: subtract -1 → two's complement negation
@@ -253,7 +253,7 @@ inline proc abs_int ( in eax as [value], out eax as [result] ) {
 //   call @math.sign        // eax = -1
 //   move 3 to eax
 //   call @math.sign        // eax = 1
-inline proc sign ( in eax as [value], out eax as [result] ) {
+inline proc sign (val dword value) out val dword {
     compare eax with 0
     goto .negative if less
     goto .done if equal
@@ -280,7 +280,7 @@ inline proc sign ( in eax as [value], out eax as [result] ) {
 //   move 0  to ebx
 //   move 10 to ecx
 //   call @math.clamp       // eax = 0
-inline proc clamp ( in eax as [value], in ebx as [lo], in ecx as [hi], out eax as [result] ) {
+inline proc clamp (val dword value, val dword lo, val dword hi) out val dword {
     compare eax with ebx
     goto .hi_check if greater or equal
     move ebx to eax
@@ -304,7 +304,7 @@ inline proc clamp ( in eax as [value], in ebx as [lo], in ecx as [hi], out eax a
 // Example:
 //   move 1 to eax
 //   call @math.leading_zeros  // eax = 31
-inline proc leading_zeros ( in eax as [value], out eax as [result] ) {
+inline proc leading_zeros (val dword value) out val dword {
     bsr ecx, eax               // ECX = index of highest set bit; ZF set if EAX=0
     jz .lz_zero
     move 31 to eax
@@ -328,7 +328,7 @@ inline proc leading_zeros ( in eax as [value], out eax as [result] ) {
 // Example:
 //   move 8 to eax
 //   call @math.trailing_zeros // eax = 3
-inline proc trailing_zeros ( in eax as [value], out eax as [result] ) {
+inline proc trailing_zeros (val dword value) out val dword {
     bsf ecx, eax               // ECX = index of lowest set bit; ZF set if EAX=0
     jz .tz_zero
     move ecx to eax
@@ -352,7 +352,7 @@ inline proc trailing_zeros ( in eax as [value], out eax as [result] ) {
 //   call @math.is_power_of_two // eax = 1
 //   move 6 to eax
 //   call @math.is_power_of_two // eax = 0
-inline proc is_power_of_two ( in eax as [value], out eax as [result] ) {
+inline proc is_power_of_two (val dword value) out val dword {
     test eax, eax              // check EAX != 0
     jz .not_pow2
     lea ecx, [eax-1]           // ECX = EAX - 1
@@ -387,7 +387,7 @@ inline proc is_power_of_two ( in eax as [value], out eax as [result] ) {
 //   call @math.square_float   // ST(0) = my_double²
 //   fstp qword [dresult]
 // overload: proc square_float ( in double value, out double result )
-inline proc square_float ( in float value, out float result ) {
+inline proc square_float (val float value) out val float {
     fmul st0, st0              // ST(0) = ST(0) * ST(0)
     return
 }
@@ -409,7 +409,7 @@ inline proc square_float ( in float value, out float result ) {
 //   call @math.sqrt           // ST(0) = √my_double
 //   fstp qword [dresult]
 // overload: proc sqrt ( in double value, out double result )
-inline proc sqrt ( in float value, out float result ) {
+inline proc sqrt (val float value) out val float {
     fsqrt                       // ST(0) = √ST(0)
     return
 }
@@ -431,7 +431,7 @@ inline proc sqrt ( in float value, out float result ) {
 //   call @math.sin            // ST(0) = sin(my_dangle)
 //   fstp qword [dresult]
 // overload: proc sin ( in double angle, out double result )
-inline proc sin ( in float angle, out float result ) {
+inline proc sin (val float angle) out val float {
     fsin                        // ST(0) = sin(ST(0))
     return
 }
@@ -453,7 +453,7 @@ inline proc sin ( in float angle, out float result ) {
 //   call @math.cos            // ST(0) = cos(my_dangle)
 //   fstp qword [dresult]
 // overload: proc cos ( in double angle, out double result )
-inline proc cos ( in float angle, out float result ) {
+inline proc cos (val float angle) out val float {
     fcos                        // ST(0) = cos(ST(0))
     return
 }
@@ -477,7 +477,7 @@ inline proc cos ( in float angle, out float result ) {
 //   call @math.tan            // ST(0) = tan(my_dangle)
 //   fstp qword [dresult]
 // overload: proc tan ( in double angle, out double result )
-inline proc tan ( in float angle, out float result ) {
+inline proc tan (val float angle) out val float {
     fptan                       // replaces ST(0) with tan(angle), then pushes 1.0: ST(0)=1.0, ST(1)=tan
     fstp st0                    // discard the 1.0; ST(0) = tan result
     return
@@ -505,7 +505,7 @@ inline proc tan ( in float angle, out float result ) {
 //   call @math.max_float      // ST(0) = max(b, a)
 //   fstp qword [dresult]
 // overload: proc max_float ( in double first, in double second, out double result )
-inline proc max_float ( in float first, in float second, out float result ) {
+inline proc max_float (val float first, val float second) out val float {
     fcom st1                    // compare ST(0) to ST(1)
     fstsw ax                    // store FPU status word in AX
     sahf                        // load status flags from AH
@@ -539,7 +539,7 @@ inline proc max_float ( in float first, in float second, out float result ) {
 //   call @math.min_float      // ST(0) = min(b, a)
 //   fstp qword [dresult]
 // overload: proc min_float ( in double first, in double second, out double result )
-inline proc min_float ( in float first, in float second, out float result ) {
+inline proc min_float (val float first, val float second) out val float {
     fcom st1                    // compare ST(0) to ST(1)
     fstsw ax                    // store FPU status word in AX
     sahf                        // load status flags from AH
@@ -564,7 +564,7 @@ inline proc min_float ( in float first, in float second, out float result ) {
 //   move 4 to ecx
 //   call @math.max_array_float  // ST(0) = max element
 //   fstp dword [result]
-proc max_array_float ( in esi as array_ptr, in ecx as [count] ) {
+proc max_array_float (addr array_ptr, val dword count) {
     fld dword [esi]             // ST(0) = first element
     esi = esi + 4
     ecx = ecx - 1
@@ -601,7 +601,7 @@ proc max_array_float ( in esi as array_ptr, in ecx as [count] ) {
 //   move 4 to ecx
 //   call @math.min_array_float  // ST(0) = min element
 //   fstp dword [result]
-proc min_array_float ( in esi as array_ptr, in ecx as [count] ) {
+proc min_array_float (addr array_ptr, val dword count) {
     fld dword [esi]             // ST(0) = first element
     esi = esi + 4
     ecx = ecx - 1
@@ -638,7 +638,7 @@ proc min_array_float ( in esi as array_ptr, in ecx as [count] ) {
 //   move 4 to ecx
 //   call @math.max_array_double  // ST(0) = max element
 //   fstp qword [result]
-proc max_array_double ( in esi as array_ptr, in ecx as [count] ) {
+proc max_array_double (addr array_ptr, val dword count) {
     fld qword [esi]             // ST(0) = first element
     esi = esi + 8
     ecx = ecx - 1
@@ -675,7 +675,7 @@ proc max_array_double ( in esi as array_ptr, in ecx as [count] ) {
 //   move 4 to ecx
 //   call @math.min_array_double  // ST(0) = min element
 //   fstp qword [result]
-proc min_array_double ( in esi as array_ptr, in ecx as [count] ) {
+proc min_array_double (addr array_ptr, val dword count) {
     fld qword [esi]             // ST(0) = first element
     esi = esi + 8
     ecx = ecx - 1
@@ -715,7 +715,7 @@ proc min_array_double ( in esi as array_ptr, in ecx as [count] ) {
 //   call @math.abs_float      // ST(0) = |my_float|
 //   fstp dword [result]
 // overload: proc abs_float ( in double value, out double result )
-inline proc abs_float ( in float value, out float result ) {
+inline proc abs_float (val float value) out val float {
     fabs                        // ST(0) = |ST(0)|
     return
 }
@@ -732,7 +732,7 @@ inline proc abs_float ( in float value, out float result ) {
 //   call @math.neg_float      // ST(0) = -my_float
 //   fstp dword [result]
 // overload: proc neg_float ( in double value, out double result )
-inline proc neg_float ( in float value, out float result ) {
+inline proc neg_float (val float value) out val float {
     fchs                        // ST(0) = -ST(0)
     return
 }
@@ -750,7 +750,7 @@ inline proc neg_float ( in float value, out float result ) {
 //   call @math.round          // ST(0) = round(my_float)
 //   fistp dword [result]
 // overload: proc round ( in double value, out double result )
-inline proc round ( in float value, out float result ) {
+inline proc round (val float value) out val float {
     frndint                     // ST(0) = nearest integer (round-to-nearest-even)
     return
 }
@@ -767,7 +767,7 @@ inline proc round ( in float value, out float result ) {
 //   call @math.floor          // ST(0) = floor(my_float)
 //   fistp dword [result]
 // overload: proc floor ( in double value, out double result )
-proc floor ( in float value, out float result ) {
+proc floor (val float value) out val float {
     esp = esp - 4
     fstcw word [esp]            // save FPU control word
     mov ax, word [esp]
@@ -793,7 +793,7 @@ proc floor ( in float value, out float result ) {
 //   call @math.ceil           // ST(0) = ceil(my_float)
 //   fistp dword [result]
 // overload: proc ceil ( in double value, out double result )
-proc ceil ( in float value, out float result ) {
+proc ceil (val float value) out val float {
     esp = esp - 4
     fstcw word [esp]            // save FPU control word
     mov ax, word [esp]
@@ -819,7 +819,7 @@ proc ceil ( in float value, out float result ) {
 //   call @math.trunc          // ST(0) = trunc(my_float)
 //   fistp dword [result]
 // overload: proc trunc ( in double value, out double result )
-proc trunc ( in float value, out float result ) {
+proc trunc (val float value) out val float {
     esp = esp - 4
     fstcw word [esp]            // save FPU control word
     mov ax, word [esp]
@@ -847,7 +847,7 @@ proc trunc ( in float value, out float result ) {
 //   fstp dword [cos_result]   // pop and store cos
 //   fstp dword [sin_result]   // pop and store sin
 // overload: proc sincos ( in double angle, out double sin_result, out double cos_result )
-inline proc sincos ( in float angle, out float result ) {
+inline proc sincos (val float angle) out val float {
     fsincos                     // ST(0) = cos(angle), ST(1) = sin(angle)
     return
 }
@@ -864,7 +864,7 @@ inline proc sincos ( in float angle, out float result ) {
 //   call @math.atan           // ST(0) = atan(my_float)
 //   fstp dword [result]
 // overload: proc atan ( in double value, out double result )
-inline proc atan ( in float value, out float result ) {
+inline proc atan (val float value) out val float {
     fld1                        // push 1.0; ST(0) = 1.0, ST(1) = value
     fxch                        // ST(0) = value, ST(1) = 1.0
     fpatan                      // ST(0) = atan(value / 1.0) = atan(value); pops ST(1)
@@ -887,7 +887,7 @@ inline proc atan ( in float value, out float result ) {
 //   call @math.atan2          // ST(0) = atan2(y, x)
 //   fstp dword [result]
 // overload: proc atan2 ( in double y, in double x, out double result )
-inline proc atan2 ( in float y, in float x, out float result ) {
+inline proc atan2 (val float y, val float x) out val float {
     fpatan                      // ST(0) = atan(ST(1)/ST(0)) = atan2(y, x); pops ST(1)
     return
 }
@@ -904,7 +904,7 @@ inline proc atan2 ( in float y, in float x, out float result ) {
 //   call @math.ln             // ST(0) = ln(my_float)
 //   fstp dword [result]
 // overload: proc ln ( in double value, out double result )
-inline proc ln ( in float value, out float result ) {
+inline proc ln (val float value) out val float {
     fldln2                      // push ln(2); ST(0) = ln(2), ST(1) = value
     fxch                        // ST(0) = value, ST(1) = ln(2)
     fyl2x                       // ST(0) = ln(2) * log2(value) = ln(value); pops ST(1)
@@ -923,7 +923,7 @@ inline proc ln ( in float value, out float result ) {
 //   call @math.log2           // ST(0) = log2(my_float)
 //   fstp dword [result]
 // overload: proc log2 ( in double value, out double result )
-inline proc log2 ( in float value, out float result ) {
+inline proc log2 (val float value) out val float {
     fld1                        // push 1.0; ST(0) = 1.0, ST(1) = value
     fxch                        // ST(0) = value, ST(1) = 1.0
     fyl2x                       // ST(0) = 1.0 * log2(value) = log2(value); pops ST(1)
@@ -942,7 +942,7 @@ inline proc log2 ( in float value, out float result ) {
 //   call @math.log10          // ST(0) = log10(my_float)
 //   fstp dword [result]
 // overload: proc log10 ( in double value, out double result )
-inline proc log10 ( in float value, out float result ) {
+inline proc log10 (val float value) out val float {
     fldlg2                      // push log10(2); ST(0) = log10(2), ST(1) = value
     fxch                        // ST(0) = value, ST(1) = log10(2)
     fyl2x                       // ST(0) = log10(2) * log2(value) = log10(value); pops ST(1)
@@ -965,7 +965,7 @@ inline proc log10 ( in float value, out float result ) {
 //   call @math.exp            // ST(0) = e^my_float
 //   fstp dword [result]
 // overload: proc exp ( in double value, out double result )
-proc exp ( in float value, out float result ) {
+proc exp (val float value) out val float {
     fldl2e                      // push log2(e); ST(0) = log2(e), ST(1) = x
     fmulp                       // ST(0) = x * log2(e)
     fld st0                     // duplicate: ST(0) = ST(1) = x*log2(e)
@@ -1002,7 +1002,7 @@ proc exp ( in float value, out float result ) {
 //   call @math.pow            // ST(0) = base^exponent
 //   fstp dword [result]
 // overload: proc pow ( in double base, in double exponent, out double result )
-proc pow ( in float base, in float exponent, out float result ) {
+proc pow (val float base, val float exponent) out val float {
     fxch st1                    // ST(0) = base, ST(1) = exponent
     fyl2x                       // ST(0) = exponent * log2(base); pops ST(1)
     fld st0                     // duplicate: ST(0) = ST(1) = z = exp*log2(base)
@@ -1030,7 +1030,7 @@ proc pow ( in float base, in float exponent, out float result ) {
 //   call @math.add_float      // ST(0) = a + b
 //   fstp dword [result]
 // overload: proc add_float ( in double first, in double second, out double result )
-inline proc add_float ( in float first, in float second, out float result ) {
+inline proc add_float (val float first, val float second) out val float {
     faddp                       // ST(1) += ST(0), pop → ST(0) = first + second
     return
 }
@@ -1048,7 +1048,7 @@ inline proc add_float ( in float first, in float second, out float result ) {
 //   call @math.sub_float      // ST(0) = b - a
 //   fstp dword [result]
 // overload: proc sub_float ( in double first, in double second, out double result )
-inline proc sub_float ( in float first, in float second, out float result ) {
+inline proc sub_float (val float first, val float second) out val float {
     fsub st0, st1               // ST(0) = ST(0) - ST(1)
     fstp st1                    // ST(1) = result, pop → ST(0) = result
     return
@@ -1067,7 +1067,7 @@ inline proc sub_float ( in float first, in float second, out float result ) {
 //   call @math.mul_float      // ST(0) = a * b
 //   fstp dword [result]
 // overload: proc mul_float ( in double first, in double second, out double result )
-inline proc mul_float ( in float first, in float second, out float result ) {
+inline proc mul_float (val float first, val float second) out val float {
     fmulp                       // ST(1) *= ST(0), pop → ST(0) = first * second
     return
 }
@@ -1085,7 +1085,7 @@ inline proc mul_float ( in float first, in float second, out float result ) {
 //   call @math.div_float      // ST(0) = b / a
 //   fstp dword [result]
 // overload: proc div_float ( in double first, in double second, out double result )
-inline proc div_float ( in float first, in float second, out float result ) {
+inline proc div_float (val float first, val float second) out val float {
     fdiv st0, st1               // ST(0) = ST(0) / ST(1)
     fstp st1                    // ST(1) = result, pop → ST(0) = result
     return
@@ -1110,7 +1110,7 @@ inline proc div_float ( in float first, in float second, out float result ) {
 //   call @math.fmod           // ST(0) = fmod(y, x)
 //   fstp dword [result]
 // overload: proc fmod ( in double y, in double x, out double result )
-inline proc fmod ( in float y, in float x, out float result ) {
+inline proc fmod (val float y, val float x) out val float {
 .fmod_loop:
     fprem1                      // partial IEEE 754 remainder; sets C2 in status if incomplete
     fstsw ax                    // AX = FPU status word
@@ -1135,7 +1135,7 @@ inline proc fmod ( in float y, in float x, out float result ) {
 //   fstp dword [frac]         // pop and store fractional part
 //   fstp dword [int_part]     // pop and store integer part
 // overload: proc modf ( in double value, out double int_part, out double frac_part )
-proc modf ( in float value, out float int_part, out float frac_part ) {
+proc modf (val float value) out val float {
     esp = esp - 4
     fstcw word [esp]            // save FPU control word
     mov ax, word [esp]
@@ -1169,7 +1169,7 @@ proc modf ( in float value, out float int_part, out float frac_part ) {
 //   fstp dword [sig]
 //   fistp dword [exp]
 // overload: proc frexp ( in double value, out double significand, out double exponent )
-inline proc frexp ( in float value, out float significand, out float exponent ) {
+inline proc frexp (val float value) out val float {
     fxtract                     // ST(0)=significand in [1,2), ST(1)=exponent; pushes one entry
     return
 }
@@ -1188,7 +1188,7 @@ inline proc frexp ( in float value, out float significand, out float exponent ) 
 //   call @math.log1p          // ST(0) = ln(1.1) ≈ 0.09531
 //   fstp dword [result]
 // overload: proc log1p ( in double value, out double result )
-inline proc log1p ( in float value, out float result ) {
+inline proc log1p (val float value) out val float {
     fldln2                      // push ln(2); ST(0) = ln(2), ST(1) = x
     fxch                        // ST(0) = x, ST(1) = ln(2)
     fyl2xp1                     // ST(0) = ln(2) * log2(1+x) = ln(1+x); pops ST(1)
@@ -1209,7 +1209,7 @@ inline proc log1p ( in float value, out float result ) {
 //   call @math.expm1          // ST(0) = e^0.1 - 1 ≈ 0.10517
 //   fstp dword [result]
 // overload: proc expm1 ( in double value, out double result )
-inline proc expm1 ( in float value, out float result ) {
+inline proc expm1 (val float value) out val float {
     fldl2e                      // push log2(e); ST(0) = log2(e), ST(1) = x
     fmulp                       // ST(0) = x * log2(e)
     f2xm1                       // ST(0) = 2^(x * log2(e)) - 1 = e^x - 1
@@ -1229,7 +1229,7 @@ inline proc expm1 ( in float value, out float result ) {
 //   call @math.asin           // ST(0) = asin(0.5) = pi/6
 //   fstp dword [result]
 // overload: proc asin ( in double value, out double result )
-inline proc asin ( in float value, out float result ) {
+inline proc asin (val float value) out val float {
     fld st0                     // dup x: ST(0)=x, ST(1)=x
     fmul st0, st0               // ST(0) = x^2, ST(1) = x
     fld1                        // push 1.0
@@ -1252,7 +1252,7 @@ inline proc asin ( in float value, out float result ) {
 //   call @math.acos           // ST(0) = acos(0.5) = pi/3
 //   fstp dword [result]
 // overload: proc acos ( in double value, out double result )
-inline proc acos ( in float value, out float result ) {
+inline proc acos (val float value) out val float {
     fld st0                     // dup x: ST(0)=x, ST(1)=x
     fmul st0, st0               // ST(0) = x^2, ST(1) = x
     fld1                        // push 1.0
@@ -1276,7 +1276,7 @@ inline proc acos ( in float value, out float result ) {
 //   call @math.sinh           // ST(0) = sinh(my_float)
 //   fstp dword [result]
 // overload: proc sinh ( in double value, out double result )
-proc sinh ( in float value, out float result ) {
+proc sinh (val float value) out val float {
     fld st0                     // save x: ST(0)=x, ST(1)=x
     // compute e^x
     fldl2e                      // ST(0) = log2(e)
@@ -1325,7 +1325,7 @@ proc sinh ( in float value, out float result ) {
 //   call @math.cosh           // ST(0) = cosh(my_float)
 //   fstp dword [result]
 // overload: proc cosh ( in double value, out double result )
-proc cosh ( in float value, out float result ) {
+proc cosh (val float value) out val float {
     fld st0                     // save x: ST(0)=x, ST(1)=x
     // compute e^x
     fldl2e
@@ -1374,7 +1374,7 @@ proc cosh ( in float value, out float result ) {
 //   call @math.tanh           // ST(0) = tanh(my_float)
 //   fstp dword [result]
 // overload: proc tanh ( in double value, out double result )
-proc tanh ( in float value, out float result ) {
+proc tanh (val float value) out val float {
     fadd st0, st0               // ST(0) = 2x
     // compute e^(2x)
     fldl2e
@@ -1412,7 +1412,7 @@ proc tanh ( in float value, out float result ) {
 //   call @math.hypot          // ST(0) = sqrt(x^2 + y^2)
 //   fstp dword [result]
 // overload: proc hypot ( in double x, in double y, out double result )
-inline proc hypot ( in float x, in float y, out float result ) {
+inline proc hypot (val float x, val float y) out val float {
     fmul st0, st0               // ST(0) = y^2, ST(1) = x
     fxch st1                    // ST(0) = x, ST(1) = y^2
     fmul st0, st0               // ST(0) = x^2, ST(1) = y^2
@@ -1434,7 +1434,7 @@ inline proc hypot ( in float x, in float y, out float result ) {
 //   call @math.fract          // ST(0) = 0.75
 //   fstp dword [result]
 // overload: proc fract ( in double value, out double result )
-proc fract ( in float value, out float result ) {
+proc fract (val float value) out val float {
     esp = esp - 4
     fstcw word [esp]            // save FPU control word
     mov ax, word [esp]
@@ -1462,7 +1462,7 @@ proc fract ( in float value, out float result ) {
 //   call @math.deg_to_rad     // ST(0) = radians
 //   fstp dword [result]
 // overload: proc deg_to_rad ( in double value, out double result )
-inline proc deg_to_rad ( in float value, out float result ) {
+inline proc deg_to_rad (val float value) out val float {
     fldpi                       // push pi; ST(0) = pi, ST(1) = degrees
     fmulp                       // ST(0) = degrees * pi
     esp = esp - 4
@@ -1485,7 +1485,7 @@ inline proc deg_to_rad ( in float value, out float result ) {
 //   call @math.rad_to_deg     // ST(0) = degrees
 //   fstp dword [result]
 // overload: proc rad_to_deg ( in double value, out double result )
-inline proc rad_to_deg ( in float value, out float result ) {
+inline proc rad_to_deg (val float value) out val float {
     esp = esp - 4
     mov dword [esp], 180
     fild dword [esp]            // push 180.0; ST(0) = 180, ST(1) = radians
@@ -1511,7 +1511,7 @@ inline proc rad_to_deg ( in float value, out float result ) {
 //   call @math.ldexp          // ST(0) = 1.5 * 2^3 = 12.0
 //   fstp dword [result]
 // overload: proc ldexp ( in double x, in double n, out double result )
-inline proc ldexp ( in float x, in float n, out float result ) {
+inline proc ldexp (val float x, val float n) out val float {
     fxch                        // ST(0) = x, ST(1) = n
     fscale                      // ST(0) = x * 2^n, ST(1) = n (unchanged)
     fstp st1                    // pop n; ST(0) = x * 2^n
@@ -1535,7 +1535,7 @@ inline proc ldexp ( in float x, in float n, out float result ) {
 //   call @math.log_b          // ST(0) = 3.0  (exponent)
 //   fstp dword [result]
 // overload: proc log_b ( in double value, out double result )
-inline proc log_b ( in float value, out float result ) {
+inline proc log_b (val float value) out val float {
     fxtract                     // ST(0) = significand in [1,2), ST(1) = exponent; pushes
     fstp st0                    // discard significand; ST(0) = exponent
     return
@@ -1557,7 +1557,7 @@ inline proc log_b ( in float value, out float result ) {
 //   call @math.lerp           // ST(0) = 2.0 + 0.25 * (10.0 - 2.0) = 4.0
 //   fstp dword [result]
 // overload: proc lerp ( in double a, in double b, in double t, out double result )
-inline proc lerp ( in float a, in float b, in float t, out float result ) {
+inline proc lerp (val float a, val float b, val float t) out val float {
     fld st2                     // push copy of a: ST(0)=a, ST(1)=t, ST(2)=b, ST(3)=a
     fxch st2                    // ST(0)=b, ST(1)=t, ST(2)=a(copy), ST(3)=a(orig)
     fsub st0, st2               // ST(0) = b - a
@@ -1583,7 +1583,7 @@ inline proc lerp ( in float a, in float b, in float t, out float result ) {
 //   call @math.clamp_float    // ST(0) = clamp(x, lo, hi)
 //   fstp dword [result]
 // overload: proc clamp_float ( in double x, in double lo, in double hi, out double result )
-proc clamp_float ( in float x, in float lo, in float hi, out float result ) {
+proc clamp_float (val float x, val float lo, val float hi) out val float {
     fxch st2                    // ST(0)=x, ST(1)=lo, ST(2)=hi
     fcom st1                    // compare x with lo
     fstsw ax
