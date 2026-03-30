@@ -65,7 +65,7 @@ inline proc square ( in eax as value, out eax as result ) {
 // Example:
 //   move 49 to eax
 //   call @math.sqrt_int    // eax = 7
-inline proc sqrt_int ( in eax as value, out eax as result ) {
+proc sqrt_int ( in eax as value, out eax as result ) {
     push ebp
     move esp to ebp
     esp = esp - 4        // local: [ebp-4] = temp dword
@@ -133,7 +133,7 @@ inline proc min ( in eax as first, in ebx as second, out eax as result ) {
 //   move arr to esi
 //   move 5 to ecx
 //   call @math.max_array   // eax = max element
-inline proc max_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
+proc max_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
     move dword [esi] to eax    // start with first element
     esi = esi + 4
     ecx = ecx - 1
@@ -163,7 +163,7 @@ inline proc max_array ( in esi as array_ptr, in ecx as count, out eax as result 
 //   move arr to esi
 //   move 5 to ecx
 //   call @math.min_array   // eax = min element
-inline proc min_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
+proc min_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
     move dword [esi] to eax    // start with first element
     esi = esi + 4
     ecx = ecx - 1
@@ -379,7 +379,7 @@ inline proc min_float ( in float first, in float second, out float result ) {
 //   move 4 to ecx
 //   call @math.max_array_float  // ST(0) = max element
 //   fstp dword [result]
-inline proc max_array_float ( in esi as array_ptr, in ecx as count ) {
+proc max_array_float ( in esi as array_ptr, in ecx as count ) {
     fld dword [esi]             // ST(0) = first element
     esi = esi + 4
     ecx = ecx - 1
@@ -416,7 +416,7 @@ inline proc max_array_float ( in esi as array_ptr, in ecx as count ) {
 //   move 4 to ecx
 //   call @math.min_array_float  // ST(0) = min element
 //   fstp dword [result]
-inline proc min_array_float ( in esi as array_ptr, in ecx as count ) {
+proc min_array_float ( in esi as array_ptr, in ecx as count ) {
     fld dword [esi]             // ST(0) = first element
     esi = esi + 4
     ecx = ecx - 1
@@ -453,7 +453,7 @@ inline proc min_array_float ( in esi as array_ptr, in ecx as count ) {
 //   move 4 to ecx
 //   call @math.max_array_double  // ST(0) = max element
 //   fstp qword [result]
-inline proc max_array_double ( in esi as array_ptr, in ecx as count ) {
+proc max_array_double ( in esi as array_ptr, in ecx as count ) {
     fld qword [esi]             // ST(0) = first element
     esi = esi + 8
     ecx = ecx - 1
@@ -490,7 +490,7 @@ inline proc max_array_double ( in esi as array_ptr, in ecx as count ) {
 //   move 4 to ecx
 //   call @math.min_array_double  // ST(0) = min element
 //   fstp qword [result]
-inline proc min_array_double ( in esi as array_ptr, in ecx as count ) {
+proc min_array_double ( in esi as array_ptr, in ecx as count ) {
     fld qword [esi]             // ST(0) = first element
     esi = esi + 8
     ecx = ecx - 1
