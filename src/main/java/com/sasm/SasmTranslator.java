@@ -67,6 +67,13 @@ public class SasmTranslator {
     private int inlineBraceDepth = 0;
 
     /**
+     * Monotonically-increasing counter incremented once per inline expansion.
+     * Used to generate unique suffixes for local labels so that the same
+     * inline proc can be called multiple times without duplicate-label errors.
+     */
+    private int inlineExpansionCount = 0;
+
+    /**
      * Collects error messages produced during translation.
      * Populated when source violates ordering rules (e.g. a {@code #REF}
      * or {@code #COMPAT} directive appears after code).
@@ -83,6 +90,16 @@ public class SasmTranslator {
      * declared with the {@code signed} modifier, {@code false} otherwise.</p>
      */
     private final Map<String, Boolean> declaredVars = new HashMap<>();
+
+    /**
+     * Tracks the declared type keyword for each variable so that the correct
+     * scratch register width can be chosen when a memory destination requires
+     * routing through an accumulator register.
+     * <p>Key: variable name.  Value: lower-case type keyword
+     * ({@code "byte"}, {@code "word"}, {@code "dword"}, {@code "qword"},
+     * {@code "float"}, {@code "double"}).</p>
+     */
+    private final Map<String, String> varTypes = new HashMap<>();
 
     /**
      * Holds the step code, loop label, and end label for a {@code for} loop.
@@ -234,6 +251,7 @@ public class SasmTranslator {
         collectingInlineName = null;
         collectingInlineBody = null;
         inlineBraceDepth = 0;
+        inlineExpansionCount = 0;
         seenCode = false;
         inBlockComment = false;
         currentLine = 0;
@@ -325,6 +343,22 @@ public class SasmTranslator {
         // Any non-blank, non-comment, non-directive line counts as code.
         seenCode = true;
 
+        // ── implicit call: bare @alias.symbol acts as "call @alias.symbol" ───
+        // When a statement starts with an @ reference (e.g. "@math.sin"), the
+        // "call" keyword is optional.  Prepend it here so the rest of the
+        // pipeline (resolveAliasRefs → tryCall) processes it normally.
+        // split("\\s+", 2)[0] safely gives the first whitespace-delimited token
+        // (returns a single-element array when there is no whitespace; [0] is
+        // always valid).  The ALIAS_REF.matches() guard ensures this only fires
+        // for well-formed @alias.symbol tokens, never for bare "@" or other uses.
+        if (trimmed.startsWith("@")) {
+            String firstToken = trimmed.split("\\s+", 2)[0];
+            if (ALIAS_REF.matcher(firstToken).matches()) {
+                trimmed = "call " + trimmed;
+                line    = leading + trimmed;
+            }
+        }
+
         // ── resolve @alias.symbol references ─────────────────────────────────
         line = resolveAliasRefs(line);
         trimmed = line.trim();
@@ -413,6 +447,8 @@ public class SasmTranslator {
         }
 
         // ── labels ───────────────────────────────────────────────────────────
+        if (code.equals("start:")) return "global _start\n_start:";
+        if (code.equals("exit:"))  return "_exit:";
         if (code.endsWith(":") && !code.contains(" ")) return code;
 
         // ── structural keywords ──────────────────────────────────────────────
@@ -646,10 +682,13 @@ public class SasmTranslator {
             "add\\s+(.+?)\\s+to\\s+(.+)", Pattern.CASE_INSENSITIVE);
     private static final Pattern ADD_CARRY = Pattern.compile(
             "add\\s+(.+?)\\s+with\\s+carry\\s+to\\s+(.+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ADD_CARRY_SHORT = Pattern.compile(
+            "addc\\s+(.+?)\\s+to\\s+(.+)", Pattern.CASE_INSENSITIVE);
 
     private String tryAdd(String code) {
         Matcher m;
-        if ((m = ADD_CARRY.matcher(code)).matches()) {
+        if ((m = ADD_CARRY.matcher(code)).matches()
+                || (m = ADD_CARRY_SHORT.matcher(code)).matches()) {
             return "    ADC " + m.group(2) + ", " + m.group(1);
         }
         if ((m = ADD.matcher(code)).matches()) {
@@ -663,10 +702,13 @@ public class SasmTranslator {
     private static final Pattern SBB = Pattern.compile(
             "subtract\\s+(.+?)\\s+with\\s+borrow\\s+from\\s+(.+)",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern SBB_SHORT = Pattern.compile(
+            "subb\\s+(.+?)\\s+from\\s+(.+)", Pattern.CASE_INSENSITIVE);
 
     private String trySub(String code) {
         Matcher m;
-        if ((m = SBB.matcher(code)).matches()) {
+        if ((m = SBB.matcher(code)).matches()
+                || (m = SBB_SHORT.matcher(code)).matches()) {
             return "    SBB " + m.group(2) + ", " + m.group(1);
         }
         if ((m = SUB.matcher(code)).matches()) {
@@ -771,8 +813,27 @@ public class SasmTranslator {
      */
     private String[] parseInlineCompare(String cond) {
         if (!cond.startsWith("(") || !cond.endsWith(")")) return null;
-        String inner = cond.substring(1, cond.length() - 1).trim();
-        Matcher m = C_CMP.matcher(inner);
+        return parseCompareExpression(cond.substring(1, cond.length() - 1).trim());
+    }
+
+    /**
+     * Tries to parse an unparenthesised inline comparison from a condition
+     * string (e.g. {@code eax != ebx} or {@code bx >= 10}).
+     * Returns the same two-element array as {@link #parseInlineCompare},
+     * or {@code null} if the condition does not match.
+     */
+    private String[] parseOperatorCondition(String cond) {
+        return parseCompareExpression(cond);
+    }
+
+    /**
+     * Core comparison-expression parser used by both
+     * {@link #parseInlineCompare} and {@link #parseOperatorCondition}.
+     * Matches {@code expr} against the C-style comparison pattern and
+     * returns {@code [CMP instruction, conditionWord]}, or {@code null}.
+     */
+    private String[] parseCompareExpression(String expr) {
+        Matcher m = C_CMP.matcher(expr);
         if (!m.matches()) return null;
         String op1 = wrapIfVar(m.group(1).trim());
         String op2 = wrapIfVar(m.group(3).trim());
@@ -1038,6 +1099,7 @@ public class SasmTranslator {
 
     private String tryProcControl(String code) {
         if (code.equals("no op"))  return "    NOP";
+        if (code.equals("nop"))    return "    NOP";
         if (code.equals("halt"))   return "    HLT";
         if (code.equals("wait for coprocessor")) return "    FWAIT";
         if (code.equals("read cpu id"))          return "    CPUID";
@@ -1070,8 +1132,9 @@ public class SasmTranslator {
             // endLabel starts as null; assigned lazily if an else-if/else follows.
             blockStack.push(new IfContext(skipLbl, null));
 
-            // C-style inline comparison: if (op1 == op2) {
+            // C-style inline comparison: if (op1 == op2) { or if op1 != op2 {
             String[] ic = parseInlineCompare(cond);
+            if (ic == null) ic = parseOperatorCondition(cond);
             if (ic != null) {
                 String inv = conditionToJump(invertCondition(ic[1]));
                 return ic[0] + "\n    " + inv + " " + skipLbl + "   ; if " + cond;
@@ -1099,8 +1162,9 @@ public class SasmTranslator {
                 String skipLbl = ".L" + (labelSeq++);
                 blockStack.push(new IfContext(skipLbl, endLbl));
 
-                // C-style inline comparison: } else if (op1 != op2) {
+                // C-style inline comparison: } else if (op1 != op2) { or } else if op1 != op2 {
                 String[] ic = parseInlineCompare(cond);
+                if (ic == null) ic = parseOperatorCondition(cond);
                 if (ic != null) {
                     String inv = conditionToJump(invertCondition(ic[1]));
                     return "    JMP " + endLbl + "\n"
@@ -1252,8 +1316,9 @@ public class SasmTranslator {
         if (m.matches()) {
             if (!blockStack.isEmpty()) blockStack.pop();
             String cond = m.group(1).trim();
-            // C-style inline comparison: } until (op1 == op2)
+            // C-style inline comparison: } until (op1 == op2) or } until op1 == op2
             String[] ic = parseInlineCompare(cond);
+            if (ic == null) ic = parseOperatorCondition(cond);
             if (ic != null) {
                 String jmp = conditionToJump(invertCondition(ic[1]));
                 return ic[0] + "\n    " + jmp + " .loop   ; until " + cond;
@@ -1270,8 +1335,9 @@ public class SasmTranslator {
             blockStack.push(null);
             String cond = m.group(1).trim();
             String lbl = ".while" + (labelSeq++);
-            // C-style inline comparison: while (op1 != op2) {
+            // C-style inline comparison: while (op1 != op2) { or while op1 != op2 {
             String[] ic = parseInlineCompare(cond);
+            if (ic == null) ic = parseOperatorCondition(cond);
             if (ic != null) {
                 return ic[0] + "\n" + lbl + ":   ; while " + ic[1];
             }
@@ -1411,6 +1477,7 @@ public class SasmTranslator {
             String dims  = m.group(3);          // nullable — dimension brackets
             boolean signed = "signed".equals(m.group(4));
             declaredVars.put(name, signed);
+            varTypes.put(name, m.group(2).trim().toLowerCase());
             String dir   = sizeDirective(m.group(2));
             String value = expandStringLiterals(m.group(5).trim());
             if (dims != null) {
@@ -1426,6 +1493,7 @@ public class SasmTranslator {
             String dims  = m.group(3);          // nullable — dimension brackets
             boolean signed = "signed".equals(m.group(4));
             declaredVars.put(name, signed);
+            varTypes.put(name, m.group(2).trim().toLowerCase());
             String dir   = sizeDirective(m.group(2));
             if (dims != null) {
                 int count = parseTotalCount(dims);
@@ -1470,17 +1538,26 @@ public class SasmTranslator {
      * concatenating the NASM output.  {@code return} statements are
      * suppressed (no {@code RET} emitted) so the inlined code flows
      * into the code that follows the call site.
+     *
+     * <p>Local labels (any token matching {@code \.\w+}) are mangled by
+     * appending a unique numeric suffix so that the same inline proc can
+     * be expanded at multiple call sites without producing duplicate labels
+     * in the NASM output.</p>
      */
     private String expandInline(String name) {
         List<String> body = inlineProcs.get(name);
+        int id = ++inlineExpansionCount;
         StringBuilder sb = new StringBuilder();
         sb.append("; -- inline " + name + " --");
         for (String bodyLine : body) {
             if (bodyLine.equals("return")) continue;
-            String asm = tryTranslateCode(bodyLine);
+            // Mangle local labels (.foo → .foo_N) to avoid collisions across
+            // multiple expansions of the same inline proc.
+            String mangledLine = bodyLine.replaceAll("\\.(\\w+)", ".$1_" + id);
+            String asm = tryTranslateCode(mangledLine);
             if (asm == null) {
                 // Unrecognised line — pass through (raw ASM)
-                asm = "    " + bodyLine;
+                asm = "    " + mangledLine;
             }
             if (!asm.isEmpty()) {
                 sb.append('\n').append(asm);
@@ -1658,6 +1735,92 @@ public class SasmTranslator {
         return result.toString();
     }
 
+    // ── Memory-destination helpers ──────────────────────────────────────────
+
+    /** Returns {@code true} if {@code s} is a bracketed memory reference. */
+    private static boolean isMemRef(String s) {
+        return s.startsWith("[") && s.endsWith("]");
+    }
+
+    /**
+     * Returns the best scratch register to hold intermediate values when the
+     * expression destination is a memory reference.  Priority:
+     * <ol>
+     *   <li>The declared type of the destination variable (from {@link #varTypes})</li>
+     *   <li>The register class of the first register-shaped operand</li>
+     *   <li>Default: {@code "AX"} (16-bit)</li>
+     * </ol>
+     */
+    private String scratchReg(String dst, List<String> operands) {
+        String name = dst;
+        if (name.startsWith("[") && name.endsWith("]")) {
+            name = name.substring(1, name.length() - 1).trim();
+        }
+        String type = varTypes.get(name);
+        if (type != null) {
+            return switch (type) {
+                case "byte"            -> "AL";
+                case "dword", "float"  -> "EAX";
+                case "qword", "double" -> "RAX";
+                default                -> "AX";   // word
+            };
+        }
+        // Infer from operands
+        for (String op : operands) {
+            String[] rw = regWidth(op);
+            if (rw != null) return rw[0];
+        }
+        return "AX";
+    }
+
+    /**
+     * Builds an expression sequence that uses a scratch accumulator register
+     * when the destination is a memory reference.  This avoids illegal
+     * memory-to-memory moves/operations that x86 does not support.
+     *
+     * <p>Emits:</p>
+     * <pre>
+     *   MOV scratch, op0         ; (skipped if scratch already contains op0)
+     *   OP  scratch, op1
+     *   OP  scratch, op2
+     *   ...
+     *   MOV [dst], scratch
+     * </pre>
+     */
+    private String buildWithScratch(String dst, List<String> operands,
+                                    List<Integer> operators) {
+        String scratch = scratchReg(dst, operands);
+        boolean firstSigned = isSignedVar(operands.get(0));
+        StringBuilder sb = new StringBuilder();
+
+        String first = operands.get(0);
+        if (!scratch.equalsIgnoreCase(first)) {
+            sb.append("    MOV ").append(scratch).append(", ").append(first);
+        }
+
+        for (int i = 0; i < operators.size(); i++) {
+            int opKind = operators.get(i);
+            String operand = operands.get(i + 1);
+            if (sb.length() > 0) sb.append('\n');
+            switch (opKind) {
+                case '+' -> sb.append("    ADD ").append(scratch).append(", ").append(operand);
+                case '-' -> sb.append("    SUB ").append(scratch).append(", ").append(operand);
+                case '*' -> sb.append("    IMUL ").append(scratch).append(", ").append(operand);
+                case 'L' -> sb.append("    SHL ").append(scratch).append(", ").append(operand);
+                case 'R' -> sb.append(firstSigned ? "    SAR " : "    SHR ")
+                              .append(scratch).append(", ").append(operand);
+                case 'A' -> sb.append("    AND ").append(scratch).append(", ").append(operand);
+                case 'O' -> sb.append("    OR ").append(scratch).append(", ").append(operand);
+                case 'X' -> sb.append("    XOR ").append(scratch).append(", ").append(operand);
+                default  -> { }
+            }
+        }
+        if (!scratch.equalsIgnoreCase(dst)) {
+            sb.append('\n').append("    MOV ").append(dst).append(", ").append(scratch);
+        }
+        return sb.toString();
+    }
+
     /**
      * Builds the core NASM instructions for an expression assignment
      * (without any surrounding pre/post-increment/decrement lines).
@@ -1673,9 +1836,20 @@ public class SasmTranslator {
                 if (inner.isEmpty()) return null;
                 inner = wrapIfBareVar(inner);
                 boolean sameAsDst = dst.equalsIgnoreCase(inner);
-                return sameAsDst
-                        ? "    NOT " + dst
-                        : "    MOV " + dst + ", " + inner + "\n    NOT " + dst;
+                if (sameAsDst) return "    NOT " + dst;
+                // MOV [dst],[mem] would be illegal; route through scratch
+                if (isMemRef(dst) && isMemRef(inner)) {
+                    String s = scratchReg(dst, operands);
+                    return "    MOV " + s + ", " + inner
+                            + "\n    NOT " + s
+                            + "\n    MOV " + dst + ", " + s;
+                }
+                return "    MOV " + dst + ", " + inner + "\n    NOT " + dst;
+            }
+            // Simple assignment: [dst] = [src] — route through scratch if both are memory
+            if (isMemRef(dst) && isMemRef(sole) && !dst.equalsIgnoreCase(sole)) {
+                String s = scratchReg(dst, operands);
+                return "    MOV " + s + ", " + sole + "\n    MOV " + dst + ", " + s;
             }
             return "    MOV " + dst + ", " + sole;
         }
@@ -1688,6 +1862,15 @@ public class SasmTranslator {
 
             if (op1.isEmpty() || op2.isEmpty()) {
                 return "    MOV " + dst + ", " + rhs;
+            }
+
+            // Route through scratch when dst is memory and any operand is also memory.
+            // buildDiv/buildMod already route through accumulator registers so they
+            // handle memory destinations natively — skip the scratch path for them.
+            if (isMemRef(dst) && (isMemRef(op1) || isMemRef(op2))
+                    && opKind != 'd' && opKind != 'S'
+                    && opKind != '%' && opKind != 'm' && opKind != 'M') {
+                return buildWithScratch(dst, operands, operators);
             }
 
             boolean sameAsDst = dst.equalsIgnoreCase(op1);
@@ -1736,6 +1919,11 @@ public class SasmTranslator {
         for (int opKind : operators) {
             if (opKind == 'd' || opKind == 'S' || opKind == '%'
                     || opKind == 'm' || opKind == 'M') return null;
+        }
+
+        // Route through scratch when dst is memory and any operand is also memory
+        if (isMemRef(dst) && operands.stream().anyMatch(SasmTranslator::isMemRef)) {
+            return buildWithScratch(dst, operands, operators);
         }
 
         boolean firstSigned = isSignedVar(operands.get(0));
@@ -1789,7 +1977,7 @@ public class SasmTranslator {
      *   <li>{@code MOV dst, quotient} (if dst ≠ quotient reg)</li>
      * </ol>
      */
-    private static String buildDiv(String dst, String op1, String op2,
+    private String buildDiv(String dst, String op1, String op2,
                                    boolean signed) {
         String[] pair = divRegisters(dst, op1);
         String quot = pair[0]; // AL / AX / EAX / RAX  (quotient register)
@@ -1826,7 +2014,7 @@ public class SasmTranslator {
      * (from the high register: AH/DX/EDX/RDX) into the destination
      * instead of the quotient.</p>
      */
-    private static String buildMod(String dst, String op1, String op2,
+    private String buildMod(String dst, String op1, String op2,
                                    boolean signed) {
         String[] pair = divRegisters(dst, op1);
         String quot = pair[0]; // AL / AX / EAX / RAX  (quotient register)
@@ -1876,14 +2064,28 @@ public class SasmTranslator {
 
     /**
      * Determines the quotient register and high-word register pair to use
-     * for a {@code DIV} instruction, based on the register width of the
-     * operands.
+     * for a {@code DIV} instruction, based on the declared type of the
+     * destination variable (preferred) or the register width of the operands.
      *
      * @return {@code {quotientReg, highReg}} where quotientReg receives
      *         the division result and highReg must be zeroed beforehand.
      */
-    private static String[] divRegisters(String dst, String op1) {
-        // Check dst first, then op1, for width hints
+    private String[] divRegisters(String dst, String op1) {
+        // First: consult the declared variable type of dst for a reliable size hint
+        String dstName = dst;
+        if (dstName.startsWith("[") && dstName.endsWith("]")) {
+            dstName = dstName.substring(1, dstName.length() - 1).trim();
+        }
+        String type = varTypes.get(dstName);
+        if (type != null) {
+            return switch (type) {
+                case "byte"            -> new String[]{"AL",  "AH"};
+                case "dword", "float"  -> new String[]{"EAX", "EDX"};
+                case "qword", "double" -> new String[]{"RAX", "RDX"};
+                default                -> new String[]{"AX",  "DX"};   // word
+            };
+        }
+        // Fall back to register-width detection on dst and op1
         String[] r = regWidth(dst);
         if (r != null) return r;
         r = regWidth(op1);
@@ -1966,6 +2168,24 @@ public class SasmTranslator {
                     });
                     start = i + 2;
                     i++;  // skip second char of the operator
+                    continue;
+                }
+            }
+            // Single-char bitwise operators: & | ^ (aliases for && || ^^)
+            // Only reached when the next char is different, so && / || / ^^ are
+            // always handled by the two-char block above.
+            if ((c == '&' || c == '|' || c == '^') && i > 0
+                    && (i + 1 >= rhs.length() || rhs.charAt(i + 1) != c)) {
+                String before = rhs.substring(start, i).trim();
+                if (!before.isEmpty()) {
+                    operands.add(before);
+                    operators.add(switch (c) {
+                        case '&' -> (int) 'A';
+                        case '|' -> (int) 'O';
+                        case '^' -> (int) 'X';
+                        default  -> (int) c;
+                    });
+                    start = i + 1;
                     continue;
                 }
             }
@@ -2125,49 +2345,49 @@ public class SasmTranslator {
 
     private static String conditionToJump(String cond) {
         return switch (cond.toLowerCase()) {
-            case "equal"           -> "JE";
-            case "not equal"       -> "JNE";
-            case "above"           -> "JA";
-            case "above or equal"  -> "JAE";
-            case "below"           -> "JB";
-            case "below or equal"  -> "JBE";
-            case "greater"         -> "JG";
-            case "greater or equal"-> "JGE";
-            case "less"            -> "JL";
-            case "less or equal"   -> "JLE";
-            case "overflow"        -> "JO";
-            case "no overflow"     -> "JNO";
-            case "negative"        -> "JS";
-            case "positive"        -> "JNS";
-            case "parity even"     -> "JP";
-            case "parity odd"      -> "JNP";
-            case "cx zero"         -> "JCXZ";
-            case "carry"           -> "JC";
-            case "no carry"        -> "JNC";
-            default                -> "; unknown condition: " + cond;
+            case "equal",           "=="  -> "JE";
+            case "not equal",       "!="  -> "JNE";
+            case "above"                  -> "JA";
+            case "above or equal"         -> "JAE";
+            case "below"                  -> "JB";
+            case "below or equal"         -> "JBE";
+            case "greater",         ">"   -> "JG";
+            case "greater or equal", ">=" -> "JGE";
+            case "less",            "<"   -> "JL";
+            case "less or equal",   "<="  -> "JLE";
+            case "overflow"               -> "JO";
+            case "no overflow"            -> "JNO";
+            case "negative"               -> "JS";
+            case "positive"               -> "JNS";
+            case "parity even"            -> "JP";
+            case "parity odd"             -> "JNP";
+            case "cx zero"                -> "JCXZ";
+            case "carry"                  -> "JC";
+            case "no carry"               -> "JNC";
+            default                       -> "; unknown condition: " + cond;
         };
     }
 
     /** Returns the logical inverse of a condition word. */
     private static String invertCondition(String cond) {
         return switch (cond.toLowerCase()) {
-            case "equal"           -> "not equal";
-            case "not equal"       -> "equal";
-            case "above"           -> "below or equal";
-            case "above or equal"  -> "below";
-            case "below"           -> "above or equal";
-            case "below or equal"  -> "above";
-            case "greater"         -> "less or equal";
-            case "greater or equal"-> "less";
-            case "less"            -> "greater or equal";
-            case "less or equal"   -> "greater";
-            case "overflow"        -> "no overflow";
-            case "no overflow"     -> "overflow";
-            case "negative"        -> "positive";
-            case "positive"        -> "negative";
-            case "carry"           -> "no carry";
-            case "no carry"        -> "carry";
-            default                -> cond; // fallback
+            case "equal",           "=="  -> "not equal";
+            case "not equal",       "!="  -> "equal";
+            case "above"                  -> "below or equal";
+            case "above or equal"         -> "below";
+            case "below"                  -> "above or equal";
+            case "below or equal"         -> "above";
+            case "greater",         ">"   -> "less or equal";
+            case "greater or equal", ">=" -> "less";
+            case "less",            "<"   -> "greater or equal";
+            case "less or equal",   "<="  -> "greater";
+            case "overflow"               -> "no overflow";
+            case "no overflow"            -> "overflow";
+            case "negative"               -> "positive";
+            case "positive"               -> "negative";
+            case "carry"                  -> "no carry";
+            case "no carry"               -> "carry";
+            default                       -> cond; // fallback
         };
     }
 
