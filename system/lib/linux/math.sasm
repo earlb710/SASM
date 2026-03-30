@@ -21,6 +21,24 @@
 //     call @math.sin             // ST(0) = sin(ST(0))  (radians)
 //     call @math.cos             // ST(0) = cos(ST(0))  (radians)
 //     call @math.tan             // ST(0) = tan(ST(0))  (radians)
+//     call @math.abs_float       // ST(0) = |ST(0)|
+//     call @math.neg_float       // ST(0) = -ST(0)
+//     call @math.round           // ST(0) = round(ST(0)) to nearest integer
+//     call @math.floor           // ST(0) = floor(ST(0))  (round toward -inf)
+//     call @math.ceil            // ST(0) = ceil(ST(0))   (round toward +inf)
+//     call @math.trunc           // ST(0) = trunc(ST(0))  (round toward zero)
+//     call @math.sincos          // ST(0) = cos(angle), pushes ST(1) = sin(angle)
+//     call @math.atan            // ST(0) = atan(ST(0))   (radians)
+//     call @math.atan2           // ST(0) = atan2(ST(1), ST(0));  pops ST(1)
+//     call @math.ln              // ST(0) = ln(ST(0))
+//     call @math.log2            // ST(0) = log2(ST(0))
+//     call @math.log10           // ST(0) = log10(ST(0))
+//     call @math.exp             // ST(0) = e^ST(0)
+//     call @math.pow             // ST(0) = ST(1)^ST(0);  pops ST(1)
+//     call @math.add_float       // ST(0) = ST(0) + ST(1);  pops ST(1)
+//     call @math.sub_float       // ST(0) = ST(0) - ST(1);  pops ST(1)
+//     call @math.mul_float       // ST(0) = ST(0) * ST(1);  pops ST(1)
+//     call @math.div_float       // ST(0) = ST(0) / ST(1);  pops ST(1)
 //     call @math.max_float       // ST(0) = max(ST(0), ST(1)); pops ST(1)  (works with doubles too)
 //     call @math.min_float       // ST(0) = min(ST(0), ST(1)); pops ST(1)  (works with doubles too)
 //     call @math.max_array_float // ST(0) = max of float array (ESI=ptr, ECX=count)
@@ -511,5 +529,397 @@ proc min_array_double ( in esi as array_ptr, in ecx as count ) {
     ecx = ecx - 1
     goto .min_ad_loop
 .min_ad_done:
+    return
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Additional float/double operations (x87 FPU stack-based)
+// ═══════════════════════════════════════════════════════════════
+
+// ── abs_float ───────────────────────────────────────────────────
+// Returns the absolute value of ST(0).
+//
+// Input:  ST(0) = value (IEEE 754 single or double)
+// Output: ST(0) = |value|
+// Clobbers: none (result replaces input on FPU stack)
+//
+// Example:
+//   fld dword [my_float]
+//   call @math.abs_float      // ST(0) = |my_float|
+//   fstp dword [result]
+// overload: proc abs_float ( in double value, out double result )
+inline proc abs_float ( in float value, out float result ) {
+    fabs                        // ST(0) = |ST(0)|
+    return
+}
+
+// ── neg_float ───────────────────────────────────────────────────
+// Negates ST(0).
+//
+// Input:  ST(0) = value (IEEE 754 single or double)
+// Output: ST(0) = -value
+// Clobbers: none (result replaces input on FPU stack)
+//
+// Example:
+//   fld dword [my_float]
+//   call @math.neg_float      // ST(0) = -my_float
+//   fstp dword [result]
+// overload: proc neg_float ( in double value, out double result )
+inline proc neg_float ( in float value, out float result ) {
+    fchs                        // ST(0) = -ST(0)
+    return
+}
+
+// ── round ───────────────────────────────────────────────────────
+// Rounds ST(0) to the nearest integer using the current FPU
+// rounding mode (default: round-to-nearest-even).
+//
+// Input:  ST(0) = value (IEEE 754 single or double)
+// Output: ST(0) = nearest integer to value (still in FPU format)
+// Clobbers: none (result replaces input on FPU stack)
+//
+// Example:
+//   fld dword [my_float]
+//   call @math.round          // ST(0) = round(my_float)
+//   fistp dword [result]
+// overload: proc round ( in double value, out double result )
+inline proc round ( in float value, out float result ) {
+    frndint                     // ST(0) = nearest integer (round-to-nearest-even)
+    return
+}
+
+// ── floor ───────────────────────────────────────────────────────
+// Rounds ST(0) down toward negative infinity (floor).
+//
+// Input:  ST(0) = value (IEEE 754 single or double)
+// Output: ST(0) = floor(value)  (largest integer <= value)
+// Clobbers: AX, FPU control word (restored)
+//
+// Example:
+//   fld dword [my_float]
+//   call @math.floor          // ST(0) = floor(my_float)
+//   fistp dword [result]
+// overload: proc floor ( in double value, out double result )
+proc floor ( in float value, out float result ) {
+    esp = esp - 4
+    fstcw word [esp]            // save FPU control word
+    mov ax, word [esp]
+    and ax, 0xF3FF              // clear RC bits (10-11)
+    or  ax, 0x0400              // RC = 01 = round toward -inf (floor)
+    mov word [esp+2], ax
+    fldcw word [esp+2]          // load modified control word
+    frndint                     // ST(0) = floor(ST(0))
+    fldcw word [esp]            // restore original control word
+    esp = esp + 4
+    return
+}
+
+// ── ceil ────────────────────────────────────────────────────────
+// Rounds ST(0) up toward positive infinity (ceiling).
+//
+// Input:  ST(0) = value (IEEE 754 single or double)
+// Output: ST(0) = ceil(value)  (smallest integer >= value)
+// Clobbers: AX, FPU control word (restored)
+//
+// Example:
+//   fld dword [my_float]
+//   call @math.ceil           // ST(0) = ceil(my_float)
+//   fistp dword [result]
+// overload: proc ceil ( in double value, out double result )
+proc ceil ( in float value, out float result ) {
+    esp = esp - 4
+    fstcw word [esp]            // save FPU control word
+    mov ax, word [esp]
+    and ax, 0xF3FF              // clear RC bits (10-11)
+    or  ax, 0x0800              // RC = 10 = round toward +inf (ceil)
+    mov word [esp+2], ax
+    fldcw word [esp+2]          // load modified control word
+    frndint                     // ST(0) = ceil(ST(0))
+    fldcw word [esp]            // restore original control word
+    esp = esp + 4
+    return
+}
+
+// ── trunc ───────────────────────────────────────────────────────
+// Truncates ST(0) toward zero (drops the fractional part).
+//
+// Input:  ST(0) = value (IEEE 754 single or double)
+// Output: ST(0) = trunc(value)  (integer part, toward zero)
+// Clobbers: AX, FPU control word (restored)
+//
+// Example:
+//   fld dword [my_float]
+//   call @math.trunc          // ST(0) = trunc(my_float)
+//   fistp dword [result]
+// overload: proc trunc ( in double value, out double result )
+proc trunc ( in float value, out float result ) {
+    esp = esp - 4
+    fstcw word [esp]            // save FPU control word
+    mov ax, word [esp]
+    and ax, 0xF3FF              // clear RC bits (10-11)
+    or  ax, 0x0C00              // RC = 11 = truncate toward zero
+    mov word [esp+2], ax
+    fldcw word [esp+2]          // load modified control word
+    frndint                     // ST(0) = trunc(ST(0))
+    fldcw word [esp]            // restore original control word
+    esp = esp + 4
+    return
+}
+
+// ── sincos ──────────────────────────────────────────────────────
+// Computes both sine and cosine of ST(0) in one instruction.
+// More efficient than calling sin and cos separately.
+//
+// Input:  ST(0) = angle in radians (IEEE 754 single or double)
+// Output: ST(0) = cos(angle), ST(1) = sin(angle)  (pushes one entry)
+// Clobbers: none (one new entry pushed onto FPU stack)
+//
+// Example:
+//   fld dword [angle]
+//   call @math.sincos
+//   fstp dword [cos_result]   // pop and store cos
+//   fstp dword [sin_result]   // pop and store sin
+// overload: proc sincos ( in double angle, out double sin_result, out double cos_result )
+inline proc sincos ( in float angle, out float result ) {
+    fsincos                     // ST(0) = cos(angle), ST(1) = sin(angle)
+    return
+}
+
+// ── atan ────────────────────────────────────────────────────────
+// Computes the arctangent of ST(0).
+//
+// Input:  ST(0) = value (IEEE 754 single or double)
+// Output: ST(0) = atan(value)  in radians, result in (-pi/2, pi/2)
+// Clobbers: none (result replaces input on FPU stack)
+//
+// Example:
+//   fld dword [my_float]
+//   call @math.atan           // ST(0) = atan(my_float)
+//   fstp dword [result]
+// overload: proc atan ( in double value, out double result )
+inline proc atan ( in float value, out float result ) {
+    fld1                        // push 1.0; ST(0) = 1.0, ST(1) = value
+    fxch                        // ST(0) = value, ST(1) = 1.0
+    fpatan                      // ST(0) = atan(value / 1.0) = atan(value); pops ST(1)
+    return
+}
+
+// ── atan2 ───────────────────────────────────────────────────────
+// Computes the four-quadrant arctangent of ST(1)/ST(0).
+// Equivalent to the C standard library atan2(y, x).
+//
+// Input:  ST(0) = x (second argument, pushed last)
+//         ST(1) = y (first argument, pushed first)
+// Output: ST(0) = atan2(y, x)  in radians, result in (-pi, pi)
+//         ST(1) is popped.
+// Clobbers: none (net pop of one FPU stack entry)
+//
+// Example:
+//   fld dword [y]             // push y
+//   fld dword [x]             // push x  (ST(0)=x, ST(1)=y)
+//   call @math.atan2          // ST(0) = atan2(y, x)
+//   fstp dword [result]
+// overload: proc atan2 ( in double y, in double x, out double result )
+inline proc atan2 ( in float y, in float x, out float result ) {
+    fpatan                      // ST(0) = atan(ST(1)/ST(0)) = atan2(y, x); pops ST(1)
+    return
+}
+
+// ── ln ──────────────────────────────────────────────────────────
+// Computes the natural logarithm of ST(0).
+//
+// Input:  ST(0) = value (must be > 0)
+// Output: ST(0) = ln(value)
+// Clobbers: none (result replaces input on FPU stack)
+//
+// Example:
+//   fld dword [my_float]
+//   call @math.ln             // ST(0) = ln(my_float)
+//   fstp dword [result]
+// overload: proc ln ( in double value, out double result )
+inline proc ln ( in float value, out float result ) {
+    fldln2                      // push ln(2); ST(0) = ln(2), ST(1) = value
+    fxch                        // ST(0) = value, ST(1) = ln(2)
+    fyl2x                       // ST(0) = ln(2) * log2(value) = ln(value); pops ST(1)
+    return
+}
+
+// ── log2 ────────────────────────────────────────────────────────
+// Computes the base-2 logarithm of ST(0).
+//
+// Input:  ST(0) = value (must be > 0)
+// Output: ST(0) = log2(value)
+// Clobbers: none (result replaces input on FPU stack)
+//
+// Example:
+//   fld dword [my_float]
+//   call @math.log2           // ST(0) = log2(my_float)
+//   fstp dword [result]
+// overload: proc log2 ( in double value, out double result )
+inline proc log2 ( in float value, out float result ) {
+    fld1                        // push 1.0; ST(0) = 1.0, ST(1) = value
+    fxch                        // ST(0) = value, ST(1) = 1.0
+    fyl2x                       // ST(0) = 1.0 * log2(value) = log2(value); pops ST(1)
+    return
+}
+
+// ── log10 ───────────────────────────────────────────────────────
+// Computes the base-10 logarithm of ST(0).
+//
+// Input:  ST(0) = value (must be > 0)
+// Output: ST(0) = log10(value)
+// Clobbers: none (result replaces input on FPU stack)
+//
+// Example:
+//   fld dword [my_float]
+//   call @math.log10          // ST(0) = log10(my_float)
+//   fstp dword [result]
+// overload: proc log10 ( in double value, out double result )
+inline proc log10 ( in float value, out float result ) {
+    fldlg2                      // push log10(2); ST(0) = log10(2), ST(1) = value
+    fxch                        // ST(0) = value, ST(1) = log10(2)
+    fyl2x                       // ST(0) = log10(2) * log2(value) = log10(value); pops ST(1)
+    return
+}
+
+// ── exp ─────────────────────────────────────────────────────────
+// Computes e raised to the power of ST(0)  (e^x).
+//
+// Input:  ST(0) = x (IEEE 754 single or double)
+// Output: ST(0) = e^x
+// Clobbers: FPU stack (uses extra slots temporarily, net: replaces ST(0))
+//
+// Algorithm: e^x = 2^(x * log2(e)).
+//   Split x*log2(e) into integer + fractional parts, apply F2XM1 to
+//   the fractional part, then scale by 2^integer via FSCALE.
+//
+// Example:
+//   fld dword [my_float]
+//   call @math.exp            // ST(0) = e^my_float
+//   fstp dword [result]
+// overload: proc exp ( in double value, out double result )
+proc exp ( in float value, out float result ) {
+    fldl2e                      // push log2(e); ST(0) = log2(e), ST(1) = x
+    fmulp                       // ST(0) = x * log2(e)
+    fld st0                     // duplicate: ST(0) = ST(1) = x*log2(e)
+    frndint                     // ST(0) = round(x*log2(e)) = integer part n
+    fxch st1                    // ST(0) = x*log2(e), ST(1) = n
+    fsub st0, st1               // ST(0) = fractional part of x*log2(e)
+    f2xm1                       // ST(0) = 2^frac - 1
+    fld1                        // push 1.0
+    faddp                       // ST(0) = 2^frac
+    fscale                      // ST(0) = 2^frac * 2^n = e^x
+    fstp st1                    // pop n; ST(0) = e^x
+    return
+}
+
+// ── pow ─────────────────────────────────────────────────────────
+// Computes base raised to the power of exponent  (base^exponent).
+//
+// Input:  ST(0) = exponent (pushed last, top of stack)
+//         ST(1) = base (pushed first; must be > 0)
+// Output: ST(0) = base^exponent
+//         ST(1) is popped (net pop of one entry).
+// Clobbers: FPU stack (extra slots used temporarily)
+//
+// Algorithm: base^exp = 2^(exp * log2(base)).
+//   Uses FYL2X to compute exp*log2(base), then the same integer/
+//   fractional split used by @math.exp.
+//
+// Note: base must be > 0.  For negative bases with integer exponents
+//       negate the result manually after calling pow.
+//
+// Example:
+//   fld dword [base]          // push base
+//   fld dword [exponent]      // push exponent  (ST(0)=exp, ST(1)=base)
+//   call @math.pow            // ST(0) = base^exponent
+//   fstp dword [result]
+// overload: proc pow ( in double base, in double exponent, out double result )
+proc pow ( in float base, in float exponent, out float result ) {
+    fxch st1                    // ST(0) = base, ST(1) = exponent
+    fyl2x                       // ST(0) = exponent * log2(base); pops ST(1)
+    fld st0                     // duplicate: ST(0) = ST(1) = z = exp*log2(base)
+    frndint                     // ST(0) = round(z) = integer part n
+    fxch st1                    // ST(0) = z, ST(1) = n
+    fsub st0, st1               // ST(0) = fractional part of z
+    f2xm1                       // ST(0) = 2^frac - 1
+    fld1                        // push 1.0
+    faddp                       // ST(0) = 2^frac
+    fscale                      // ST(0) = 2^frac * 2^n = base^exponent
+    fstp st1                    // pop n; ST(0) = base^exponent
+    return
+}
+
+// ── add_float ───────────────────────────────────────────────────
+// Adds two floats (or doubles) on the FPU stack.
+//
+// Input:  ST(0) = first operand, ST(1) = second operand
+// Output: ST(0) = ST(0) + ST(1)  (ST(1) popped)
+// Clobbers: none (net pop of one FPU stack entry)
+//
+// Example (float):
+//   fld dword [a]
+//   fld dword [b]             // ST(0)=b, ST(1)=a
+//   call @math.add_float      // ST(0) = a + b
+//   fstp dword [result]
+// overload: proc add_float ( in double first, in double second, out double result )
+inline proc add_float ( in float first, in float second, out float result ) {
+    faddp                       // ST(1) += ST(0), pop → ST(0) = first + second
+    return
+}
+
+// ── sub_float ───────────────────────────────────────────────────
+// Subtracts the second operand from the first  (ST(0) - ST(1)).
+//
+// Input:  ST(0) = first operand (minuend), ST(1) = second operand (subtrahend)
+// Output: ST(0) = ST(0) - ST(1)  (ST(1) popped)
+// Clobbers: none (net pop of one FPU stack entry)
+//
+// Example (float):
+//   fld dword [a]
+//   fld dword [b]             // ST(0)=b, ST(1)=a
+//   call @math.sub_float      // ST(0) = b - a
+//   fstp dword [result]
+// overload: proc sub_float ( in double first, in double second, out double result )
+inline proc sub_float ( in float first, in float second, out float result ) {
+    fsub st0, st1               // ST(0) = ST(0) - ST(1)
+    fstp st1                    // ST(1) = result, pop → ST(0) = result
+    return
+}
+
+// ── mul_float ───────────────────────────────────────────────────
+// Multiplies two floats (or doubles) on the FPU stack.
+//
+// Input:  ST(0) = first operand, ST(1) = second operand
+// Output: ST(0) = ST(0) * ST(1)  (ST(1) popped)
+// Clobbers: none (net pop of one FPU stack entry)
+//
+// Example (float):
+//   fld dword [a]
+//   fld dword [b]             // ST(0)=b, ST(1)=a
+//   call @math.mul_float      // ST(0) = a * b
+//   fstp dword [result]
+// overload: proc mul_float ( in double first, in double second, out double result )
+inline proc mul_float ( in float first, in float second, out float result ) {
+    fmulp                       // ST(1) *= ST(0), pop → ST(0) = first * second
+    return
+}
+
+// ── div_float ───────────────────────────────────────────────────
+// Divides the first operand by the second  (ST(0) / ST(1)).
+//
+// Input:  ST(0) = dividend (numerator), ST(1) = divisor (denominator)
+// Output: ST(0) = ST(0) / ST(1)  (ST(1) popped)
+// Clobbers: none (net pop of one FPU stack entry)
+//
+// Example (float):
+//   fld dword [a]
+//   fld dword [b]             // ST(0)=b, ST(1)=a
+//   call @math.div_float      // ST(0) = b / a
+//   fstp dword [result]
+// overload: proc div_float ( in double first, in double second, out double result )
+inline proc div_float ( in float first, in float second, out float result ) {
+    fdiv st0, st1               // ST(0) = ST(0) / ST(1)
+    fstp st1                    // ST(1) = result, pop → ST(0) = result
     return
 }
