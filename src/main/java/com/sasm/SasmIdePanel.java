@@ -60,13 +60,19 @@ public class SasmIdePanel extends JPanel {
     private final JLabel    editorHeader = new JLabel("", SwingConstants.LEFT);
     private final JTextPane editor       = new JTextPane() {
         /**
-         * Returning {@code false} here prevents the pane from forcing its
-         * content to the viewport width, giving the same no-wrap behaviour
-         * as {@code JTextArea} with {@code setLineWrap(false)}.
+         * Fills the viewport when content is narrower (so the editor always
+         * occupies the full available width), but allows horizontal scrolling
+         * when content is wider — matching the no-wrap behaviour of
+         * {@code JTextArea} with {@code setLineWrap(false)}.
          */
         @Override
         public boolean getScrollableTracksViewportWidth() {
-            return false;
+            // getParent() is the JViewport; if the content preferred width
+            // is less than or equal to the viewport width, track it so the
+            // pane fills the available space.  Otherwise disable tracking
+            // so the pane can grow beyond the viewport (horizontal scroll).
+            if (getParent() == null) return true;
+            return getUI().getPreferredSize(this).width <= getParent().getWidth();
         }
     };
     private JScrollPane     editorScroll;
