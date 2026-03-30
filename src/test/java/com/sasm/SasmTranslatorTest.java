@@ -1752,4 +1752,176 @@ class SasmTranslatorTest {
         assertFalse(asm.contains("CALL u_clamp_pos"),
                 "Library inline proc should not produce CALL");
     }
+
+    // ── Parameterised proc call syntax: call proc( args ) ───────────────────
+
+    /**
+     * {@code call @alias.inlineProc( eax = N )} (register-param style)
+     * should emit a MOV for the register assignment then expand the inline body.
+     */
+    @Test
+    void paramCall_registerParam_inlineProc(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("util.sasm"), String.join("\n",
+                "inline proc square ( in eax as value, out eax as result ) {",
+                "    multiply by eax",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String src = String.join("\n",
+                "#REF lib/util.sasm util",
+                "section .text",
+                "call @util.square( eax = 7 )");
+        String asm = t.translate(src);
+
+        assertTrue(asm.contains("MOV EAX, 7"), "Should emit MOV EAX, 7 for register param");
+        assertTrue(asm.contains("MUL eax"),    "Should expand inline square body");
+        assertFalse(asm.contains("CALL util_square"), "Inline proc should NOT emit CALL");
+    }
+
+    /**
+     * {@code call @alias.regularProc( eax = N )} (register-param style for a
+     * regular non-inline proc) should emit MOV setup then a CALL instruction.
+     */
+    @Test
+    void paramCall_registerParam_regularProc(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("util.sasm"), String.join("\n",
+                "proc slow_square ( in eax as value, out eax as result ) {",
+                "    multiply by eax",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String src = String.join("\n",
+                "#REF lib/util.sasm util",
+                "section .text",
+                "call @util.slow_square( eax = 9 )");
+        String asm = t.translate(src);
+
+        assertTrue(asm.contains("MOV EAX, 9"),         "Should emit MOV EAX, 9");
+        assertTrue(asm.contains("CALL util_slow_square"), "Regular proc should emit CALL");
+    }
+
+    /**
+     * {@code [dst] = @alias.fpuProc( [arg] )} should load the argument onto
+     * the x87 FPU stack, expand the inline proc body, then store the result.
+     */
+    @Test
+    void paramExpr_singleFpuProcCall(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("util.sasm"), String.join("\n",
+                "inline proc my_sin ( in float angle, out float result ) {",
+                "    fsin",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String src = String.join("\n",
+                "#REF lib/util.sasm util",
+                "section .data",
+                "var my_angle as float = __float32__(1.5707963)",
+                "var my_result as float",
+                "section .text",
+                "[my_result] = @util.my_sin( [my_angle] )");
+        String asm = t.translate(src);
+
+        assertTrue(asm.contains("fld dword [my_angle]"),  "Should emit fld dword for float arg");
+        assertTrue(asm.contains("fsin"),                   "Should expand inline sin body");
+        assertTrue(asm.contains("fstp dword [my_result]"), "Should emit fstp to store result");
+        assertFalse(asm.contains("CALL util_my_sin"),      "Inline proc should NOT emit CALL");
+    }
+
+    /**
+     * {@code [dst] = @alias.sinProc( [a] ) + @alias.cosProc( [b] )} should
+     * generate the correct FPU sequence: load+compute first, load+compute
+     * second, FADDP, fstp.
+     */
+    @Test
+    void paramExpr_fpuProcCallCombinedWithPlus(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("trig.sasm"), String.join("\n",
+                "inline proc my_sin ( in float angle, out float result ) {",
+                "    fsin",
+                "    return",
+                "}",
+                "inline proc my_cos ( in float angle, out float result ) {",
+                "    fcos",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String src = String.join("\n",
+                "#REF lib/trig.sasm tr",
+                "section .data",
+                "var angle1 as float = __float32__(1.5707963)",
+                "var angle2 as float = __float32__(0.0)",
+                "var result as float",
+                "section .text",
+                "[result] = @tr.my_sin( [angle1] ) + @tr.my_cos( [angle2] )");
+        String asm = t.translate(src);
+
+        // Both proc bodies should be inlined.
+        assertTrue(asm.contains("fsin"),  "Should expand my_sin body");
+        assertTrue(asm.contains("fcos"),  "Should expand my_cos body");
+        // FADDP must appear after both computations (not between them).
+        int sinPos    = asm.indexOf("fsin");
+        int cosPos    = asm.indexOf("fcos");
+        int addPos    = asm.indexOf("FADDP");
+        int fstpPos   = asm.indexOf("fstp dword [result]");
+        assertTrue(sinPos  < cosPos,  "fsin should precede fcos");
+        assertTrue(cosPos  < addPos,  "fcos should precede FADDP");
+        assertTrue(addPos  < fstpPos, "FADDP should precede fstp");
+        assertFalse(asm.contains("CALL tr_my_sin"), "Should not emit CALL for inline sin");
+        assertFalse(asm.contains("CALL tr_my_cos"), "Should not emit CALL for inline cos");
+    }
+
+    /**
+     * {@code [dst] = @alias.fpuProc( [arg] )} with a {@code double} variable
+     * should emit {@code fld qword} / {@code fstp qword} instead of dword.
+     */
+    @Test
+    void paramExpr_fpuProcCall_doubleVar(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("util.sasm"), String.join("\n",
+                "inline proc my_sqrt ( in float value, out float result ) {",
+                "    fsqrt",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String src = String.join("\n",
+                "#REF lib/util.sasm util",
+                "section .data",
+                "var val_d  as double = __float64__(9.0)",
+                "var res_d  as double",
+                "section .text",
+                "[res_d] = @util.my_sqrt( [val_d] )");
+        String asm = t.translate(src);
+
+        assertTrue(asm.contains("fld qword [val_d]"),  "Double arg should use fld qword");
+        assertTrue(asm.contains("fsqrt"),               "Should expand sqrt body");
+        assertTrue(asm.contains("fstp qword [res_d]"),  "Double dst should use fstp qword");
+    }
 }

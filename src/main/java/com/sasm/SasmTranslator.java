@@ -226,6 +226,17 @@ public class SasmTranslator {
     private static final Pattern ALIAS_REF = Pattern.compile(
             "@(\\w+)\\.(\\w+)");
 
+    /**
+     * Pattern for a <em>parameterised proc call</em> token in bracket-normalised
+     * form.  When the SASM source contains {@code procName( args )} the bracket
+     * normalisation step converts the parentheses to square brackets, producing
+     * {@code procName[ args ]}.  This pattern captures the proc name and the
+     * raw args string so that the call site can route to either
+     * {@link #expandParamCall} (inline procs) or {@link #buildRegParamCall}
+     * (regular procs with register-style {@code reg = val} arguments).
+     */
+    private static final Pattern PARAM_CALL = Pattern.compile("(\\w+)\\[(.*)\\]");
+
     /** Common base for var declarations: {@code var <name> [as] <type>[d1][d2]... [signed|unsigned]}. */
     private static final String VAR_BASE =
             "var\\s+(\\w+)\\s+(?:as\\s+)?(byte|word|dword|qword|float|double)((?:\\[\\d+\\])+)?(?:\\s+(signed|unsigned))?";
@@ -1083,12 +1094,89 @@ public class SasmTranslator {
     private String tryCall(String code) {
         if (code.startsWith("call ")) {
             String target = code.substring(5).trim();
+
+            // ── parameterised call: procName[ args ] ─────────────────────────
+            // SASM source form: call procName( args )
+            // After bracket normalisation (translateLine): call procName[ args ]
+            Matcher pm = PARAM_CALL.matcher(target);
+            if (pm.matches()) {
+                String procName    = pm.group(1);
+                String argsContent = pm.group(2).trim();
+                if (inlineProcs.containsKey(procName)) {
+                    return expandParamCall(procName, argsContent);
+                } else {
+                    // Regular (non-inline) proc: emit MOV setup + CALL.
+                    return buildRegParamCall(procName, argsContent);
+                }
+            }
+
             if (inlineProcs.containsKey(target)) {
                 return expandInline(target);
             }
             return "    CALL " + target;
         }
         return null;
+    }
+
+    /**
+     * Expands a parameterised call to an <em>inline</em> proc.
+     *
+     * <p>The {@code argsContent} string is the bracket-normalised content
+     * inside the call's brackets, e.g. {@code " [angle_half_pi] "} or
+     * {@code " eax = 10, ebx = 20 "}.</p>
+     *
+     * <ul>
+     *   <li>If all args are bracketed memory references ({@code [var]}), they
+     *       are treated as x87 FPU typed-parameter inputs: each argument is
+     *       loaded onto the FPU stack with {@code fld}, then the inline proc
+     *       body is expanded.  The result remains in ST(0).</li>
+     *   <li>If the args contain {@code reg = val} pairs, a {@code MOV}
+     *       instruction is emitted for each pair, then the inline body is
+     *       expanded.</li>
+     * </ul>
+     */
+    private String expandParamCall(String procName, String argsContent) {
+        List<String> args = splitArgs(argsContent);
+        StringBuilder sb = new StringBuilder();
+        if (allFpuArgs(args)) {
+            for (String arg : args) {
+                String a = arg.trim();
+                sb.append("    fld ").append(fpuLoadSize(a)).append(' ').append(a).append('\n');
+            }
+        } else {
+            for (String arg : args) {
+                String a = arg.trim();
+                if (a.contains("=")) {
+                    String[] kv = a.split("=", 2);
+                    sb.append("    MOV ").append(kv[0].trim().toUpperCase())
+                      .append(", ").append(kv[1].trim()).append('\n');
+                }
+            }
+        }
+        String expansion = expandInline(procName);
+        sb.append(expansion);
+        return sb.toString();
+    }
+
+    /**
+     * Builds a parameterised call to a <em>regular</em> (non-inline) proc.
+     *
+     * <p>Emits {@code MOV} instructions for each {@code reg = val} argument,
+     * then emits the {@code CALL} instruction.</p>
+     */
+    private String buildRegParamCall(String procName, String argsContent) {
+        List<String> args = splitArgs(argsContent);
+        StringBuilder sb = new StringBuilder();
+        for (String arg : args) {
+            String a = arg.trim();
+            if (a.contains("=")) {
+                String[] kv = a.split("=", 2);
+                sb.append("    MOV ").append(kv[0].trim().toUpperCase())
+                  .append(", ").append(kv[1].trim()).append('\n');
+            }
+        }
+        sb.append("    CALL ").append(procName);
+        return sb.toString();
     }
 
     private String tryInterrupt(String code) {
@@ -1680,8 +1768,63 @@ public class SasmTranslator {
         }
     }
 
+    /**
+     * Splits a comma-separated argument list, respecting square-bracket
+     * nesting so that {@code [val_a], [val_b]} yields two elements even
+     * though the comma appears between the two memory references.
+     */
+    private static List<String> splitArgs(String argsStr) {
+        List<String> args = new ArrayList<>();
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < argsStr.length(); i++) {
+            char c = argsStr.charAt(i);
+            if (c == '[') depth++;
+            else if (c == ']') depth--;
+            else if (c == ',' && depth == 0) {
+                String arg = argsStr.substring(start, i).trim();
+                if (!arg.isEmpty()) args.add(arg);
+                start = i + 1;
+            }
+        }
+        String tail = argsStr.substring(start).trim();
+        if (!tail.isEmpty()) args.add(tail);
+        return args;
+    }
+
+    /**
+     * Returns {@code true} when all arguments in the list are bracketed
+     * memory references ({@code [name]}), indicating that they should be
+     * loaded onto the x87 FPU stack before calling the proc.
+     */
+    private static boolean allFpuArgs(List<String> args) {
+        if (args.isEmpty()) return false;
+        for (String a : args) {
+            String t = a.trim();
+            if (!t.startsWith("[") || !t.endsWith("]")) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Returns the x87 FPU load/store size keyword ({@code dword} or
+     * {@code qword}) appropriate for the given bracketed memory reference.
+     * The size is determined by looking up the variable name in
+     * {@link #varTypes}; {@code double} and {@code qword} variables use
+     * {@code qword}, everything else uses {@code dword}.
+     *
+     * @param memRef a bracketed memory reference such as {@code [angle_half_pi]}
+     */
+    private String fpuLoadSize(String memRef) {
+        if (memRef.startsWith("[") && memRef.endsWith("]")) {
+            String varName = memRef.substring(1, memRef.length() - 1).trim();
+            String type = varTypes.get(varName);
+            if ("double".equals(type) || "qword".equals(type)) return "qword";
+        }
+        return "dword";
+    }
+
     private String translateProc(String code) {
-        // Supported parameter styles (parameter overloading):
         //   proc <name> {                                              (no params)
         //   proc <name> ( in <reg> as <alias>, out <reg> as <alias> ) {  (register params)
         //   proc <name> ( in <type> <name>, out <type> <name> ) {      (typed params)
@@ -1831,6 +1974,20 @@ public class SasmTranslator {
 
         if (operands.isEmpty()) return null;
 
+        // ── FPU proc-call expression ──────────────────────────────────────────
+        // When all RHS operands are bracket-normalised proc-call tokens of the
+        // form "procName[ [arg1], [arg2], … ]" that resolve to known inline
+        // procs, emit an x87 FPU sequence instead of integer-register code.
+        //
+        // Example:
+        //   SASM : [result] = @math.sin( [angle] ) + @math.cos( [angle2] )
+        //   After normalisation/alias-resolution:
+        //          [result] = math_sin[ [angle] ] + math_cos[ [angle2] ]
+        //   Emits: fld dword [angle] / FSIN / fld dword [angle2] / FCOS / FADDP / fstp dword [result]
+        if (!operands.isEmpty() && allFpuProcCalls(operands)) {
+            return buildFpuProcExpr(dst, operands, operators);
+        }
+
         // Build the core expression ASM
         String core = buildExpressionCore(dst, rhs, operands, operators);
         if (core == null) return null;
@@ -1850,6 +2007,79 @@ public class SasmTranslator {
     }
 
     // ── Memory-destination helpers ──────────────────────────────────────────
+
+    // ── FPU proc-call expression helpers ────────────────────────────────────
+
+    /**
+     * Returns {@code true} when every operand in the list is a
+     * bracket-normalised proc-call token of the form
+     * {@code procName[ args ]} AND the proc name is a known inline proc.
+     */
+    private boolean allFpuProcCalls(List<String> operands) {
+        for (String op : operands) {
+            Matcher pm = PARAM_CALL.matcher(op.trim());
+            if (!pm.matches()) return false;
+            if (!inlineProcs.containsKey(pm.group(1))) return false;
+            // All arguments must be bracketed memory refs (FPU-typed params).
+            if (!allFpuArgs(splitArgs(pm.group(2).trim()))) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Builds the NASM output for an x87 FPU expression where every operand
+     * is a parameterised inline-proc call.
+     *
+     * <p>For each operand {@code procName[ [arg1], [arg2], … ]}:</p>
+     * <ol>
+     *   <li>Each argument is loaded onto the FPU stack with {@code fld}.</li>
+     *   <li>The inline proc body is expanded inline.  After expansion the
+     *       result is in {@code ST(0)} and any previously computed result
+     *       is in {@code ST(1)}.</li>
+     *   <li>Once the second (or later) operand has been computed, the
+     *       accumulated FPU arithmetic operator is emitted
+     *       ({@code FADDP}, {@code FSUBP}, {@code FMULP}, {@code FDIVP})
+     *       to combine {@code ST(1)} and {@code ST(0)} and pop the stack.
+     *       </li>
+     * </ol>
+     * <p>Finally, the top of the FPU stack is stored to the destination
+     * with {@code fstp}.</p>
+     */
+    private String buildFpuProcExpr(String dst, List<String> operands,
+                                    List<Integer> operators) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < operands.size(); i++) {
+            Matcher pm = PARAM_CALL.matcher(operands.get(i).trim());
+            pm.matches();
+            String procName   = pm.group(1);
+            List<String> args = splitArgs(pm.group(2).trim());
+            // Load each argument to the FPU stack.
+            for (String arg : args) {
+                String a = arg.trim();
+                sb.append("    fld ").append(fpuLoadSize(a)).append(' ').append(a).append('\n');
+            }
+            // Expand inline proc body; ensure a trailing newline.
+            String body = expandInline(procName);
+            sb.append(body);
+            if (!body.endsWith("\n")) sb.append('\n');
+            // After the first operand, apply the operator that combines it with
+            // the one just computed.  At this point ST(1) = prev result,
+            // ST(0) = current result.
+            if (i > 0) {
+                String fpuOp = switch (operators.get(i - 1)) {
+                    case (int) '+' -> "    FADDP";   // ST(1) + ST(0) → ST(0)
+                    case (int) '-' -> "    FSUBP";   // ST(1) - ST(0) → ST(0)
+                    case (int) '*' -> "    FMULP";   // ST(1) * ST(0) → ST(0)
+                    case (int) '/' -> "    FDIVP";   // ST(1) / ST(0) → ST(0)
+                    default        -> null;
+                };
+                if (fpuOp != null) sb.append(fpuOp).append('\n');
+            }
+        }
+        // Store the FPU result to the destination.
+        sb.append("    fstp ").append(fpuLoadSize(dst)).append(' ').append(dst);
+        return sb.toString();
+    }
 
     /** Returns {@code true} if {@code s} is a bracketed memory reference. */
     private static boolean isMemRef(String s) {
