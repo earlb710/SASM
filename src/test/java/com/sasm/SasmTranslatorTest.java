@@ -1924,4 +1924,160 @@ class SasmTranslatorTest {
         assertTrue(asm.contains("fsqrt"),               "Should expand sqrt body");
         assertTrue(asm.contains("fstp qword [res_d]"),  "Double dst should use fstp qword");
     }
+
+    // ── Positional by-value / by-pointer parameter calls ────────────────────
+
+    /**
+     * Positional call to an inline proc with a bare literal value:
+     * {@code call @alias.proc( 7 )} should emit {@code MOV EAX, 7} and
+     * expand the inline body (no {@code CALL}).
+     */
+    @Test
+    void paramCall_positional_literal(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "inline proc square ( in eax as [value], out eax as [result] ) {",
+                "    multiply by eax",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.square( 7 )"));
+
+        assertTrue(asm.contains("MOV EAX, 7"), "Literal arg should emit MOV EAX, 7");
+        assertTrue(asm.contains("MUL eax"),    "Square body should be expanded inline");
+        assertFalse(asm.contains("CALL math_square"), "Inline proc must NOT emit CALL");
+    }
+
+    /**
+     * Positional call with two literal args:
+     * {@code call @alias.proc( 10, 20 )} should emit {@code MOV EAX, 10}
+     * and {@code MOV EBX, 20}, then expand the inline body.
+     */
+    @Test
+    void paramCall_positional_twoLiterals(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "inline proc max ( in eax as [first], in ebx as [second], out eax as [result] ) {",
+                "    compare eax to ebx",
+                "    goto .done if >=",
+                "    move ebx to eax",
+                ".done:",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.max( 10, 20 )"));
+
+        assertTrue(asm.contains("MOV EAX, 10"), "First positional arg -> MOV EAX, 10");
+        assertTrue(asm.contains("MOV EBX, 20"), "Second positional arg -> MOV EBX, 20");
+        assertFalse(asm.contains("CALL math_max"), "Inline proc must NOT emit CALL");
+    }
+
+    /**
+     * Positional call with a <em>by-pointer</em> label arg (no brackets):
+     * {@code call @alias.proc( arr_label, 5 )} should emit
+     * {@code MOV ESI, arr_label} (pass address) and {@code MOV ECX, 5}.
+     */
+    @Test
+    void paramCall_positional_byPointer_label(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc find_max ( in esi as array_ptr, in ecx as [count], out eax as [result] ) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.find_max( my_array, 5 )"));
+
+        assertTrue(asm.contains("MOV ESI, my_array"), "Label arg -> MOV ESI, my_array (by pointer)");
+        assertTrue(asm.contains("MOV ECX, 5"),        "Count arg -> MOV ECX, 5 (by value)");
+        assertTrue(asm.contains("CALL math_find_max"), "Regular proc must emit CALL");
+        // Must NOT dereference the label.
+        assertFalse(asm.contains("MOV ESI, [my_array]"), "Label must NOT be dereferenced");
+    }
+
+    /**
+     * Positional call with a <em>by-value</em> variable arg (brackets):
+     * {@code call @alias.proc( arr_ptr, [count_var] )} should emit
+     * {@code MOV ESI, arr_ptr} (by pointer) and {@code MOV ECX, [count_var]}
+     * (by value — dereference the count variable).
+     */
+    @Test
+    void paramCall_positional_byValue_varDeref(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc find_max ( in esi as array_ptr, in ecx as [count], out eax as [result] ) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .data",
+                "var count_var as dword = 5",
+                "section .text",
+                "call @math.find_max( my_array, [count_var] )"));
+
+        assertTrue(asm.contains("MOV ESI, my_array"),      "Label -> by pointer");
+        assertTrue(asm.contains("MOV ECX, [count_var]"),   "Bracketed var -> by value (deref)");
+        // Must NOT dereference the label.
+        assertFalse(asm.contains("MOV ESI, [my_array]"),   "Label must NOT be dereferenced");
+    }
+
+    /**
+     * The new {@code [name]} bracket notation in a proc definition should be
+     * parsed identically to the old {@code as name} form: both store the same
+     * register in {@code procInParams}, so positional calls work for both.
+     */
+    @Test
+    void paramCall_bracketNotationInDefinitionParsed(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        // Mix of old "as name" and new "as [name]" syntax in the same definition.
+        Files.writeString(libDir.resolve("util.sasm"), String.join("\n",
+                // first param: old style; second param: new bracket style
+                "inline proc add2 ( in eax as first, in ebx as [second], out eax as [result] ) {",
+                "    add ebx to eax",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/util.sasm util",
+                "section .text",
+                "call @util.add2( 3, 4 )"));
+
+        assertTrue(asm.contains("MOV EAX, 3"), "First positional -> EAX");
+        assertTrue(asm.contains("MOV EBX, 4"), "Second positional -> EBX");
+        assertTrue(asm.contains("ADD eax, ebx"), "add2 body should be inlined");
+    }
 }

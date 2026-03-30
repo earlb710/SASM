@@ -60,6 +60,27 @@ public class SasmTranslator {
      */
     private final Map<String, List<String>> inlineProcs = new HashMap<>();
 
+    /**
+     * Maps procedure names to their ordered list of <em>input</em> parameter
+     * register names, as declared in the proc signature.
+     *
+     * <p>Populated from both local proc/inline-proc declarations and from
+     * library files loaded via {@link #loadInlineProcsFromLibrary}.  The
+     * key matches the flat proc name used at call sites (e.g.
+     * {@code "math_max_array"}).</p>
+     *
+     * <p>Used by {@link #expandParamCall} and {@link #buildRegParamCall}
+     * to support <em>positional parameter calling</em>: when call arguments
+     * are written without {@code =} signs the translator consults this map
+     * to discover which register corresponds to each positional argument,
+     * then emits the appropriate {@code MOV} instruction:</p>
+     * <ul>
+     *   <li>{@code [var]} → {@code MOV reg, [var]} (by value — dereference)</li>
+     *   <li>{@code var}  → {@code MOV reg, var}  (by pointer — pass address)</li>
+     * </ul>
+     */
+    private final Map<String, List<String>> procInParams = new HashMap<>();
+
     /** Name of the inline proc currently being collected, or {@code null}. */
     private String collectingInlineName = null;
 
@@ -1123,33 +1144,53 @@ public class SasmTranslator {
      *
      * <p>The {@code argsContent} string is the bracket-normalised content
      * inside the call's brackets, e.g. {@code " [angle_half_pi] "} or
-     * {@code " eax = 10, ebx = 20 "}.</p>
+     * {@code " eax = 10, ebx = 20 "} or {@code " int_arr, 5 "}.</p>
      *
-     * <ul>
-     *   <li>If all args are bracketed memory references ({@code [var]}), they
-     *       are treated as x87 FPU typed-parameter inputs: each argument is
-     *       loaded onto the FPU stack with {@code fld}, then the inline proc
-     *       body is expanded.  The result remains in ST(0).</li>
-     *   <li>If the args contain {@code reg = val} pairs, a {@code MOV}
-     *       instruction is emitted for each pair, then the inline body is
-     *       expanded.</li>
-     * </ul>
+     * <p>Three dispatch paths:</p>
+     * <ol>
+     *   <li><b>Named ({@code reg = val}) path</b>: any arg contains {@code =}
+     *       → emit {@code MOV reg, val} for each pair, then expand the body.</li>
+     *   <li><b>Positional by-value/by-pointer path</b>: no {@code =} signs
+     *       AND the proc has a stored in-param register list
+     *       ({@link #procInParams}) → match each positional arg to its register
+     *       and emit {@code MOV reg, arg} (where {@code [var]} gives
+     *       {@code MOV reg, [var]} = by value, and bare {@code var} gives
+     *       {@code MOV reg, var} = by pointer).</li>
+     *   <li><b>FPU path</b>: no {@code =} signs, no registered in-params, all
+     *       args are bracketed → emit {@code fld} for each arg, then expand.</li>
+     * </ol>
      */
     private String expandParamCall(String procName, String argsContent) {
         List<String> args = splitArgs(argsContent);
         StringBuilder sb = new StringBuilder();
-        if (allFpuArgs(args)) {
-            for (String arg : args) {
-                String a = arg.trim();
-                sb.append("    fld ").append(fpuLoadSize(a)).append(' ').append(a).append('\n');
-            }
-        } else {
+
+        boolean hasEquals = args.stream().anyMatch(a -> a.contains("="));
+        if (hasEquals) {
+            // Named (reg = val) path — backward-compatible.
             for (String arg : args) {
                 String a = arg.trim();
                 if (a.contains("=")) {
                     String[] kv = a.split("=", 2);
                     sb.append("    MOV ").append(kv[0].trim().toUpperCase())
                       .append(", ").append(kv[1].trim()).append('\n');
+                }
+            }
+        } else {
+            // Positional path.
+            List<String> paramRegs = procInParams.get(procName);
+            if (paramRegs != null && !paramRegs.isEmpty()) {
+                // Register-param positional: match each arg to the stored in-param register.
+                // [arg] = by value (dereference); arg = by pointer (pass address/label).
+                for (int i = 0; i < args.size() && i < paramRegs.size(); i++) {
+                    String a = args.get(i).trim();
+                    sb.append("    MOV ").append(paramRegs.get(i).toUpperCase())
+                      .append(", ").append(a).append('\n');
+                }
+            } else if (allFpuArgs(args)) {
+                // FPU path: all args are [var] style → load each onto the FPU stack.
+                for (String arg : args) {
+                    String a = arg.trim();
+                    sb.append("    fld ").append(fpuLoadSize(a)).append(' ').append(a).append('\n');
                 }
             }
         }
@@ -1161,18 +1202,34 @@ public class SasmTranslator {
     /**
      * Builds a parameterised call to a <em>regular</em> (non-inline) proc.
      *
-     * <p>Emits {@code MOV} instructions for each {@code reg = val} argument,
-     * then emits the {@code CALL} instruction.</p>
+     * <p>Supports the same three dispatch paths as {@link #expandParamCall}
+     * (named, positional, FPU) but emits a {@code CALL} instruction instead
+     * of expanding an inline body.</p>
      */
     private String buildRegParamCall(String procName, String argsContent) {
         List<String> args = splitArgs(argsContent);
         StringBuilder sb = new StringBuilder();
-        for (String arg : args) {
-            String a = arg.trim();
-            if (a.contains("=")) {
-                String[] kv = a.split("=", 2);
-                sb.append("    MOV ").append(kv[0].trim().toUpperCase())
-                  .append(", ").append(kv[1].trim()).append('\n');
+
+        boolean hasEquals = args.stream().anyMatch(a -> a.contains("="));
+        if (hasEquals) {
+            // Named (reg = val) path.
+            for (String arg : args) {
+                String a = arg.trim();
+                if (a.contains("=")) {
+                    String[] kv = a.split("=", 2);
+                    sb.append("    MOV ").append(kv[0].trim().toUpperCase())
+                      .append(", ").append(kv[1].trim()).append('\n');
+                }
+            }
+        } else {
+            // Positional path.
+            List<String> paramRegs = procInParams.get(procName);
+            if (paramRegs != null && !paramRegs.isEmpty()) {
+                for (int i = 0; i < args.size() && i < paramRegs.size(); i++) {
+                    String a = args.get(i).trim();
+                    sb.append("    MOV ").append(paramRegs.get(i).toUpperCase())
+                      .append(", ").append(a).append('\n');
+                }
             }
         }
         sb.append("    CALL ").append(procName);
@@ -1647,6 +1704,11 @@ public class SasmTranslator {
             collectingInlineName = name;
             collectingInlineBody = new ArrayList<>();
             inlineBraceDepth = 0;
+            // Store the in-param register list for positional call support.
+            List<String> inRegs = parseInParamRegs(params);
+            if (!inRegs.isEmpty()) {
+                procInParams.put(name, inRegs);
+            }
             // Emit the parameter list as a NASM comment for documentation
             if (!params.isEmpty()) {
                 return "; inline proc " + name + " " + params;
@@ -1692,6 +1754,9 @@ public class SasmTranslator {
     /**
      * Parses a SASM library file (given as a content string) and registers
      * every {@code inline proc} found in it into {@link #inlineProcs}.
+     * Also registers the {@code in} parameter register lists for <em>all</em>
+     * procs (both inline and regular) into {@link #procInParams} so that
+     * positional parameter calls work for library procs.
      *
      * <p>The key stored is {@code alias + "_" + procName}, which matches the
      * identifier that {@link #resolveAliasRefs} produces for an
@@ -1711,7 +1776,10 @@ public class SasmTranslator {
      */
     private void loadInlineProcsFromLibrary(String alias, String content) {
         String[] libLines = content.split("\\r?\\n", -1);
-        Pattern decl = Pattern.compile("inline\\s+proc\\s+(\\w+)\\s*.*\\{");
+        Pattern inlineDecl = Pattern.compile(
+                "inline\\s+proc\\s+(\\w+)\\s*(.*)\\{");
+        Pattern regularDecl = Pattern.compile(
+                "(?<!inline\\s)proc\\s+(\\w+)\\s*(.*)\\{");
         String collectName = null;
         List<String> collectBody = null;
         int braceDepth = 0;
@@ -1758,11 +1826,31 @@ public class SasmTranslator {
                     collectBody.add(code);
                 }
             } else {
-                Matcher m = decl.matcher(code);
+                // Try inline proc first.
+                Matcher m = inlineDecl.matcher(code);
                 if (m.find()) {
-                    collectName = m.group(1);
+                    String pname  = m.group(1);
+                    String params = m.group(2).trim();
+                    collectName = pname;
                     collectBody = new ArrayList<>();
                     braceDepth  = 0;
+                    // Store in-param register list for positional calling.
+                    List<String> inRegs = parseInParamRegs(params);
+                    if (!inRegs.isEmpty()) {
+                        procInParams.put(alias + "_" + pname, inRegs);
+                    }
+                    continue;
+                }
+                // Then try regular (non-inline) proc to capture its signature.
+                m = regularDecl.matcher(code);
+                if (m.find() && !code.contains("inline")) {
+                    String pname  = m.group(1);
+                    String params = m.group(2).trim();
+                    // Store in-param register list for positional calling.
+                    List<String> inRegs = parseInParamRegs(params);
+                    if (!inRegs.isEmpty()) {
+                        procInParams.put(alias + "_" + pname, inRegs);
+                    }
                 }
             }
         }
@@ -1824,11 +1912,61 @@ public class SasmTranslator {
         return "dword";
     }
 
+    /**
+     * Parses a proc parameter list string and returns the register names for
+     * every {@code in} parameter, in declaration order.
+     *
+     * <p>Supported forms for each parameter token (after splitting on commas):</p>
+     * <ul>
+     *   <li>{@code in <reg> as <name>}   — existing register-alias style</li>
+     *   <li>{@code in <reg> as [<name>]} — by-value annotation (bracket around name)</li>
+     *   <li>{@code in <reg> [<name>]}    — shorthand by-value</li>
+     *   <li>{@code in <reg> <name>}      — shorthand by-pointer (bare name)</li>
+     *   <li>{@code in <type> ...}        — typed (FPU) params — no register, skipped</li>
+     *   <li>{@code out ...}              — output-only params — skipped</li>
+     * </ul>
+     *
+     * @param paramsStr the raw parameter string, optionally surrounded by
+     *                  {@code ( )} parentheses
+     * @return ordered list of lower-case register names for all {@code in}
+     *         parameters; empty if the proc has no register-based {@code in}
+     *         params
+     */
+    private List<String> parseInParamRegs(String paramsStr) {
+        List<String> regs = new ArrayList<>();
+        String inner = paramsStr.trim();
+        if (inner.startsWith("(")) inner = inner.substring(1).trim();
+        if (inner.endsWith(")")) inner = inner.substring(0, inner.length() - 1).trim();
+        if (inner.isEmpty() || inner.startsWith("uses")) return regs;
+
+        for (String token : splitArgs(inner)) {
+            String pt = token.trim();
+            // Only process "in ..." tokens (skip "out" and "in out").
+            if (!pt.startsWith("in ")) continue;
+            String rest = pt.substring(3).trim();
+            // "in out ..." — the first word after "in " would be "out", skip.
+            if (rest.startsWith("out ")) continue;
+
+            // First word after "in " is either a register name or a type keyword.
+            int sp = rest.indexOf(' ');
+            String first = (sp < 0) ? rest : rest.substring(0, sp);
+            // If it's a register name, record it.
+            if (regWidth(first) != null) {
+                regs.add(first.toLowerCase());
+            }
+            // If it's a type keyword (float, double, byte, word, dword, qword),
+            // this is an FPU / typed param — no specific register, skip.
+        }
+        return regs;
+    }
+
     private String translateProc(String code) {
         //   proc <name> {                                              (no params)
         //   proc <name> ( in <reg> as <alias>, out <reg> as <alias> ) {  (register params)
-        //   proc <name> ( in <type> <name>, out <type> <name> ) {      (typed params)
-        //   proc <name> uses stack ( <p1>, <p2>, ... ) {               (stack params)
+        //   proc <name> ( in <reg> [<name>], out <reg> [<name>] ) {      (by-value notation)
+        //   proc <name> ( in <reg> <name>, out <reg> <name> ) {           (by-pointer notation)
+        //   proc <name> ( in <type> <name>, out <type> <name> ) {         (typed params)
+        //   proc <name> uses stack ( <p1>, <p2>, ... ) {                  (stack params)
         //
         // All forms generate the same NASM label.  When a parameter list
         // is present the translator emits it as a NASM comment so the
@@ -1838,6 +1976,11 @@ public class SasmTranslator {
             blockStack.push(null);
             String name   = m.group(1);
             String params = m.group(2).trim();
+            // Store the in-param register list for positional call support.
+            List<String> inRegs = parseInParamRegs(params);
+            if (!inRegs.isEmpty()) {
+                procInParams.put(name, inRegs);
+            }
             if (!params.isEmpty()) {
                 return "; proc " + name + " " + params + "\n" + name + ":";
             }

@@ -89,7 +89,7 @@ section .text
 // Example:
 //   move 7 to eax
 //   call @math.square      // eax = 49, edx = 0
-inline proc square ( in eax as value, out eax as result ) {
+inline proc square ( in eax as [value], out eax as [result] ) {
     multiply by eax            // MUL EAX → EDX:EAX = EAX * EAX
     return
 }
@@ -107,7 +107,7 @@ inline proc square ( in eax as value, out eax as result ) {
 // Example:
 //   move 49 to eax
 //   call @math.sqrt_int    // eax = 7
-proc sqrt_int ( in eax as value, out eax as result ) {
+proc sqrt_int ( in eax as [value], out eax as [result] ) {
     push ebp
     move esp to ebp
     esp = esp - 4        // local: [ebp-4] = temp dword
@@ -135,7 +135,7 @@ proc sqrt_int ( in eax as value, out eax as result ) {
 //   move 10 to eax
 //   move 20 to ebx
 //   call @math.max         // eax = 20
-inline proc max ( in eax as first, in ebx as second, out eax as result ) {
+inline proc max ( in eax as [first], in ebx as [second], out eax as [result] ) {
     compare eax with ebx
     goto .max_done if greater or equal
     move ebx to eax
@@ -155,7 +155,7 @@ inline proc max ( in eax as first, in ebx as second, out eax as result ) {
 //   move 10 to eax
 //   move 20 to ebx
 //   call @math.min         // eax = 10
-inline proc min ( in eax as first, in ebx as second, out eax as result ) {
+inline proc min ( in eax as [first], in ebx as [second], out eax as [result] ) {
     compare eax with ebx
     goto .min_done if less or equal
     move ebx to eax
@@ -175,7 +175,7 @@ inline proc min ( in eax as first, in ebx as second, out eax as result ) {
 //   move arr to esi
 //   move 5 to ecx
 //   call @math.max_array   // eax = max element
-proc max_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
+proc max_array ( in esi as array_ptr, in ecx as [count], out eax as [result] ) {
     move dword [esi] to eax    // start with first element
     esi = esi + 4
     ecx = ecx - 1
@@ -205,7 +205,7 @@ proc max_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
 //   move arr to esi
 //   move 5 to ecx
 //   call @math.min_array   // eax = min element
-proc min_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
+proc min_array ( in esi as array_ptr, in ecx as [count], out eax as [result] ) {
     move dword [esi] to eax    // start with first element
     esi = esi + 4
     ecx = ecx - 1
@@ -234,7 +234,7 @@ proc min_array ( in esi as array_ptr, in ecx as count, out eax as result ) {
 // Example:
 //   move -7 to eax
 //   call @math.abs_int     // eax = 7
-inline proc abs_int ( in eax as value, out eax as result ) {
+inline proc abs_int ( in eax as [value], out eax as [result] ) {
     cdq                         // EDX = sign mask: 0 if EAX >= 0, 0xFFFFFFFF if EAX < 0
     xor eax, edx               // if negative: flip all bits
     sub eax, edx               // if negative: subtract -1 → two's complement negation
@@ -253,7 +253,7 @@ inline proc abs_int ( in eax as value, out eax as result ) {
 //   call @math.sign        // eax = -1
 //   move 3 to eax
 //   call @math.sign        // eax = 1
-inline proc sign ( in eax as value, out eax as result ) {
+inline proc sign ( in eax as [value], out eax as [result] ) {
     compare eax with 0
     goto .negative if less
     goto .done if equal
@@ -280,7 +280,7 @@ inline proc sign ( in eax as value, out eax as result ) {
 //   move 0  to ebx
 //   move 10 to ecx
 //   call @math.clamp       // eax = 0
-inline proc clamp ( in eax as value, in ebx as lo, in ecx as hi, out eax as result ) {
+inline proc clamp ( in eax as [value], in ebx as [lo], in ecx as [hi], out eax as [result] ) {
     compare eax with ebx
     goto .hi_check if greater or equal
     move ebx to eax
@@ -304,7 +304,7 @@ inline proc clamp ( in eax as value, in ebx as lo, in ecx as hi, out eax as resu
 // Example:
 //   move 1 to eax
 //   call @math.leading_zeros  // eax = 31
-inline proc leading_zeros ( in eax as value, out eax as result ) {
+inline proc leading_zeros ( in eax as [value], out eax as [result] ) {
     bsr ecx, eax               // ECX = index of highest set bit; ZF set if EAX=0
     jz .lz_zero
     move 31 to eax
@@ -328,7 +328,7 @@ inline proc leading_zeros ( in eax as value, out eax as result ) {
 // Example:
 //   move 8 to eax
 //   call @math.trailing_zeros // eax = 3
-inline proc trailing_zeros ( in eax as value, out eax as result ) {
+inline proc trailing_zeros ( in eax as [value], out eax as [result] ) {
     bsf ecx, eax               // ECX = index of lowest set bit; ZF set if EAX=0
     jz .tz_zero
     move ecx to eax
@@ -352,7 +352,7 @@ inline proc trailing_zeros ( in eax as value, out eax as result ) {
 //   call @math.is_power_of_two // eax = 1
 //   move 6 to eax
 //   call @math.is_power_of_two // eax = 0
-inline proc is_power_of_two ( in eax as value, out eax as result ) {
+inline proc is_power_of_two ( in eax as [value], out eax as [result] ) {
     test eax, eax              // check EAX != 0
     jz .not_pow2
     lea ecx, [eax-1]           // ECX = EAX - 1
@@ -564,7 +564,7 @@ inline proc min_float ( in float first, in float second, out float result ) {
 //   move 4 to ecx
 //   call @math.max_array_float  // ST(0) = max element
 //   fstp dword [result]
-proc max_array_float ( in esi as array_ptr, in ecx as count ) {
+proc max_array_float ( in esi as array_ptr, in ecx as [count] ) {
     fld dword [esi]             // ST(0) = first element
     esi = esi + 4
     ecx = ecx - 1
@@ -601,7 +601,7 @@ proc max_array_float ( in esi as array_ptr, in ecx as count ) {
 //   move 4 to ecx
 //   call @math.min_array_float  // ST(0) = min element
 //   fstp dword [result]
-proc min_array_float ( in esi as array_ptr, in ecx as count ) {
+proc min_array_float ( in esi as array_ptr, in ecx as [count] ) {
     fld dword [esi]             // ST(0) = first element
     esi = esi + 4
     ecx = ecx - 1
@@ -638,7 +638,7 @@ proc min_array_float ( in esi as array_ptr, in ecx as count ) {
 //   move 4 to ecx
 //   call @math.max_array_double  // ST(0) = max element
 //   fstp qword [result]
-proc max_array_double ( in esi as array_ptr, in ecx as count ) {
+proc max_array_double ( in esi as array_ptr, in ecx as [count] ) {
     fld qword [esi]             // ST(0) = first element
     esi = esi + 8
     ecx = ecx - 1
@@ -675,7 +675,7 @@ proc max_array_double ( in esi as array_ptr, in ecx as count ) {
 //   move 4 to ecx
 //   call @math.min_array_double  // ST(0) = min element
 //   fstp qword [result]
-proc min_array_double ( in esi as array_ptr, in ecx as count ) {
+proc min_array_double ( in esi as array_ptr, in ecx as [count] ) {
     fld qword [esi]             // ST(0) = first element
     esi = esi + 8
     ecx = ecx - 1
