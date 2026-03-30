@@ -343,6 +343,22 @@ public class SasmTranslator {
         // Any non-blank, non-comment, non-directive line counts as code.
         seenCode = true;
 
+        // ── implicit call: bare @alias.symbol acts as "call @alias.symbol" ───
+        // When a statement starts with an @ reference (e.g. "@math.sin"), the
+        // "call" keyword is optional.  Prepend it here so the rest of the
+        // pipeline (resolveAliasRefs → tryCall) processes it normally.
+        // split("\\s+", 2)[0] safely gives the first whitespace-delimited token
+        // (returns a single-element array when there is no whitespace; [0] is
+        // always valid).  The ALIAS_REF.matches() guard ensures this only fires
+        // for well-formed @alias.symbol tokens, never for bare "@" or other uses.
+        if (trimmed.startsWith("@")) {
+            String firstToken = trimmed.split("\\s+", 2)[0];
+            if (ALIAS_REF.matcher(firstToken).matches()) {
+                trimmed = "call " + trimmed;
+                line    = leading + trimmed;
+            }
+        }
+
         // ── resolve @alias.symbol references ─────────────────────────────────
         line = resolveAliasRefs(line);
         trimmed = line.trim();

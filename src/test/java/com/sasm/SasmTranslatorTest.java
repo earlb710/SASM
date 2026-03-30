@@ -1570,4 +1570,85 @@ class SasmTranslatorTest {
         assertFalse(asm.contains("CALL clamp_max"),
                 "Inline proc must not emit CALL instruction, got: " + asm);
     }
+
+    // ── Implicit call via @ reference ───────────────────────────────────────
+
+    /**
+     * Verifies that a bare {@code @alias.symbol} statement (without a leading
+     * {@code call} keyword) translates identically to {@code call @alias.symbol}.
+     * The {@code call} keyword is optional when an {@code @} reference is used.
+     */
+    @Test
+    void atRef_withoutCallKeyword_treatedAsCall() {
+        SasmTranslator t1 = new SasmTranslator();
+        String withCall = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "fld dword [angle]",
+                "call @math.sin",
+                "fstp dword [result]");
+
+        SasmTranslator t2 = new SasmTranslator();
+        String withoutCall = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "fld dword [angle]",
+                "@math.sin",
+                "fstp dword [result]");
+
+        String asm1 = t1.translate(withCall);
+        String asm2 = t2.translate(withoutCall);
+
+        assertTrue(asm1.contains("CALL math_sin"),
+                "Explicit 'call @math.sin' should emit CALL math_sin");
+        assertTrue(asm2.contains("CALL math_sin"),
+                "Bare '@math.sin' should also emit CALL math_sin");
+        assertEquals(asm1, asm2,
+                "Bare '@ref' and 'call @ref' should produce identical output");
+    }
+
+    /**
+     * Verifies that bare {@code @ref} works with an inline proc (the proc body
+     * is expanded in-place, same as {@code call @ref}).
+     * Uses a library reference since bare @ syntax applies to @alias.symbol refs.
+     */
+    @Test
+    void atRef_withoutCallKeyword_inlineLibProc_expanded() {
+        SasmTranslator t1 = new SasmTranslator();
+        String withCall = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "fld dword [val]",
+                "call @math.abs_float",
+                "fstp dword [result]");
+
+        SasmTranslator t2 = new SasmTranslator();
+        String withoutCall = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "fld dword [val]",
+                "@math.abs_float",
+                "fstp dword [result]");
+
+        assertEquals(t1.translate(withCall), t2.translate(withoutCall),
+                "Bare '@math.abs_float' should produce identical output to 'call @math.abs_float'");
+    }
+
+    /**
+     * Verifies that a bare {@code @ref} with a trailing inline comment
+     * still translates correctly.
+     */
+    @Test
+    void atRef_withoutCallKeyword_withInlineComment_translatesCorrectly() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "fld dword [val]",
+                "@math.sqrt // compute square root",
+                "fstp dword [result]");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("CALL math_sqrt"),
+                "Bare '@math.sqrt' with comment should emit CALL math_sqrt");
+    }
 }

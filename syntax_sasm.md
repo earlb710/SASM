@@ -2406,6 +2406,15 @@ Once a file has been imported with an alias, its symbols are accessed using the 
 
 This can appear anywhere a label or operand is expected — in instructions, data declarations, `call`, `goto`, etc.
 
+When used as a standalone statement (i.e. the entire line is an `@alias.symbol` reference), calling the symbol is implied and the `call` keyword is **optional**.  Both forms below are equivalent:
+
+```sasm
+call @math.sin      // explicit call keyword
+@math.sin           // implicit call — "call" is inferred from the @ prefix
+```
+
+> **Note:** The implicit `call` only applies when `@alias.symbol` is the **first token** on the line (the whole statement).  When `@alias.symbol` appears as an operand inside another instruction (e.g. `move @math.table to esi`, `goto @util.handler`), it is resolved to a label name as usual and no `call` is injected.
+
 ### Translation
 
 The SASM-to-NASM translator converts:
@@ -2415,8 +2424,10 @@ The SASM-to-NASM translator converts:
 | `#REF math_utils.asm math` | `%include "math_utils.asm"` |
 | `@math.add_numbers` | `math_add_numbers` |
 | `@math.pi_value` | `math_pi_value` |
+| `call @math.sin` | `CALL math_sin` |
+| `@math.sin` | `CALL math_sin` (implicit call) |
 
-The `@alias.symbol` form is translated to a flat `alias_symbol` label name, which the included file is expected to define.
+The `@alias.symbol` form is translated to a flat `alias_symbol` label name, which the included file is expected to define.  When `@alias.symbol` appears as a standalone statement, `call` is automatically prepended before translation.
 
 ### Example
 
@@ -2431,9 +2442,9 @@ global _start
 
 _start:
     move @math.initial_value to ax
-    call @math.compute
+    @math.compute               // implicit call — same as "call @math.compute"
     move ax to @io.output_buffer
-    call @io.print_result
+    @io.print_result            // implicit call — same as "call @io.print_result"
 
     move 60 to rax
     move 0 to rdi
