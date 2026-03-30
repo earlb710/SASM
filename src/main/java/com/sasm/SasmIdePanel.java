@@ -16,6 +16,12 @@ import javax.swing.event.*;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultHighlighter;
 import javax.swing.text.Highlighter;
+import javax.swing.text.JTextComponent;
+import javax.swing.text.SimpleAttributeSet;
+import javax.swing.text.StyleConstants;
+import javax.swing.text.StyledDocument;
+import javax.swing.text.TabSet;
+import javax.swing.text.TabStop;
 import javax.swing.undo.UndoManager;
 
 /**
@@ -52,7 +58,17 @@ public class SasmIdePanel extends JPanel {
 
     // ── editor (centre pane — SASM source, 2/3 width) ──────────────────────
     private final JLabel    editorHeader = new JLabel("", SwingConstants.LEFT);
-    private final JTextArea editor       = new JTextArea(30, 80);
+    private final JTextPane editor       = new JTextPane() {
+        /**
+         * Returning {@code false} here prevents the pane from forcing its
+         * content to the viewport width, giving the same no-wrap behaviour
+         * as {@code JTextArea} with {@code setLineWrap(false)}.
+         */
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return false;
+        }
+    };
     private JScrollPane     editorScroll;
     private LineNumberComponent editorLineNumbers;
 
@@ -98,6 +114,13 @@ public class SasmIdePanel extends JPanel {
      */
     private boolean updatingPadding = false;
 
+    /**
+     * Guard flag that suppresses the {@link javax.swing.undo.UndoManager}
+     * during programmatic syntax-highlight attribute updates so that style
+     * changes do not pollute the undo/redo history.
+     */
+    private boolean updatingHighlight = false;
+
     // ── synced line-cursor highlight ──────────────────────────────────────────
 
     /** Highlight painter for the current line in the SASM editor. */
@@ -129,7 +152,7 @@ public class SasmIdePanel extends JPanel {
      * into a single check so the EDT is not flooded with invokeLater tasks.
      */
     private final Timer lineNumTimer = new Timer(100, e -> {
-        int lines = editor.getLineCount();
+        int lines = getLineCount(editor);
         if (lines != lastEditorLineCount) {
             lastEditorLineCount = lines;
             // revalidate() tells the row-header viewport that the
@@ -567,9 +590,9 @@ public class SasmIdePanel extends JPanel {
 
         editor.setFont(new Font("Monospaced", Font.PLAIN, 13));
         editor.setBackground(new Color(0x1E, 0x1E, 0x1E));
-        editor.setForeground(new Color(0xD4, 0xD4, 0xD4));
-        editor.setCaretColor(new Color(0xD4, 0xD4, 0xD4));
-        editor.setTabSize(4);
+        editor.setForeground(SasmSyntaxHighlighter.COLOR_DEFAULT);
+        editor.setCaretColor(SasmSyntaxHighlighter.COLOR_DEFAULT);
+        applyEditorTabStops();
 
         editorLineNumbers = new LineNumberComponent(editor);
         editorScroll = new JScrollPane(editor);
@@ -649,7 +672,7 @@ public class SasmIdePanel extends JPanel {
         editor.getDocument().addDocumentListener(new DocumentListener() {
             @Override public void insertUpdate(DocumentEvent e)  { onTextChange(); }
             @Override public void removeUpdate(DocumentEvent e)  { onTextChange(); }
-            @Override public void changedUpdate(DocumentEvent e)  { onTextChange(); }
+            @Override public void changedUpdate(DocumentEvent e) { /* style change — ignore */ }
             private void onTextChange() {
                 // Skip when we are inserting/removing padding lines
                 if (updatingPadding) return;
@@ -661,6 +684,9 @@ public class SasmIdePanel extends JPanel {
                 // Coalesce line-number checks — a debounced timer avoids
                 // flooding the EDT with invokeLater tasks on rapid typing.
                 lineNumTimer.restart();
+                // Schedule syntax highlighting after the document change is
+                // fully committed so that the full text is available.
+                SwingUtilities.invokeLater(SasmIdePanel.this::applyHighlights);
             }
         });
 
@@ -685,7 +711,7 @@ public class SasmIdePanel extends JPanel {
         // Record undoable edits from the editor document, but skip any
         // edits that originate from programmatic padding updates.
         editor.getDocument().addUndoableEditListener(e -> {
-            if (!updatingPadding) {
+            if (!updatingPadding && !updatingHighlight) {
                 undoManager.addEdit(e.getEdit());
             }
         });
@@ -728,12 +754,12 @@ public class SasmIdePanel extends JPanel {
         // ── editor highlight ─────────────────────────────────────────────
         try {
             int caretPos = editor.getCaretPosition();
-            int editorLine = editor.getLineOfOffset(caretPos);
+            int editorLine = getLineOfOffset(editor, caretPos);
 
             // Highlight the full editor line
-            int lineStart = editor.getLineStartOffset(editorLine);
-            int lineEnd   = editorLine + 1 < editor.getLineCount()
-                    ? editor.getLineStartOffset(editorLine + 1)
+            int lineStart = getLineStartOffset(editor, editorLine);
+            int lineEnd   = editorLine + 1 < getLineCount(editor)
+                    ? getLineStartOffset(editor, editorLine + 1)
                     : editor.getDocument().getLength();
 
             Highlighter edHl = editor.getHighlighter();
@@ -982,6 +1008,10 @@ public class SasmIdePanel extends JPanel {
         }
         updatingPadding = false;
 
+        // Re-apply syntax highlighting after the padding update (the document
+        // listener was suppressed during setText, so we call it explicitly).
+        applyHighlights();
+
         // Restore scroll position after setText/setCaretPosition (both may have
         // changed the vertical scroll bar via scrollRectToVisible).
         JScrollBar vsb = editorScroll.getVerticalScrollBar();
@@ -1052,8 +1082,82 @@ public class SasmIdePanel extends JPanel {
             editor.setCaretPosition(caret);
         }
         updatingPadding = false;
+        applyHighlights();
         editorLineNumbers.revalidate();
         editorLineNumbers.repaint();
+    }
+
+    // ── syntax highlighting ───────────────────────────────────────────────────
+
+    /**
+     * Applies {@link SasmSyntaxHighlighter} colours to the editor's styled
+     * document and re-applies tab stops (which {@code setText()} resets).
+     *
+     * <p>The {@link #updatingHighlight} guard prevents the styling edits from
+     * being captured by the {@link UndoManager}.</p>
+     */
+    private void applyHighlights() {
+        updatingHighlight = true;
+        try {
+            SasmSyntaxHighlighter.applyHighlights(editor.getStyledDocument());
+            applyEditorTabStops();
+        } finally {
+            updatingHighlight = false;
+        }
+    }
+
+    /**
+     * Configures tab stops for the editor's styled document so that tab
+     * characters render at 4-character-width intervals, matching the original
+     * {@code JTextArea.setTabSize(4)} behaviour.
+     *
+     * <p>This must be re-applied after every {@code editor.setText()} call
+     * because {@code DefaultStyledDocument} resets paragraph attributes.</p>
+     */
+    private void applyEditorTabStops() {
+        FontMetrics fm = editor.getFontMetrics(editor.getFont());
+        int tabWidth = fm.charWidth(' ') * 4;
+        TabStop[] stops = new TabStop[50];
+        for (int i = 0; i < stops.length; i++) {
+            stops[i] = new TabStop((i + 1) * tabWidth);
+        }
+        SimpleAttributeSet attr = new SimpleAttributeSet();
+        StyleConstants.setTabSet(attr, new TabSet(stops));
+        StyledDocument doc = editor.getStyledDocument();
+        doc.setParagraphAttributes(0, Math.max(doc.getLength(), 1), attr, false);
+    }
+
+    // ── line-utility helpers (work with both JTextArea and JTextPane) ─────────
+
+    /**
+     * Returns the number of lines in {@code tc}'s document, equivalent to
+     * {@code JTextArea.getLineCount()}.
+     */
+    private static int getLineCount(JTextComponent tc) {
+        return tc.getDocument().getDefaultRootElement().getElementCount();
+    }
+
+    /**
+     * Returns the 0-based line index that contains {@code offset}, equivalent
+     * to {@code JTextArea.getLineOfOffset(offset)}.
+     *
+     * @throws BadLocationException if the offset is out of range
+     */
+    private static int getLineOfOffset(JTextComponent tc, int offset)
+            throws BadLocationException {
+        return tc.getDocument().getDefaultRootElement().getElementIndex(offset);
+    }
+
+    /**
+     * Returns the start offset of the given 0-based {@code line}, equivalent
+     * to {@code JTextArea.getLineStartOffset(line)}.
+     *
+     * @throws BadLocationException if the line index is out of range
+     */
+    private static int getLineStartOffset(JTextComponent tc, int line)
+            throws BadLocationException {
+        return tc.getDocument().getDefaultRootElement()
+                .getElement(line).getStartOffset();
     }
 
     // ── file I/O ──────────────────────────────────────────────────────────────
@@ -1096,7 +1200,7 @@ public class SasmIdePanel extends JPanel {
     /**
      * A component that paints right-aligned line numbers, designed to be used
      * as the {@link JScrollPane#setRowHeaderView row header} of a
-     * {@link JScrollPane} wrapping a {@link JTextArea}.
+     * {@link JScrollPane} wrapping a {@link JTextComponent}.
      *
      * <p>An optional set of <em>padding line</em> indices can be supplied via
      * {@link #setPaddingLines(Set)}.  Padding lines are blank lines inserted
@@ -1106,7 +1210,7 @@ public class SasmIdePanel extends JPanel {
      */
     private static class LineNumberComponent extends JPanel {
 
-        private final JTextArea textArea;
+        private final JTextComponent textArea;
 
         /**
          * 0-based line indices that are padding blanks — no line number is
@@ -1124,7 +1228,7 @@ public class SasmIdePanel extends JPanel {
          */
         private int[] sourceLineMap;
 
-        LineNumberComponent(JTextArea textArea) {
+        LineNumberComponent(JTextComponent textArea) {
             this.textArea = textArea;
             setFont(textArea.getFont());
             setBackground(new Color(0x2B, 0x2B, 0x2B));
@@ -1149,7 +1253,7 @@ public class SasmIdePanel extends JPanel {
         /** Width adapts to the number of digits required. */
         @Override
         public Dimension getPreferredSize() {
-            int lines  = textArea.getLineCount();
+            int lines  = getLineCount(textArea);
             FontMetrics fm = getFontMetrics(getFont());
 
             int width;
@@ -1187,7 +1291,7 @@ public class SasmIdePanel extends JPanel {
             Rectangle clip = g.getClipBounds();
             if (clip == null) return;
 
-            int lineCount = textArea.getLineCount();
+            int lineCount = getLineCount(textArea);
             if (lineCount == 0) return;
 
             g.setFont(getFont());
@@ -1254,7 +1358,7 @@ public class SasmIdePanel extends JPanel {
                 }
 
                 try {
-                    int offset = textArea.getLineStartOffset(i);
+                    int offset = getLineStartOffset(textArea, i);
                     @SuppressWarnings("deprecation")
                     java.awt.Rectangle r = textArea.modelToView(offset);
                     if (r == null) { curSub++; continue; }
@@ -1303,7 +1407,7 @@ public class SasmIdePanel extends JPanel {
                 if (!isPadding) realNum++;
 
                 try {
-                    int offset = textArea.getLineStartOffset(i);
+                    int offset = getLineStartOffset(textArea, i);
                     @SuppressWarnings("deprecation")
                     java.awt.Rectangle r = textArea.modelToView(offset);
                     if (r == null) continue;
