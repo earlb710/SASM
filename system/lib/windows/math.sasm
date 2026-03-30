@@ -56,6 +56,19 @@
 //     call @math.frexp           // ST(0) = significand [1,2), pushes ST(1) = exponent
 //     call @math.log1p           // ST(0) = ln(1 + ST(0))   (accurate near zero)
 //     call @math.expm1           // ST(0) = e^ST(0) - 1     (accurate near zero)
+//     call @math.asin            // ST(0) = asin(ST(0))   (radians; input in [-1,1])
+//     call @math.acos            // ST(0) = acos(ST(0))   (radians; input in [-1,1])
+//     call @math.sinh            // ST(0) = sinh(ST(0))
+//     call @math.cosh            // ST(0) = cosh(ST(0))
+//     call @math.tanh            // ST(0) = tanh(ST(0))
+//     call @math.hypot           // ST(0) = sqrt(ST(0)^2 + ST(1)^2);  pops ST(1)
+//     call @math.fract           // ST(0) = fract(ST(0))  fractional part in [0,1)
+//     call @math.deg_to_rad      // ST(0) = ST(0) * pi / 180
+//     call @math.rad_to_deg      // ST(0) = ST(0) * 180 / pi
+//     call @math.ldexp           // ST(0) = ST(1) * 2^ST(0);  pops ST(1)
+//     call @math.log_b           // ST(0) = exponent of ST(0) (unbiased, as float); pushes significand as new ST(0)
+//     call @math.lerp            // ST(0) = lerp(ST(2), ST(1), ST(0));  pops ST(1) and ST(2)
+//     call @math.clamp_float     // ST(0) = clamp(ST(2), ST(1), ST(0));  pops ST(1) and ST(2)
 
 #COMPAT Windows x86 (Win32)
 
@@ -1200,5 +1213,391 @@ inline proc expm1 ( in float value, out float result ) {
     fldl2e                      // push log2(e); ST(0) = log2(e), ST(1) = x
     fmulp                       // ST(0) = x * log2(e)
     f2xm1                       // ST(0) = 2^(x * log2(e)) - 1 = e^x - 1
+    return
+}
+
+// ── asin ────────────────────────────────────────────────────────
+// Computes the arcsine of ST(0).
+// Uses the identity asin(x) = atan2(x, sqrt(1 - x^2)).
+//
+// Input:  ST(0) = x  (must be in [-1, 1])
+// Output: ST(0) = asin(x)  in radians, result in [-pi/2, pi/2]
+// Clobbers: none (result replaces input on FPU stack)
+//
+// Example:
+//   fld dword [my_float]      // push x  (e.g. 0.5)
+//   call @math.asin           // ST(0) = asin(0.5) = pi/6
+//   fstp dword [result]
+// overload: proc asin ( in double value, out double result )
+inline proc asin ( in float value, out float result ) {
+    fld st0                     // dup x: ST(0)=x, ST(1)=x
+    fmul st0, st0               // ST(0) = x^2, ST(1) = x
+    fld1                        // push 1.0
+    fsubrp                      // ST(0) = 1 - x^2 (= ST(0) - ST(1)); pops ST(1)
+    fsqrt                       // ST(0) = sqrt(1 - x^2), ST(1) = x
+    fpatan                      // ST(0) = atan2(x, sqrt(1-x^2)) = asin(x); pops ST(1)
+    return
+}
+
+// ── acos ────────────────────────────────────────────────────────
+// Computes the arccosine of ST(0).
+// Uses the identity acos(x) = atan2(sqrt(1 - x^2), x).
+//
+// Input:  ST(0) = x  (must be in [-1, 1])
+// Output: ST(0) = acos(x)  in radians, result in [0, pi]
+// Clobbers: none (result replaces input on FPU stack)
+//
+// Example:
+//   fld dword [my_float]      // push x  (e.g. 0.5)
+//   call @math.acos           // ST(0) = acos(0.5) = pi/3
+//   fstp dword [result]
+// overload: proc acos ( in double value, out double result )
+inline proc acos ( in float value, out float result ) {
+    fld st0                     // dup x: ST(0)=x, ST(1)=x
+    fmul st0, st0               // ST(0) = x^2, ST(1) = x
+    fld1                        // push 1.0
+    fsubrp                      // ST(0) = 1 - x^2; pops ST(1)
+    fsqrt                       // ST(0) = sqrt(1 - x^2), ST(1) = x
+    fxch                        // ST(0) = x, ST(1) = sqrt(1 - x^2)
+    fpatan                      // ST(0) = atan2(sqrt(1-x^2), x) = acos(x); pops ST(1)
+    return
+}
+
+// ── sinh ────────────────────────────────────────────────────────
+// Computes the hyperbolic sine of ST(0).
+// Uses the identity sinh(x) = (e^x - e^(-x)) / 2.
+//
+// Input:  ST(0) = x (IEEE 754 single or double)
+// Output: ST(0) = sinh(x)
+// Clobbers: FPU stack (extra slots used temporarily)
+//
+// Example:
+//   fld dword [my_float]
+//   call @math.sinh           // ST(0) = sinh(my_float)
+//   fstp dword [result]
+// overload: proc sinh ( in double value, out double result )
+proc sinh ( in float value, out float result ) {
+    fld st0                     // save x: ST(0)=x, ST(1)=x
+    // compute e^x
+    fldl2e                      // ST(0) = log2(e)
+    fmulp                       // ST(0) = x * log2(e)
+    fld st0
+    frndint
+    fxch st1
+    fsub st0, st1               // fractional part
+    f2xm1
+    fld1
+    faddp
+    fscale
+    fstp st1                    // ST(0) = e^x, ST(1) = x (saved)
+    // negate x and compute e^(-x)
+    fxch st1                    // ST(0) = x, ST(1) = e^x
+    fchs                        // ST(0) = -x, ST(1) = e^x
+    fldl2e
+    fmulp
+    fld st0
+    frndint
+    fxch st1
+    fsub st0, st1
+    f2xm1
+    fld1
+    faddp
+    fscale
+    fstp st1                    // ST(0) = e^(-x), ST(1) = e^x
+    // (e^x - e^(-x)) / 2
+    fsubp                       // ST(0) = e^x - e^(-x)
+    fld1
+    fadd st0, st0               // ST(0) = 2.0, ST(1) = e^x - e^(-x)
+    fdivp                       // ST(0) = (e^x - e^(-x)) / 2 = sinh(x)
+    return
+}
+
+// ── cosh ────────────────────────────────────────────────────────
+// Computes the hyperbolic cosine of ST(0).
+// Uses the identity cosh(x) = (e^x + e^(-x)) / 2.
+//
+// Input:  ST(0) = x (IEEE 754 single or double)
+// Output: ST(0) = cosh(x)
+// Clobbers: FPU stack (extra slots used temporarily)
+//
+// Example:
+//   fld dword [my_float]
+//   call @math.cosh           // ST(0) = cosh(my_float)
+//   fstp dword [result]
+// overload: proc cosh ( in double value, out double result )
+proc cosh ( in float value, out float result ) {
+    fld st0                     // save x: ST(0)=x, ST(1)=x
+    // compute e^x
+    fldl2e
+    fmulp
+    fld st0
+    frndint
+    fxch st1
+    fsub st0, st1
+    f2xm1
+    fld1
+    faddp
+    fscale
+    fstp st1                    // ST(0) = e^x, ST(1) = x (saved)
+    // negate x and compute e^(-x)
+    fxch st1                    // ST(0) = x, ST(1) = e^x
+    fchs                        // ST(0) = -x, ST(1) = e^x
+    fldl2e
+    fmulp
+    fld st0
+    frndint
+    fxch st1
+    fsub st0, st1
+    f2xm1
+    fld1
+    faddp
+    fscale
+    fstp st1                    // ST(0) = e^(-x), ST(1) = e^x
+    // (e^x + e^(-x)) / 2
+    faddp                       // ST(0) = e^x + e^(-x)
+    fld1
+    fadd st0, st0               // ST(0) = 2.0, ST(1) = e^x + e^(-x)
+    fdivp                       // ST(0) = (e^x + e^(-x)) / 2 = cosh(x)
+    return
+}
+
+// ── tanh ────────────────────────────────────────────────────────
+// Computes the hyperbolic tangent of ST(0).
+// Uses the identity tanh(x) = 1 - 2 / (e^(2x) + 1).
+//
+// Input:  ST(0) = x (IEEE 754 single or double)
+// Output: ST(0) = tanh(x)  in (-1, 1)
+// Clobbers: FPU stack (extra slots used temporarily)
+//
+// Example:
+//   fld dword [my_float]
+//   call @math.tanh           // ST(0) = tanh(my_float)
+//   fstp dword [result]
+// overload: proc tanh ( in double value, out double result )
+proc tanh ( in float value, out float result ) {
+    fadd st0, st0               // ST(0) = 2x
+    // compute e^(2x)
+    fldl2e
+    fmulp
+    fld st0
+    frndint
+    fxch st1
+    fsub st0, st1
+    f2xm1
+    fld1
+    faddp
+    fscale
+    fstp st1                    // ST(0) = e^(2x)
+    fld1
+    faddp                       // ST(0) = e^(2x) + 1
+    fld1
+    fadd st0, st0               // ST(0) = 2.0, ST(1) = e^(2x) + 1
+    fdivrp                      // ST(0) = 2 / (e^(2x) + 1)
+    fld1
+    fsubrp                      // ST(0) = 1 - 2/(e^(2x)+1) = tanh(x)
+    return
+}
+
+// ── hypot ───────────────────────────────────────────────────────
+// Computes sqrt(x^2 + y^2) — the length of the hypotenuse.
+//
+// Input:  ST(0) = y (pushed last, top of stack)
+//         ST(1) = x (pushed first)
+// Output: ST(0) = sqrt(x^2 + y^2)  (one entry popped, net pop)
+// Clobbers: none
+//
+// Example:
+//   fld dword [x]             // push x
+//   fld dword [y]             // push y  (ST(0)=y, ST(1)=x)
+//   call @math.hypot          // ST(0) = sqrt(x^2 + y^2)
+//   fstp dword [result]
+// overload: proc hypot ( in double x, in double y, out double result )
+inline proc hypot ( in float x, in float y, out float result ) {
+    fmul st0, st0               // ST(0) = y^2, ST(1) = x
+    fxch st1                    // ST(0) = x, ST(1) = y^2
+    fmul st0, st0               // ST(0) = x^2, ST(1) = y^2
+    faddp                       // ST(0) = x^2 + y^2
+    fsqrt                       // ST(0) = sqrt(x^2 + y^2)
+    return
+}
+
+// ── fract ───────────────────────────────────────────────────────
+// Returns the fractional part of ST(0), always in [0, 1).
+// Defined as x - floor(x), so negative inputs give a positive result.
+//
+// Input:  ST(0) = value (IEEE 754 single or double)
+// Output: ST(0) = value - floor(value)  in [0, 1)
+// Clobbers: AX, FPU control word (restored before return)
+//
+// Example:
+//   fld dword [my_float]      // push 3.75
+//   call @math.fract          // ST(0) = 0.75
+//   fstp dword [result]
+// overload: proc fract ( in double value, out double result )
+proc fract ( in float value, out float result ) {
+    esp = esp - 4
+    fstcw word [esp]            // save FPU control word
+    mov ax, word [esp]
+    and ax, 0xF3FF              // clear RC bits (10-11)
+    or  ax, 0x0400              // RC = 01 = round toward -inf (floor)
+    mov word [esp+2], ax
+    fldcw word [esp+2]          // load modified control word
+    fld st0                     // duplicate x: ST(0)=x, ST(1)=x
+    frndint                     // ST(0) = floor(x), ST(1) = x
+    fldcw word [esp]            // restore original control word
+    esp = esp + 4
+    fsubp                       // ST(0) = x - floor(x); pops floor
+    return
+}
+
+// ── deg_to_rad ──────────────────────────────────────────────────
+// Converts degrees to radians: ST(0) = ST(0) * pi / 180.
+//
+// Input:  ST(0) = angle in degrees (IEEE 754 single or double)
+// Output: ST(0) = angle in radians
+// Clobbers: none (result replaces input on FPU stack)
+//
+// Example:
+//   fld dword [degrees]       // push angle in degrees
+//   call @math.deg_to_rad     // ST(0) = radians
+//   fstp dword [result]
+// overload: proc deg_to_rad ( in double value, out double result )
+inline proc deg_to_rad ( in float value, out float result ) {
+    fldpi                       // push pi; ST(0) = pi, ST(1) = degrees
+    fmulp                       // ST(0) = degrees * pi
+    esp = esp - 4
+    mov dword [esp], 180
+    fild dword [esp]            // push 180.0
+    esp = esp + 4
+    fdivp                       // ST(0) = degrees * pi / 180
+    return
+}
+
+// ── rad_to_deg ──────────────────────────────────────────────────
+// Converts radians to degrees: ST(0) = ST(0) * 180 / pi.
+//
+// Input:  ST(0) = angle in radians (IEEE 754 single or double)
+// Output: ST(0) = angle in degrees
+// Clobbers: none (result replaces input on FPU stack)
+//
+// Example:
+//   fld dword [radians]       // push angle in radians
+//   call @math.rad_to_deg     // ST(0) = degrees
+//   fstp dword [result]
+// overload: proc rad_to_deg ( in double value, out double result )
+inline proc rad_to_deg ( in float value, out float result ) {
+    esp = esp - 4
+    mov dword [esp], 180
+    fild dword [esp]            // push 180.0; ST(0) = 180, ST(1) = radians
+    esp = esp + 4
+    fmulp                       // ST(0) = radians * 180
+    fldpi                       // push pi; ST(0) = pi, ST(1) = radians * 180
+    fdivp                       // ST(0) = radians * 180 / pi
+    return
+}
+
+// ── ldexp ───────────────────────────────────────────────────────
+// Computes x * 2^n using the x87 FSCALE instruction.
+// Equivalent to the C standard library ldexp(x, n).
+//
+// Input:  ST(0) = n  (integer exponent, pushed last; may be non-integer, floor is used)
+//         ST(1) = x  (mantissa value, pushed first)
+// Output: ST(0) = x * 2^n  (net pop of one FPU stack entry)
+// Clobbers: none
+//
+// Example:
+//   fld dword [x]             // push x  (e.g. 1.5)
+//   fld dword [n]             // push n  (e.g. 3)
+//   call @math.ldexp          // ST(0) = 1.5 * 2^3 = 12.0
+//   fstp dword [result]
+// overload: proc ldexp ( in double x, in double n, out double result )
+inline proc ldexp ( in float x, in float n, out float result ) {
+    fxch                        // ST(0) = x, ST(1) = n
+    fscale                      // ST(0) = x * 2^n, ST(1) = n (unchanged)
+    fstp st1                    // pop n; ST(0) = x * 2^n
+    return
+}
+
+// ── log_b ───────────────────────────────────────────────────────
+// Returns the unbiased binary exponent of ST(0) as a float value,
+// and pushes the significand in [1.0, 2.0) as the new ST(0).
+// Equivalent to ilogb / logb in the C standard library.
+// Uses FXTRACT: splits ST(0) into significand (new ST(0)) and exponent (ST(1)).
+//
+// Input:  ST(0) = x  (must be finite and != 0)
+// Output: ST(0) = exponent of x as a float (former ST(0) popped; significand discarded)
+// Clobbers: none
+//
+// Note: To keep the significand, use @math.frexp instead.
+//
+// Example:
+//   fld dword [my_float]      // push 8.0  (= 1.0 * 2^3)
+//   call @math.log_b          // ST(0) = 3.0  (exponent)
+//   fstp dword [result]
+// overload: proc log_b ( in double value, out double result )
+inline proc log_b ( in float value, out float result ) {
+    fxtract                     // ST(0) = significand in [1,2), ST(1) = exponent; pushes
+    fstp st0                    // discard significand; ST(0) = exponent
+    return
+}
+
+// ── lerp ────────────────────────────────────────────────────────
+// Computes linear interpolation: a + t * (b - a).
+//
+// Input:  ST(0) = t  (interpolation weight, pushed last)
+//         ST(1) = b  (end value)
+//         ST(2) = a  (start value, pushed first)
+// Output: ST(0) = a + t * (b - a)  (ST(1) and ST(2) popped; net pop of two)
+// Clobbers: none
+//
+// Example (float):
+//   fld dword [a]             // push a  (e.g. 2.0)
+//   fld dword [b]             // push b  (e.g. 10.0)
+//   fld dword [t]             // push t  (e.g. 0.25) -> ST(0)=t, ST(1)=b, ST(2)=a
+//   call @math.lerp           // ST(0) = 2.0 + 0.25 * (10.0 - 2.0) = 4.0
+//   fstp dword [result]
+// overload: proc lerp ( in double a, in double b, in double t, out double result )
+inline proc lerp ( in float a, in float b, in float t, out float result ) {
+    fld st2                     // push copy of a: ST(0)=a, ST(1)=t, ST(2)=b, ST(3)=a
+    fxch st2                    // ST(0)=b, ST(1)=t, ST(2)=a(copy), ST(3)=a(orig)
+    fsub st0, st2               // ST(0) = b - a
+    fmulp                       // ST(0) = t * (b - a); pops t
+    faddp                       // ST(0) = a(copy) + t*(b-a); pops a(copy)
+    fstp st1                    // overwrite a(orig) with result; pop → ST(0) = lerp
+    return
+}
+
+// ── clamp_float ─────────────────────────────────────────────────
+// Clamps a float (or double) to the range [lo, hi].
+//
+// Input:  ST(0) = hi  (upper bound, pushed last)
+//         ST(1) = lo  (lower bound)
+//         ST(2) = x   (value to clamp, pushed first)
+// Output: ST(0) = max(lo, min(x, hi))  (ST(1) and ST(2) popped; net pop of two)
+// Clobbers: AX
+//
+// Example (float):
+//   fld dword [x]             // push x
+//   fld dword [lo]            // push lo
+//   fld dword [hi]            // push hi  -> ST(0)=hi, ST(1)=lo, ST(2)=x
+//   call @math.clamp_float    // ST(0) = clamp(x, lo, hi)
+//   fstp dword [result]
+// overload: proc clamp_float ( in double x, in double lo, in double hi, out double result )
+proc clamp_float ( in float x, in float lo, in float hi, out float result ) {
+    fxch st2                    // ST(0)=x, ST(1)=lo, ST(2)=hi
+    fcom st1                    // compare x with lo
+    fstsw ax
+    sahf
+    jae .cf_above_lo            // x >= lo: keep x
+    fxch st1                    // x < lo: bring lo to top
+.cf_above_lo:
+    fstp st1                    // drop the smaller; ST(0)=max(x,lo), ST(1)=hi
+    fcom st1                    // compare max(x,lo) with hi
+    fstsw ax
+    sahf
+    jbe .cf_below_hi            // max(x,lo) <= hi: keep it
+    fxch st1                    // max(x,lo) > hi: bring hi to top
+.cf_below_hi:
+    fstp st1                    // drop the larger; ST(0) = clamp(x, lo, hi)
     return
 }
