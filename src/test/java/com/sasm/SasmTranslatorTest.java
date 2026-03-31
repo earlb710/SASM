@@ -2935,4 +2935,166 @@ class SasmTranslatorTest {
         assertTrue(asm.contains("MOV ECX, [my_count]"),
                 "MOV ECX should be emitted for non-annotated param");
     }
+
+    // ── formula-chain / default-reg code-size tests ──────────────────────────
+
+    /** Inline {@code clamp} definition used by the formula-chain tests. */
+    private static final String CLAMP_DEF = String.join("\n",
+            "inline proc clamp (val dword value default eax, val dword lo default ebx, val dword hi default ecx) out val dword {",
+            "    compare eax with ebx",
+            "    goto .hi_check if greater or equal",
+            "    move ebx to eax",
+            ".hi_check:",
+            "    compare eax with ecx",
+            "    goto .done if less or equal",
+            "    move ecx to eax",
+            ".done:",
+            "    return",
+            "}");
+
+    /** Inline {@code abs_int} definition used by the formula-chain tests. */
+    private static final String ABS_INT_DEF = String.join("\n",
+            "inline proc abs_int (val dword value default eax) out val dword {",
+            "    cdq",
+            "    xor eax, edx",
+            "    sub eax, edx",
+            "    return",
+            "}");
+
+    /**
+     * Formula chain — Style A (memory args): calling {@code @math.clamp} with
+     * all three parameters supplied as memory references causes the translator
+     * to emit a dedicated setup {@code MOV} for every parameter.
+     *
+     * <p>Expected output for {@code call @math.clamp( [x], [lo], [hi] )}:
+     * <pre>
+     *   MOV EAX, [x]     ← value param (eax default, but [x] ≠ eax)
+     *   MOV EBX, [lo]    ← lo param    ([lo] ≠ ebx default)
+     *   MOV ECX, [hi]    ← hi param    ([hi] ≠ ecx default)
+     *   &lt;clamp inline body&gt;
+     * </pre>
+     */
+    @Test
+    void mathFormulaChain_memoryArgs_generatesSetupMOVsForEachParam(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), CLAMP_DEF);
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.clamp( [x], [lo], [hi] )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // Every argument differs from its default register → all three setup MOVs emitted
+        assertTrue(asm.contains("MOV EAX, [x]"),
+                "setup MOV EAX should be emitted for value param");
+        assertTrue(asm.contains("MOV EBX, [lo]"),
+                "setup MOV EBX should be emitted for lo param");
+        assertTrue(asm.contains("MOV ECX, [hi]"),
+                "setup MOV ECX should be emitted for hi param");
+    }
+
+    /**
+     * Formula chain — Style B (default-register args): when all three
+     * arguments to {@code @math.clamp} are already the declared default
+     * registers, the translator suppresses every setup {@code MOV}, leaving
+     * only the inlined function body.
+     *
+     * <p>Expected output for {@code call @math.clamp( eax, ebx, ecx )}:
+     * <pre>
+     *   &lt;clamp inline body only — no setup MOVs&gt;
+     * </pre>
+     */
+    @Test
+    void mathFormulaChain_defaultRegisterArgs_suppressesAllSetupMOVs(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), CLAMP_DEF);
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.clamp( eax, ebx, ecx )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // All args match defaults → no translator-generated setup MOVs (uppercase form)
+        assertFalse(asm.contains("MOV EAX,"),
+                "setup MOV EAX should be suppressed when arg is eax (default)");
+        assertFalse(asm.contains("MOV EBX,"),
+                "setup MOV EBX should be suppressed when arg is ebx (default)");
+        assertFalse(asm.contains("MOV ECX,"),
+                "setup MOV ECX should be suppressed when arg is ecx (default)");
+    }
+
+    /**
+     * Formula chain — code-size comparison: chains {@code abs_int} into
+     * {@code clamp} using both call styles and counts {@code MOV} instructions
+     * in the output to confirm that the default-register style eliminates
+     * exactly three setup {@code MOV} instructions.
+     *
+     * <p><b>Style A</b> — memory args:
+     * <pre>
+     *   call @math.abs_int( [x] )              // MOV EAX,[x]; abs_int body
+     *   call @math.clamp( eax, [lo], [hi] )    // EAX=default (skip);
+     *                                          // MOV EBX,[lo]; MOV ECX,[hi]; clamp body
+     *   Total setup MOVs: 3
+     * </pre>
+     *
+     * <p><b>Style B</b> — default-register args:
+     * <pre>
+     *   call @math.abs_int( eax )              // EAX=default → 0 setup MOVs; abs_int body
+     *   call @math.clamp( eax, ebx, ecx )      // ALL defaults → 0 setup MOVs; clamp body
+     *   Total setup MOVs: 0  (3 fewer than Style A)
+     * </pre>
+     */
+    @Test
+    void mathFormulaChain_defaultRegsYieldFewerMOVInstructions(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"),
+                ABS_INT_DEF + "\n" + CLAMP_DEF);
+
+        // Style A: abs_int with memory arg, clamp with two memory args
+        SasmTranslator tA = new SasmTranslator();
+        tA.setWorkingDirectory(tempDir.toFile());
+        String asmA = tA.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.abs_int( [x] )",
+                "call @math.clamp( eax, [lo], [hi] )"));
+        assertTrue(tA.getErrors().isEmpty(),
+                "Style A should produce no errors, got: " + tA.getErrors());
+
+        // Style B: all args already in default registers
+        SasmTranslator tB = new SasmTranslator();
+        tB.setWorkingDirectory(tempDir.toFile());
+        String asmB = tB.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.abs_int( eax )",
+                "call @math.clamp( eax, ebx, ecx )"));
+        assertTrue(tB.getErrors().isEmpty(),
+                "Style B should produce no errors, got: " + tB.getErrors());
+
+        // Count all "MOV " occurrences (setup + inline body) in each output
+        int movCountA = asmA.split("MOV ", -1).length - 1;
+        int movCountB = asmB.split("MOV ", -1).length - 1;
+
+        // Style B should have exactly 3 fewer MOV instructions (the 3 suppressed setup MOVs)
+        assertEquals(3, movCountA - movCountB,
+                "Default-register style should eliminate exactly 3 setup MOVs: "
+                + "Style A=" + movCountA + ", Style B=" + movCountB);
+        assertTrue(movCountB < movCountA,
+                "Default-register style should generate fewer MOV instructions total");
+    }
 }
