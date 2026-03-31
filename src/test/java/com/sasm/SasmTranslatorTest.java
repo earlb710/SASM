@@ -3097,4 +3097,293 @@ class SasmTranslatorTest {
         assertTrue(movCountB < movCountA,
                 "Default-register style should generate fewer MOV instructions total");
     }
+
+    // ── str library tests ────────────────────────────────────────────────────
+
+    /**
+     * Verifies that all eight str-library functions resolve to the correct
+     * CALL labels (or inline expansion for {@code strlen} and {@code strcpy}).
+     */
+    @Test
+    void strLibrary_allFunctions_resolveCorrectly(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/str.sasm"), libDir.resolve("str.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.strlen",
+                "call @str.strcmp",
+                "call @str.strcpy",
+                "call @str.strcat",
+                "call @str.to_upper",
+                "call @str.to_lower",
+                "call @str.str_to_int",
+                "call @str.int_to_str"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // inline procs expand in-place (no CALL); regular procs emit CALL
+        assertFalse(asm.contains("CALL str_strlen"),   "strlen is inline → no CALL str_strlen");
+        assertFalse(asm.contains("CALL str_strcpy"),   "strcpy is inline → no CALL str_strcpy");
+        assertTrue(asm.contains("CALL str_strcmp"),    "strcmp → CALL str_strcmp");
+        assertTrue(asm.contains("CALL str_strcat"),    "strcat → CALL str_strcat");
+        assertTrue(asm.contains("CALL str_to_upper"),  "to_upper → CALL str_to_upper");
+        assertTrue(asm.contains("CALL str_to_lower"),  "to_lower → CALL str_to_lower");
+        assertTrue(asm.contains("CALL str_str_to_int"), "str_to_int → CALL str_str_to_int");
+        assertTrue(asm.contains("CALL str_int_to_str"), "int_to_str → CALL str_int_to_str");
+    }
+
+    /**
+     * Verifies that {@code strlen} and {@code strcpy} are inlined (no CALL emitted)
+     * and that their bodies contain the expected loop labels.
+     */
+    @Test
+    void strLibrary_inlineProcs_expandedInPlace(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/str.sasm"), libDir.resolve("str.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.strlen",
+                "call @str.strcpy"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // inline procs must NOT emit a CALL
+        assertFalse(asm.contains("CALL str_strlen"),
+                "strlen is inline → must not emit CALL str_strlen");
+        assertFalse(asm.contains("CALL str_strcpy"),
+                "strcpy is inline → must not emit CALL str_strcpy");
+        // inline body labels must be present (with _N suffix from expansion counter)
+        assertTrue(asm.contains(".strlen_loop"),
+                "strlen inline body must contain .strlen_loop label");
+        assertTrue(asm.contains(".strcpy_loop"),
+                "strcpy inline body must contain .strcpy_loop label");
+    }
+
+    /**
+     * Verifies that {@code strlen}'s default register (ESI) suppresses the
+     * setup MOV when the call argument is already {@code esi}.
+     */
+    @Test
+    void strLibrary_strlen_defaultRegSuppressesMOV(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(
+                Path.of("test/lib/str.sasm"),
+                libDir.resolve("str.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        // Arg matches default ESI → no MOV ESI
+        String asmMatch = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.strlen( esi )"));
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertFalse(asmMatch.contains("MOV ESI,"),
+                "strlen( esi ): ESI matches default → MOV ESI should be suppressed");
+
+        // Arg differs from default → MOV ESI must be emitted
+        t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asmDiff = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.strlen( my_str )"));
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asmDiff.contains("MOV ESI, my_str"),
+                "strlen( my_str ): my_str ≠ esi → MOV ESI, my_str must be emitted");
+    }
+
+    /**
+     * Verifies that {@code strcmp} with both default-register arguments
+     * ({@code esi} and {@code edi}) generates zero setup MOVs.
+     */
+    @Test
+    void strLibrary_strcmp_bothDefaultArgs_zeroSetupMOVs(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(
+                Path.of("test/lib/str.sasm"),
+                libDir.resolve("str.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.strcmp( esi, edi )"));
+
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertFalse(asm.contains("MOV ESI,"),
+                "strcmp( esi, edi ): ESI is default → no MOV ESI");
+        assertFalse(asm.contains("MOV EDI,"),
+                "strcmp( esi, edi ): EDI is default → no MOV EDI");
+        assertTrue(asm.contains("CALL str_strcmp"),
+                "CALL str_strcmp must be present");
+    }
+
+    /**
+     * Verifies that {@code int_to_str} with non-default arguments generates
+     * the expected setup MOVs (EAX for the integer value, EDI for the buffer).
+     */
+    @Test
+    void strLibrary_intToStr_nonDefaultArgs_emitsSetupMOVs(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(
+                Path.of("test/lib/str.sasm"),
+                libDir.resolve("str.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.int_to_str( [my_n], out_buf )"));
+
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asm.contains("MOV EAX, [my_n]"),
+                "int_to_str([my_n], ...): [my_n] ≠ eax → MOV EAX, [my_n] must be emitted");
+        assertTrue(asm.contains("MOV EDI, out_buf"),
+                "int_to_str(..., out_buf): out_buf ≠ edi → MOV EDI, out_buf must be emitted");
+    }
+
+    // ── mem library tests ────────────────────────────────────────────────────
+
+    /**
+     * Verifies that all four mem-library functions resolve correctly and
+     * that all four are inlined (no CALL emitted, since they are all
+     * {@code inline proc}).
+     */
+    @Test
+    void memLibrary_allFunctions_inlinedAndNoErrors(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/mem.sasm"), libDir.resolve("mem.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/mem.sasm mem",
+                "section .text",
+                "call @mem.memcpy",
+                "call @mem.memset",
+                "call @mem.memcmp",
+                "call @mem.bzero"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // All four are inline procs → no CALL emitted
+        assertFalse(asm.contains("CALL mem_memcpy"),  "memcpy is inline → no CALL");
+        assertFalse(asm.contains("CALL mem_memset"),  "memset is inline → no CALL");
+        assertFalse(asm.contains("CALL mem_memcmp"),  "memcmp is inline → no CALL");
+        assertFalse(asm.contains("CALL mem_bzero"),   "bzero is inline → no CALL");
+        // Verify key inline instructions are present
+        assertTrue(asm.contains("rep movsb"),  "memcpy body must contain rep movsb");
+        assertTrue(asm.contains("rep stosb"),  "memset body must contain rep stosb");
+        assertTrue(asm.contains("repe cmpsb"), "memcmp body must contain repe cmpsb");
+    }
+
+    /**
+     * Verifies that {@code memcpy} with all three default-register arguments
+     * ({@code edi}, {@code esi}, {@code ecx}) emits zero setup MOVs.
+     */
+    @Test
+    void memLibrary_memcpy_allDefaultArgs_zeroSetupMOVs(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/mem.sasm"), libDir.resolve("mem.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/mem.sasm mem",
+                "section .text",
+                "call @mem.memcpy( edi, esi, ecx )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertFalse(asm.contains("MOV EDI,"),
+                "memcpy( edi, ... ): EDI matches default → no setup MOV EDI");
+        assertFalse(asm.contains("MOV ESI,"),
+                "memcpy( ..., esi, ... ): ESI matches default → no setup MOV ESI");
+        assertFalse(asm.contains("MOV ECX,"),
+                "memcpy( ..., ecx ): ECX matches default → no setup MOV ECX");
+        assertTrue(asm.contains("rep movsb"),
+                "rep movsb must be in the inlined body");
+    }
+
+    /**
+     * Verifies that {@code memcpy} with non-default arguments generates
+     * the three expected setup MOVs.
+     */
+    @Test
+    void memLibrary_memcpy_nonDefaultArgs_emitsAllSetupMOVs(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/mem.sasm"), libDir.resolve("mem.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/mem.sasm mem",
+                "section .text",
+                "call @mem.memcpy( dst_buf, src_buf, 16 )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("MOV EDI, dst_buf"),
+                "dst_buf ≠ edi → MOV EDI, dst_buf must be emitted");
+        assertTrue(asm.contains("MOV ESI, src_buf"),
+                "src_buf ≠ esi → MOV ESI, src_buf must be emitted");
+        assertTrue(asm.contains("MOV ECX, 16"),
+                "16 ≠ ecx → MOV ECX, 16 must be emitted");
+    }
+
+    /**
+     * Verifies that {@code bzero} with both default-register arguments
+     * ({@code edi} and {@code ecx}) suppresses both setup MOVs.
+     */
+    @Test
+    void memLibrary_bzero_allDefaultArgs_zeroSetupMOVs(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/mem.sasm"), libDir.resolve("mem.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/mem.sasm mem",
+                "section .text",
+                "call @mem.bzero( edi, ecx )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertFalse(asm.contains("MOV EDI,"),
+                "bzero( edi, ... ): EDI matches default → no setup MOV EDI");
+        assertFalse(asm.contains("MOV ECX,"),
+                "bzero( ..., ecx ): ECX matches default → no setup MOV ECX");
+        assertTrue(asm.contains("rep stosb"),
+                "bzero body must contain rep stosb (via XOR EAX/rep stosb)");
+    }
 }

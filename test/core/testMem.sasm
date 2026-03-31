@@ -1,0 +1,99 @@
+// testMem.sasm
+// Project : Test-projects
+//
+// Exercises the mem library's four memory functions:
+//   memcpy, memset, memcmp, bzero
+//
+// Call conventions:
+//   call @mem.memcpy( edi, esi, ecx )  // all defaults → zero setup MOVs
+//   call @mem.memset( edi, eax, ecx )  // all defaults → zero setup MOVs
+//   call @mem.memcmp( esi, edi, ecx )  // all defaults → zero setup MOVs
+//   call @mem.bzero( edi, ecx )        // all defaults → zero setup MOVs
+//
+//   call @mem.memcpy( dst, src, 16 )   // non-default args → MOVs emitted
+//
+// Target: 32-bit Linux ELF executable (uses int 0x80 for exit).
+//
+// Build with:
+//   nasm -f elf32 testMem.asm -o testMem.o
+//   ld -m elf_i386 testMem.o -o testMem
+//
+// NOTE: This file tests SASM-to-NASM translation only.
+
+#REF lib/mem.sasm mem
+
+section .data
+
+var result_cmp   as dword = 0
+
+// Fixed-size test buffers (16 bytes each)
+data buf_a       as byte = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+data buf_b       as byte = 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0,  0,  0,  0,  0,  0
+data buf_c       as byte = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+
+section .text
+
+start:
+
+    // =========================================================
+    //  memcpy — copy a block of memory
+    // =========================================================
+
+    // Copy buf_a → buf_b using default-register args (zero setup MOVs)
+    move buf_b to edi
+    move buf_a to esi
+    move 16 to ecx
+    call @mem.memcpy( edi, esi, ecx )      // all defaults → zero setup MOVs
+
+    // Copy with non-default args (MOVs emitted for all three)
+    call @mem.memcpy( buf_b, buf_a, 16 )   // MOV EDI, buf_b; MOV ESI, buf_a; MOV ECX, 16
+
+    // =========================================================
+    //  memset — fill a block of memory
+    // =========================================================
+
+    // Fill buf_b with 0xFF using default-register args
+    move buf_b to edi
+    move 0xFF to eax
+    move 16 to ecx
+    call @mem.memset( edi, eax, ecx )      // all defaults → zero setup MOVs
+
+    // Fill buf_b with 0 using non-default args
+    call @mem.memset( buf_b, 0, 16 )       // MOV EDI, buf_b; MOV EAX, 0; MOV ECX, 16
+
+    // =========================================================
+    //  memcmp — compare two blocks of memory
+    // =========================================================
+
+    // Compare buf_a and buf_c (both equal to 1..16)
+    move buf_a to esi
+    move buf_c to edi
+    move 16 to ecx
+    call @mem.memcmp( esi, edi, ecx )      // all defaults → zero setup MOVs
+    move eax to dword [result_cmp]         // result_cmp = 0 (equal)
+
+    // Compare buf_a and buf_b (after memset buf_b was zeroed — all zeros vs 1..16)
+    move buf_a to esi
+    move buf_b to edi
+    move 16 to ecx
+    call @mem.memcmp( esi, edi, ecx )      // eax > 0 (buf_a[0]=1 > buf_b[0]=0)
+
+    // Compare with non-default args
+    call @mem.memcmp( buf_a, buf_c, 16 )   // MOV ESI, buf_a; MOV EDI, buf_c; MOV ECX, 16
+
+    // =========================================================
+    //  bzero — zero a block of memory
+    // =========================================================
+
+    // Zero buf_b using default-register args
+    move buf_b to edi
+    move 16 to ecx
+    call @mem.bzero( edi, ecx )            // both defaults → zero setup MOVs
+
+    // Zero buf_b with non-default args
+    call @mem.bzero( buf_b, 16 )           // MOV EDI, buf_b; MOV ECX, 16
+
+exit:
+    move 1 to eax                  // sys_exit
+    move 0 to ebx                  // exit code 0
+    interrupt 0x80

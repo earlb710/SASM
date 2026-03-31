@@ -1,0 +1,166 @@
+// testStr.sasm
+// Project : Test-projects
+//
+// Exercises the str library's eight string functions:
+//   strlen, strcmp, strcpy, strcat, to_upper, to_lower,
+//   str_to_int, int_to_str
+//
+// Call conventions:
+//   call @str.strlen( src )          // src ≠ esi → MOV ESI emitted
+//   call @str.strlen( esi )          // esi == default → MOV suppressed
+//   call @str.strcmp( esi, edi )     // both defaults → zero setup MOVs
+//   call @str.strcpy( edi, esi )     // both defaults → zero setup MOVs
+//   call @str.str_to_int( esi )      // default → zero setup MOVs for esi
+//   call @str.int_to_str( eax, edi ) // both defaults → zero setup MOVs
+//
+// Target: 32-bit Linux ELF executable (uses int 0x80 for exit).
+//
+// Build with:
+//   nasm -f elf32 testStr.asm -o testStr.o
+//   ld -m elf_i386 testStr.o -o testStr
+//
+// NOTE: This file tests SASM-to-NASM translation only.
+
+#REF lib/str.sasm str
+
+section .data
+
+var result_len   as dword = 0
+var result_cmp   as dword = 0
+
+// Test strings
+data hello_str   as byte = "hello", 0      // 5 chars
+data HELLO_str   as byte = "HELLO", 0      // 5 chars
+data world_str   as byte = "world", 0
+data space_str   as byte = " ", 0
+
+// Writable buffers for copy/cat/conversion tests
+data copy_buf    as byte = 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+data cat_buf     as byte = "Hello", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+data upper_buf   as byte = "hello world", 0
+data lower_buf   as byte = "HELLO WORLD", 0
+data num_str     as byte = "-123", 0
+data zero_str    as byte = "0", 0
+data int_buf     as byte = 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+
+section .text
+
+start:
+
+    // =========================================================
+    //  strlen — measure string length
+    // =========================================================
+
+    // With non-default arg (hello_str ≠ esi) → MOV ESI emitted
+    call @str.strlen( hello_str )          // MOV ESI, hello_str; strlen
+    move eax to dword [result_len]         // result_len = 5
+
+    // With default register arg (esi already loaded) → no MOV
+    move hello_str to esi
+    call @str.strlen( esi )                // ESI == default → NO MOV ESI; strlen
+    move eax to dword [result_len]         // result_len = 5
+
+    // =========================================================
+    //  strcmp — compare two strings
+    // =========================================================
+
+    // Equal strings
+    move hello_str to esi
+    move hello_str to edi
+    call @str.strcmp( esi, edi )           // both defaults → zero setup MOVs
+    move eax to dword [result_cmp]         // result_cmp = 0 (equal)
+
+    // str1 < str2 ("hello" < "world")
+    move hello_str to esi
+    move world_str to edi
+    call @str.strcmp( esi, edi )           // eax < 0 ("h" < "w")
+
+    // str1 > str2 ("world" > "hello")
+    move world_str to esi
+    move hello_str to edi
+    call @str.strcmp( esi, edi )           // eax > 0 ("w" > "h")
+
+    // =========================================================
+    //  strcpy — copy string
+    // =========================================================
+
+    move copy_buf to edi
+    move hello_str to esi
+    call @str.strcpy( edi, esi )           // both defaults → zero setup MOVs
+    // copy_buf now = "hello\0"
+
+    // =========================================================
+    //  strcat — concatenate strings
+    // =========================================================
+
+    // cat_buf starts as "Hello"; append " world"
+    // Note: space_str + world_str are separate; we append world_str directly
+    move cat_buf to edi
+    move world_str to esi
+    call @str.strcat( edi, esi )           // both defaults → zero setup MOVs
+    // cat_buf now = "Helloworld\0"
+
+    // =========================================================
+    //  to_upper — convert to uppercase in-place
+    // =========================================================
+
+    // With non-default arg (upper_buf ≠ esi) → MOV ESI emitted
+    call @str.to_upper( upper_buf )        // MOV ESI, upper_buf; to_upper
+    // upper_buf now = "HELLO WORLD"
+
+    // With default register (esi already loaded) → no MOV
+    move lower_buf to esi
+    call @str.to_upper( esi )              // ESI == default → NO MOV; to_upper
+    // lower_buf now = "HELLO WORLD"
+
+    // =========================================================
+    //  to_lower — convert to lowercase in-place
+    // =========================================================
+
+    move HELLO_str to esi
+    call @str.to_lower( esi )              // ESI == default → NO MOV; to_lower
+    // HELLO_str now = "hello"
+
+    // =========================================================
+    //  str_to_int — parse decimal string to integer
+    // =========================================================
+
+    // Parse "-123"
+    move num_str to esi
+    call @str.str_to_int( esi )            // ESI == default → NO MOV; str_to_int
+    // eax = -123
+
+    // Parse "0"
+    move zero_str to esi
+    call @str.str_to_int( esi )            // eax = 0
+
+    // With non-default arg → MOV ESI emitted
+    call @str.str_to_int( num_str )        // MOV ESI, num_str; str_to_int → eax = -123
+
+    // =========================================================
+    //  int_to_str — convert integer to decimal string
+    // =========================================================
+
+    // Convert 42 → "42"
+    move 42 to eax
+    move int_buf to edi
+    call @str.int_to_str( eax, edi )       // both defaults → zero setup MOVs
+    // int_buf = "42\0", eax = 2
+
+    // Convert -7 → "-7"
+    move -7 to eax
+    move int_buf to edi
+    call @str.int_to_str( eax, edi )       // eax = 2 (length "-7")
+
+    // Convert 0 → "0"
+    move 0 to eax
+    move int_buf to edi
+    call @str.int_to_str( eax, edi )       // eax = 1
+
+    // With non-default args → MOVs emitted
+    call @str.int_to_str( [result_len], int_buf )  // MOV EAX,[result_len]; MOV EDI,int_buf
+
+exit:
+    move 1 to eax                  // sys_exit
+    move 0 to ebx                  // exit code 0
+    interrupt 0x80

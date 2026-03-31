@@ -1,0 +1,310 @@
+// str.sasm
+// String Library — null-terminated string operations.
+//
+// Platform-independent routines for manipulating null-terminated byte
+// strings.  Does not depend on any operating system calls.
+//
+// Usage:
+//     #REF lib/str.sasm str
+//
+// Functions:
+//     call @str.strlen           // EAX = length of string at ESI
+//     call @str.strcmp           // EAX = compare(ESI, EDI): 0/<0/>0
+//     call @str.strcpy           // copy ESI → EDI (including null)
+//     call @str.strcat           // append ESI to string at EDI
+//     call @str.to_upper         // uppercase string at ESI in-place
+//     call @str.to_lower         // lowercase string at ESI in-place
+//     call @str.str_to_int       // EAX = parsed signed integer from ESI
+//     call @str.int_to_str       // write EAX as decimal string to EDI
+
+#COMPAT Windows x86 (Win32)
+
+section .text
+
+// ── strlen ──────────────────────────────────────────────────────
+// Returns the number of bytes in a null-terminated string,
+// not counting the terminating null byte.
+//
+// Input:  ESI = pointer to null-terminated string
+// Output: EAX = length in bytes (0 for empty string)
+// Clobbers: EDX
+//
+// Example:
+//   move msg to esi
+//   call @str.strlen    // eax = length of msg
+inline proc strlen (addr str_ptr default esi) out val dword {
+    move esi to edx             // edx = scan pointer
+.strlen_loop:
+    compare byte [edx], 0
+    goto .strlen_done if equal
+    increment edx
+    goto .strlen_loop
+.strlen_done:
+    move edx to eax
+    subtract esi from eax       // eax = edx - esi = number of chars scanned
+    return
+}
+
+// ── strcmp ──────────────────────────────────────────────────────
+// Lexicographically compares two null-terminated strings.
+//
+// Input:  ESI = pointer to first  string (str1)
+//         EDI = pointer to second string (str2)
+// Output: EAX = 0  if str1 == str2
+//              < 0 if str1  < str2 (first differing byte in str1 is smaller)
+//              > 0 if str1  > str2
+// Clobbers: AL, CL, ESI, EDI
+//
+// Example:
+//   move str1 to esi
+//   move str2 to edi
+//   call @str.strcmp    // eax = 0 if equal
+proc strcmp (addr str1 default esi, addr str2 default edi) out val dword {
+.strcmp_loop:
+    move byte [esi] to al
+    move byte [edi] to cl
+    compare al, cl
+    goto .strcmp_diff if not equal
+    compare al, 0
+    goto .strcmp_equal if equal
+    increment esi
+    increment edi
+    goto .strcmp_loop
+.strcmp_diff:
+    movzx eax, al               // zero-extend byte to dword
+    movzx ecx, cl
+    subtract ecx from eax       // eax = (unsigned byte from str1) - (unsigned byte from str2)
+    return
+.strcmp_equal:
+    move 0 to eax
+    return
+}
+
+// ── strcpy ──────────────────────────────────────────────────────
+// Copies a null-terminated string from src to dst, including the
+// terminating null byte.  The destination buffer must be large
+// enough to hold the source string plus its null terminator.
+//
+// Input:  EDI = pointer to destination buffer
+//         ESI = pointer to source string
+// Output: EDI = pointer to start of destination (unchanged from input)
+// Clobbers: AL, ESI, EDX
+//
+// Example:
+//   move dst_buf to edi
+//   move src_str to esi
+//   call @str.strcpy
+inline proc strcpy (addr dst default edi, addr src default esi) {
+    move edi to edx             // save original dst start
+.strcpy_loop:
+    move byte [esi] to al
+    move al to [edi]
+    compare al, 0
+    goto .strcpy_done if equal
+    increment esi
+    increment edi
+    goto .strcpy_loop
+.strcpy_done:
+    move edx to edi             // restore EDI = dst start
+    return
+}
+
+// ── strcat ──────────────────────────────────────────────────────
+// Appends the null-terminated src string to the end of dst.
+// The dst buffer must have enough space for both strings plus
+// the terminating null byte.
+//
+// Input:  EDI = pointer to destination string (null-terminated)
+//         ESI = pointer to source string to append (null-terminated)
+// Output: EDI = pointer to start of destination (unchanged from input)
+// Clobbers: AL, ESI, ECX
+//
+// Example:
+//   move base_str to edi
+//   move extra_str to esi
+//   call @str.strcat
+proc strcat (addr dst default edi, addr src default esi) {
+    move edi to ecx             // save original dst start
+.strcat_find_end:
+    compare byte [edi], 0
+    goto .strcat_copy if equal
+    increment edi
+    goto .strcat_find_end
+.strcat_copy:
+    move byte [esi] to al
+    move al to [edi]
+    compare al, 0
+    goto .strcat_done if equal
+    increment esi
+    increment edi
+    goto .strcat_copy
+.strcat_done:
+    move ecx to edi             // restore EDI = dst start
+    return
+}
+
+// ── to_upper ────────────────────────────────────────────────────
+// Converts all ASCII lowercase letters ('a'..'z') in a
+// null-terminated string to uppercase ('A'..'Z') in-place.
+// Non-letter bytes are left unchanged.
+//
+// Input:  ESI = pointer to null-terminated string
+// Clobbers: AL, ESI
+//
+// Example:
+//   move greeting to esi
+//   call @str.to_upper   // "hello" → "HELLO"
+proc to_upper (addr str_ptr default esi) {
+.to_upper_loop:
+    move byte [esi] to al
+    compare al, 0
+    goto .to_upper_done if equal
+    cmp al, 97              // 'a' = 97
+    goto .to_upper_next if less
+    cmp al, 122             // 'z' = 122
+    goto .to_upper_next if greater
+    sub al, 32              // to uppercase: clear bit 5
+    move al to [esi]
+.to_upper_next:
+    increment esi
+    goto .to_upper_loop
+.to_upper_done:
+    return
+}
+
+// ── to_lower ────────────────────────────────────────────────────
+// Converts all ASCII uppercase letters ('A'..'Z') in a
+// null-terminated string to lowercase ('a'..'z') in-place.
+// Non-letter bytes are left unchanged.
+//
+// Input:  ESI = pointer to null-terminated string
+// Clobbers: AL, ESI
+//
+// Example:
+//   move greeting to esi
+//   call @str.to_lower   // "HELLO" → "hello"
+proc to_lower (addr str_ptr default esi) {
+.to_lower_loop:
+    move byte [esi] to al
+    compare al, 0
+    goto .to_lower_done if equal
+    cmp al, 65              // 'A' = 65
+    goto .to_lower_next if less
+    cmp al, 90              // 'Z' = 90
+    goto .to_lower_next if greater
+    add al, 32              // to lowercase: set bit 5
+    move al to [esi]
+.to_lower_next:
+    increment esi
+    goto .to_lower_loop
+.to_lower_done:
+    return
+}
+
+// ── str_to_int ──────────────────────────────────────────────────
+// Parses a null-terminated decimal string into a signed 32-bit
+// integer.  An optional leading '-' makes the result negative.
+// Parsing stops at the first non-digit character or the null
+// terminator.  Returns 0 for an empty or non-numeric string.
+//
+// Input:  ESI = pointer to null-terminated decimal string
+// Output: EAX = parsed 32-bit signed integer (0 on empty/invalid)
+// Clobbers: EDX, ECX, ESI
+//
+// Example:
+//   move num_str to esi
+//   call @str.str_to_int    // eax = integer value
+proc str_to_int (addr str_ptr default esi) out val dword {
+    move 0 to eax               // accumulator
+    move 0 to ecx               // ecx = 1 if negative, 0 if positive
+    compare byte [esi], 45      // '-' = 45
+    goto .sti_digits if not equal
+    move 1 to ecx               // mark negative
+    increment esi
+.sti_digits:
+    move byte [esi] to dl
+    compare dl, 0
+    goto .sti_done if equal
+    cmp dl, 48                  // '0' = 48
+    goto .sti_done if less
+    cmp dl, 57                  // '9' = 57
+    goto .sti_done if greater
+    imul eax, 10                // eax = eax * 10
+    movzx edx, dl               // zero-extend digit byte to dword
+    sub edx, 48                 // subtract '0' to get digit value (0..9)
+    add eax, edx
+    increment esi
+    goto .sti_digits
+.sti_done:
+    compare ecx, 0
+    goto .sti_positive if equal
+    neg eax                     // negate result for negative numbers
+.sti_positive:
+    return
+}
+
+// ── int_to_str ──────────────────────────────────────────────────
+// Converts a signed 32-bit integer to its decimal string
+// representation and writes it to a caller-supplied buffer.
+// The buffer must be at least 12 bytes (10 digits + sign + null).
+// The string is null-terminated.
+//
+// Input:  EAX = integer value to convert
+//         EDI = pointer to output buffer (>= 12 bytes)
+// Output: EAX = number of characters written (not counting null)
+// Clobbers: EBX, ECX, EDX, ESI
+//
+// Example:
+//   move -42 to eax
+//   move out_buf to edi
+//   call @str.int_to_str    // out_buf = "-42\0", eax = 3
+proc int_to_str (val dword n default eax, addr buf default edi) out val dword {
+    move edi to esi             // esi = buffer start (for length calc at end)
+
+    // ── handle negative ─────────────────────────────────────────
+    compare eax, 0
+    goto .its_positive if greater or equal
+    move 45 to byte [edi]       // write '-' (ASCII 45)
+    increment edi
+    neg eax                     // negate to get absolute value
+
+.its_positive:
+    // ── special-case zero ───────────────────────────────────────
+    compare eax, 0
+    goto .its_not_zero if not equal
+    move 48 to byte [edi]       // write '0' (ASCII 48)
+    increment edi
+    goto .its_terminate
+
+.its_not_zero:
+    // ── extract digits in reverse order, push onto stack ────────
+    move 0 to ebx               // ebx = digit count
+    move 10 to ecx              // constant divisor
+
+.its_push:
+    compare eax, 0
+    goto .its_pop if equal
+    xor edx, edx                // zero high dword for DIV
+    div ecx                     // eax = quotient, edx = remainder (0..9)
+    add edx, 48                 // convert digit to ASCII ('0' = 48)
+    push edx                    // save digit character on stack
+    increment ebx
+    goto .its_push
+
+    // ── pop digits in correct order, write to buffer ─────────────
+.its_pop:
+    compare ebx, 0
+    goto .its_terminate if equal
+    pop edx
+    move dl to [edi]            // write low byte (the digit character)
+    increment edi
+    decrement ebx
+    goto .its_pop
+
+    // ── null-terminate and compute length ────────────────────────
+.its_terminate:
+    move 0 to byte [edi]        // null terminator
+    move edi to eax
+    subtract esi from eax       // eax = total characters written (excl. null)
+    return
+}
