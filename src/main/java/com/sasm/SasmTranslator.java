@@ -81,6 +81,21 @@ public class SasmTranslator {
      */
     private final Map<String, List<String>> procInParams = new HashMap<>();
 
+    /**
+     * Maps procedure names to their ordered list of <em>default</em> register
+     * names, one entry per input parameter.  An entry is {@code null} when the
+     * corresponding parameter has no {@code default <reg>} annotation.
+     *
+     * <p>Populated alongside {@link #procInParams} whenever a proc signature
+     * carries at least one {@code default <reg>} annotation (new-style syntax
+     * only).  Used by {@link #expandParamCall} and {@link #buildRegParamCall}
+     * to suppress the {@code MOV} instruction when the positional argument
+     * supplied at the call site is already the default register — e.g.
+     * {@code addr array_ptr default esi} with arg {@code esi} → no
+     * {@code MOV ESI, esi} emitted.</p>
+     */
+    private final Map<String, List<String>> procDefaultRegs = new HashMap<>();
+
     /** Name of the inline proc currently being collected, or {@code null}. */
     private String collectingInlineName = null;
 
@@ -257,6 +272,14 @@ public class SasmTranslator {
      * (regular procs with register-style {@code reg = val} arguments).
      */
     private static final Pattern PARAM_CALL = Pattern.compile("(\\w+)\\[(.*)\\]");
+
+    /**
+     * Pattern that matches a trailing {@code default <reg>} annotation on a
+     * new-style parameter token, e.g. the {@code "default esi"} part of
+     * {@code "addr array_ptr default esi"}.  Group 1 captures the register name.
+     */
+    private static final Pattern DEFAULT_REG = Pattern.compile(
+            "(?i)\\bdefault\\s+(\\w+)\\s*$");
 
     /** Common base for var declarations: {@code var <name> [as] <type>[d1][d2]... [signed|unsigned]}. */
     private static final String VAR_BASE =
@@ -1178,11 +1201,15 @@ public class SasmTranslator {
         } else {
             // Positional path.
             List<String> paramRegs = procInParams.get(procName);
+            List<String> defRegs   = procDefaultRegs.get(procName);
             if (paramRegs != null && !paramRegs.isEmpty()) {
                 // Register-param positional: match each arg to the stored in-param register.
                 // [arg] = by value (dereference); arg = by pointer (pass address/label).
+                // Skip MOV when the argument is already the parameter's default register.
                 for (int i = 0; i < args.size() && i < paramRegs.size(); i++) {
                     String a = args.get(i).trim();
+                    String defReg = (defRegs != null && i < defRegs.size()) ? defRegs.get(i) : null;
+                    if (defReg != null && defReg.equalsIgnoreCase(a)) continue;
                     sb.append("    MOV ").append(paramRegs.get(i).toUpperCase())
                       .append(", ").append(a).append('\n');
                 }
@@ -1224,9 +1251,13 @@ public class SasmTranslator {
         } else {
             // Positional path.
             List<String> paramRegs = procInParams.get(procName);
+            List<String> defRegs   = procDefaultRegs.get(procName);
             if (paramRegs != null && !paramRegs.isEmpty()) {
+                // Skip MOV when the argument is already the parameter's default register.
                 for (int i = 0; i < args.size() && i < paramRegs.size(); i++) {
                     String a = args.get(i).trim();
+                    String defReg = (defRegs != null && i < defRegs.size()) ? defRegs.get(i) : null;
+                    if (defReg != null && defReg.equalsIgnoreCase(a)) continue;
                     sb.append("    MOV ").append(paramRegs.get(i).toUpperCase())
                       .append(", ").append(a).append('\n');
                 }
@@ -1705,9 +1736,13 @@ public class SasmTranslator {
             collectingInlineBody = new ArrayList<>();
             inlineBraceDepth = 0;
             // Store the in-param register list for positional call support.
-            List<String> inRegs = parseInParamRegs(params);
+            List<String> defRegs = new ArrayList<>();
+            List<String> inRegs = parseInParamRegs(params, defRegs);
             if (!inRegs.isEmpty()) {
                 procInParams.put(name, inRegs);
+                if (!defRegs.stream().allMatch(r -> r == null)) {
+                    procDefaultRegs.put(name, defRegs);
+                }
             }
             // Emit the parameter list as a NASM comment for documentation
             if (!params.isEmpty()) {
@@ -1835,9 +1870,13 @@ public class SasmTranslator {
                     collectBody = new ArrayList<>();
                     braceDepth  = 0;
                     // Store in-param register list for positional calling.
-                    List<String> inRegs = parseInParamRegs(params);
+                    List<String> defRegs = new ArrayList<>();
+                    List<String> inRegs = parseInParamRegs(params, defRegs);
                     if (!inRegs.isEmpty()) {
                         procInParams.put(alias + "_" + pname, inRegs);
+                        if (!defRegs.stream().allMatch(r -> r == null)) {
+                            procDefaultRegs.put(alias + "_" + pname, defRegs);
+                        }
                     }
                     continue;
                 }
@@ -1847,9 +1886,13 @@ public class SasmTranslator {
                     String pname  = m.group(1);
                     String params = m.group(2).trim();
                     // Store in-param register list for positional calling.
-                    List<String> inRegs = parseInParamRegs(params);
+                    List<String> defRegs = new ArrayList<>();
+                    List<String> inRegs = parseInParamRegs(params, defRegs);
                     if (!inRegs.isEmpty()) {
                         procInParams.put(alias + "_" + pname, inRegs);
+                        if (!defRegs.stream().allMatch(r -> r == null)) {
+                            procDefaultRegs.put(alias + "_" + pname, defRegs);
+                        }
                     }
                 }
             }
@@ -1953,10 +1996,13 @@ public class SasmTranslator {
      *                  and the opening brace, e.g.
      *                  {@code "(val dword value1) out val dword "} or
      *                  {@code "( in eax as [value], out eax as [result] ) "}
+     * @param outDefaultRegs if non-{@code null}, populated with the declared
+     *        {@code default <reg>} value for each returned register entry;
+     *        {@code null} elements indicate parameters with no default annotation
      * @return ordered list of lower-case register names for all input
      *         parameters; empty if the proc has no register-based input params
      */
-    private List<String> parseInParamRegs(String paramsStr) {
+    private List<String> parseInParamRegs(String paramsStr, List<String> outDefaultRegs) {
         List<String> regs = new ArrayList<>();
         String s = paramsStr.trim();
         if (s.isEmpty() || s.startsWith("uses")) return regs;
@@ -1994,7 +2040,7 @@ public class SasmTranslator {
         });
 
         if (isNewStyle) {
-            return parseNewStyleInParams(tokens);
+            return parseNewStyleInParams(tokens, outDefaultRegs);
         }
 
         // ── Old style ─────────────────────────────────────────────────────────
@@ -2007,9 +2053,19 @@ public class SasmTranslator {
             String first = (sp < 0) ? rest : rest.substring(0, sp);
             if (regWidth(first) != null) {
                 regs.add(first.toLowerCase());
+                if (outDefaultRegs != null) outDefaultRegs.add(null);
             }
         }
         return regs;
+    }
+
+    /**
+     * Convenience overload that discards default-register information.
+     * Calls {@link #parseInParamRegs(String, List)} with a {@code null}
+     * output list, preserving backward-compatible behaviour.
+     */
+    private List<String> parseInParamRegs(String paramsStr) {
+        return parseInParamRegs(paramsStr, null);
     }
 
     /** Returns the first whitespace-separated word of {@code s}, lower-cased. */
@@ -2029,14 +2085,27 @@ public class SasmTranslator {
      *   <li>val pool (no preceding addr): {@code eax, ebx, ecx, edx}</li>
      *   <li>val pool (addr precedes first val): {@code ecx, edx, ebx}</li>
      * </ul>
+     * <p>If a parameter carries a {@code default <reg>} annotation (new-style
+     * only), that explicit register is used directly and the pool cursor for
+     * that kind is <em>not</em> advanced.  The default register is also
+     * recorded in {@code outDefaultRegs} so that call sites can omit the
+     * {@code MOV} when the caller's argument is already the declared default
+     * register.</p>
+     *
+     * @param outDefaultRegs if non-{@code null}, populated in parallel with the
+     *        returned register list; each element is the {@code default <reg>}
+     *        string (lower-case) declared for that parameter, or {@code null}
+     *        when no {@code default} annotation is present
      */
-    private List<String> parseNewStyleInParams(List<String> tokens) {
+    private List<String> parseNewStyleInParams(List<String> tokens, List<String> outDefaultRegs) {
         List<String> regs = new ArrayList<>();
 
         // Determine whether any addr param appears before the first val param.
+        // Strip any "default <reg>" suffix before inspecting the leading word.
         boolean addrPrecedesFirstVal = false;
         for (String token : tokens) {
-            String fw = firstWord(token);
+            String tt = stripDefaultAnnotation(token.trim());
+            String fw = firstWord(tt);
             if ("addr".equals(fw)) { addrPrecedesFirstVal = true; break; }
             if ("val".equals(fw))  { break; }
         }
@@ -2050,19 +2119,63 @@ public class SasmTranslator {
 
         for (String token : tokens) {
             String tt = token.trim();
+            // Extract "default <reg>" annotation, if present.
+            String defaultReg = extractDefaultReg(tt);
+            tt = stripDefaultAnnotation(tt);
             String fw = firstWord(tt);
             if ("addr".equals(fw)) {
-                if (addrIdx < addrRegs.length) regs.add(addrRegs[addrIdx++]);
+                String reg;
+                if (defaultReg != null) {
+                    reg = defaultReg;          // explicit override — don't advance pool
+                } else if (addrIdx < addrRegs.length) {
+                    reg = addrRegs[addrIdx++]; // draw from pool
+                } else {
+                    continue;
+                }
+                regs.add(reg);
+                if (outDefaultRegs != null) outDefaultRegs.add(defaultReg);
             } else if ("val".equals(fw)) {
                 // val float / val double → FPU stack; no general-purpose register.
                 String[] parts = tt.split("\\s+", 3);
                 String type = (parts.length >= 2) ? parts[1].toLowerCase() : "";
                 if (!"float".equals(type) && !"double".equals(type)) {
-                    if (valIdx < valRegs.length) regs.add(valRegs[valIdx++]);
+                    String reg;
+                    if (defaultReg != null) {
+                        reg = defaultReg;        // explicit override — don't advance pool
+                    } else if (valIdx < valRegs.length) {
+                        reg = valRegs[valIdx++]; // draw from pool
+                    } else {
+                        continue;
+                    }
+                    regs.add(reg);
+                    if (outDefaultRegs != null) outDefaultRegs.add(defaultReg);
                 }
             }
         }
         return regs;
+    }
+
+    /**
+     * Extracts the register name from a {@code default <reg>} annotation at
+     * the end of a new-style parameter token, or returns {@code null} if no
+     * such annotation is present.
+     *
+     * <p>Example: {@code "val dword length default eax"} → {@code "eax"}.</p>
+     */
+    private static String extractDefaultReg(String token) {
+        Matcher m = DEFAULT_REG.matcher(token.trim());
+        return m.find() ? m.group(1).toLowerCase() : null;
+    }
+
+    /**
+     * Removes a trailing {@code default <reg>} clause from a new-style
+     * parameter token so the remainder can be parsed normally.
+     *
+     * <p>Example: {@code "addr array_ptr default esi"} →
+     * {@code "addr array_ptr"}.</p>
+     */
+    private static String stripDefaultAnnotation(String token) {
+        return DEFAULT_REG.matcher(token.trim()).replaceFirst("").trim();
     }
 
     private String translateProc(String code) {
@@ -2081,9 +2194,13 @@ public class SasmTranslator {
             String name   = m.group(1);
             String params = m.group(2).trim();
             // Store the in-param register list for positional call support.
-            List<String> inRegs = parseInParamRegs(params);
+            List<String> defRegs = new ArrayList<>();
+            List<String> inRegs = parseInParamRegs(params, defRegs);
             if (!inRegs.isEmpty()) {
                 procInParams.put(name, inRegs);
+                if (!defRegs.stream().allMatch(r -> r == null)) {
+                    procDefaultRegs.put(name, defRegs);
+                }
             }
             if (!params.isEmpty()) {
                 return "; proc " + name + " " + params + "\n" + name + ":";

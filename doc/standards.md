@@ -219,6 +219,63 @@ Both are call-only code regions. The difference:
 Use `proc` when you want to document inputs/outputs. Use `block` for simple
 label-only routines.
 
+### 5a. Proc parameter register syntax (new-style)
+
+New-style `proc` / `inline proc` signatures use `val`/`addr` keywords:
+
+```sasm
+proc max_array (addr array_ptr, val dword length) { ... }
+//   addr params  → registers: esi, edi (in order)
+//   val params   → registers: eax, ebx, ecx, edx (when first param is val)
+//                             ecx, edx, ebx (when at least one addr precedes first val)
+```
+
+**Call site (positional form):**
+
+```sasm
+call @math.max_array( my_arr, [my_count] )
+// generates:  MOV ESI, my_arr
+//             MOV ECX, [my_count]
+//             CALL math_max_array
+```
+
+### 5b. `default <reg>` annotation — eliminating redundant MOV
+
+When a parameter is annotated with `default <reg>`, the compiler uses that
+explicit register for the parameter **and** suppresses the `MOV` at the call
+site when the supplied argument is already that register:
+
+```sasm
+proc max_array (addr array_ptr default esi, val dword length default ecx) {
+    ...
+}
+```
+
+Call site examples:
+
+```sasm
+// Arg already in default register → no MOV emitted:
+call @math.max_array( esi, ecx )
+// generates only:  CALL math_max_array   (both MOVs suppressed)
+
+// One arg already in default register, one is not:
+call @math.max_array( esi, 5 )
+// generates:  MOV ECX, 5
+//             CALL math_max_array        (MOV ESI suppressed)
+
+// Neither arg in default register → normal MOVs:
+call @math.max_array( my_arr, [my_count] )
+// generates:  MOV ESI, my_arr
+//             MOV ECX, [my_count]
+//             CALL math_max_array
+```
+
+The optimization also applies to `inline proc` calls (body expanded at the
+call site, no `CALL` instruction emitted).
+
+The `default` annotation applies to **new-style** signatures only. It does not
+affect old-style `in <reg> as <name>` syntax.
+
 ### 6. `increment` / `inc` / `++` / `x = x + 1`
 
 All four forms produce the same `INC` instruction. Preferred forms:
@@ -403,6 +460,9 @@ All SASM keywords grouped by category. **Bold** entries have a short form.
   Section 3 in doc/standards.md with a full rule table
 - [x] Clarify `&&`/`||`/`^^` naming — these are bitwise, not logical;
   added `&`/`|`/`^` single-char aliases (translator + docs)
+- [x] Add optional `default <reg>` annotation to `val`/`addr` proc parameters
+  to suppress the `MOV` instruction at call sites when the argument is
+  already in the declared register (see Section 5b)
 - [ ] Consider warning/error when `repeat <non-cx> times` silently loads
   `cx` — the implicit register clobber may surprise users
 

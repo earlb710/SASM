@@ -2708,4 +2708,231 @@ class SasmTranslatorTest {
                     expected + " should be present in output");
         }
     }
+
+    // ── default <reg> parameter annotation ──────────────────────────────────
+
+    /**
+     * Verifies the core optimization: when a positional call argument is
+     * exactly the {@code default} register declared for that parameter, no
+     * {@code MOV} instruction is emitted for it.
+     *
+     * <p>Scenario: {@code addr ptr default esi} and call passes {@code esi}
+     * → no {@code MOV ESI, esi}; but the second param (no match) still gets
+     * its {@code MOV}.</p>
+     */
+    @Test
+    void defaultReg_matchingArg_noMOVEmitted(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc my_proc (addr arr default esi, val dword count default ecx) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.my_proc( esi, 5 )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // esi is already the default register for arr → no MOV ESI emitted
+        assertFalse(asm.contains("MOV ESI"),
+                "MOV ESI should be suppressed when arg is already the default register");
+        // 5 != ecx → MOV ECX, 5 must be emitted
+        assertTrue(asm.contains("MOV ECX, 5"),
+                "MOV ECX should still be emitted when arg is not the default register");
+        // the CALL must still be present
+        assertTrue(asm.contains("CALL math_my_proc"),
+                "CALL should still be emitted");
+    }
+
+    /**
+     * Verifies that when the call argument does NOT match the {@code default}
+     * register, the {@code MOV} is still generated as normal.
+     */
+    @Test
+    void defaultReg_nonMatchingArg_MOVStillEmitted(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc my_proc (addr arr default esi, val dword count default ecx) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.my_proc( my_arr, [my_count] )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // my_arr != esi → MOV must be emitted
+        assertTrue(asm.contains("MOV ESI, my_arr"),
+                "MOV ESI should be emitted when arg differs from default register");
+        // [my_count] != ecx → MOV must be emitted
+        assertTrue(asm.contains("MOV ECX, [my_count]"),
+                "MOV ECX should be emitted when arg differs from default register");
+    }
+
+    /**
+     * Verifies that both args matching their respective defaults suppresses
+     * all MOV instructions, leaving only the {@code CALL}.
+     */
+    @Test
+    void defaultReg_bothArgsMatchDefault_onlyCallEmitted(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc my_proc (addr arr default esi, val dword count default ecx) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.my_proc( esi, ecx )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertFalse(asm.contains("MOV ESI"),
+                "MOV ESI should be suppressed");
+        assertFalse(asm.contains("MOV ECX"),
+                "MOV ECX should be suppressed");
+        assertTrue(asm.contains("CALL math_my_proc"),
+                "CALL should still be present");
+    }
+
+    /**
+     * Verifies that the case of the register name in the call argument is
+     * irrelevant: {@code ESI} (upper), {@code esi} (lower), {@code Esi}
+     * (mixed) all match a {@code default esi} annotation.
+     */
+    @Test
+    void defaultReg_caseInsensitiveMatch(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc my_proc (addr arr default esi) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        for (String argForm : new String[]{"ESI", "esi", "Esi"}) {
+            String asm = t.translate(String.join("\n",
+                    "#REF lib/math.sasm math",
+                    "section .text",
+                    "call @math.my_proc( " + argForm + " )"));
+            assertFalse(asm.contains("MOV ESI"),
+                    "MOV ESI should be suppressed for arg form '" + argForm + "'");
+        }
+    }
+
+    /**
+     * Verifies that without {@code default <reg>} annotations, behaviour is
+     * unchanged (all MOV instructions are emitted as before).
+     */
+    @Test
+    void defaultReg_noAnnotation_normalBehaviourPreserved(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc my_proc (addr arr, val dword count) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.my_proc( esi, ecx )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // No default annotation → MOV is always emitted even if arg == reg
+        assertTrue(asm.contains("MOV ESI, esi"),
+                "Without default annotation MOV ESI should always be emitted");
+        assertTrue(asm.contains("MOV ECX, ecx"),
+                "Without default annotation MOV ECX should always be emitted");
+    }
+
+    /**
+     * Verifies that the {@code default <reg>} optimization also works for
+     * inline procs (body is expanded at call site, no CALL instruction).
+     */
+    @Test
+    void defaultReg_inlineProc_matchingArgSkipsMOV(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "inline proc sum_arr (addr arr default esi, val dword count default ecx) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.sum_arr( esi, 10 )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // esi matches default → no MOV ESI
+        assertFalse(asm.contains("MOV ESI"),
+                "MOV ESI should be suppressed for inline proc call with matching arg");
+        // 10 != ecx → MOV ECX must be emitted
+        assertTrue(asm.contains("MOV ECX, 10"),
+                "MOV ECX should still be emitted for non-matching arg");
+        // body is inlined — no CALL
+        assertFalse(asm.contains("CALL math_sum_arr"),
+                "Inline proc should not emit CALL");
+    }
+
+    /**
+     * Verifies that a mixed signature (first param with {@code default},
+     * second without) behaves correctly: matching arg skips its MOV, the
+     * other emits as normal.
+     */
+    @Test
+    void defaultReg_mixedAnnotation_partialOptimization(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc mixed_proc (addr arr default esi, val dword count) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.mixed_proc( esi, [my_count] )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // esi matches default → no MOV ESI
+        assertFalse(asm.contains("MOV ESI"),
+                "MOV ESI should be suppressed for matching arg");
+        // [my_count] != ecx (pool, no annotation) → MOV ECX must be emitted
+        assertTrue(asm.contains("MOV ECX, [my_count]"),
+                "MOV ECX should be emitted for non-annotated param");
+    }
 }
