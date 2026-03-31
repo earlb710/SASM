@@ -2275,4 +2275,437 @@ class SasmTranslatorTest {
         assertTrue(asm.contains("MOV ECX, 4"),          "val after addr → ECX");
         assertTrue(asm.contains("CALL math_af_max"),    "Regular proc emits CALL");
     }
+
+    // ── Integer math functions (new-style val dword parameter syntax) ────
+
+    /**
+     * Verifies that the six integer utility functions
+     * ({@code abs_int}, {@code sign}, {@code clamp},
+     * {@code leading_zeros}, {@code trailing_zeros}, {@code is_power_of_two})
+     * all resolve to the correct CALL labels.
+     */
+    @Test
+    void integerUtilityFunctions_resolveToCorrectLabels() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.abs_int",
+                "call @math.sign",
+                "call @math.clamp",
+                "call @math.leading_zeros",
+                "call @math.trailing_zeros",
+                "call @math.is_power_of_two");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("CALL math_abs_int"),          "abs_int → CALL math_abs_int");
+        assertTrue(asm.contains("CALL math_sign"),             "sign → CALL math_sign");
+        assertTrue(asm.contains("CALL math_clamp"),            "clamp → CALL math_clamp");
+        assertTrue(asm.contains("CALL math_leading_zeros"),    "leading_zeros → CALL math_leading_zeros");
+        assertTrue(asm.contains("CALL math_trailing_zeros"),   "trailing_zeros → CALL math_trailing_zeros");
+        assertTrue(asm.contains("CALL math_is_power_of_two"),  "is_power_of_two → CALL math_is_power_of_two");
+    }
+
+    /**
+     * Verifies that calling {@code @math.abs_int} and {@code @math.sign}
+     * with positional literal arguments generates the correct MOV + CALL sequence.
+     */
+    @Test
+    void integerFunctions_positionalLiterals_resolveCorrectly(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "inline proc abs_int (val dword value) out val dword {",
+                "    cdq",
+                "    xor eax, edx",
+                "    sub eax, edx",
+                "    return",
+                "}",
+                "inline proc sign (val dword value) out val dword {",
+                "    move 0 to eax",
+                "    return",
+                "}"));
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.abs_int( -5 )",
+                "call @math.sign( 4 )");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("MOV EAX, -5"),  "abs_int: literal -5 → MOV EAX");
+        assertTrue(asm.contains("MOV EAX, 4"),   "sign: literal 4 → MOV EAX");
+    }
+
+    /**
+     * Verifies that {@code @math.clamp} with three positional literals
+     * maps them to EAX (value), EBX (lo), ECX (hi).
+     */
+    @Test
+    void clamp_threePositionalLiterals_correctRegisters(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "inline proc clamp (val dword value, val dword lo, val dword hi) out val dword {",
+                "    return",
+                "}"));
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.clamp( -5, 0, 10 )");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("MOV EAX, -5"), "first val param → EAX");
+        assertTrue(asm.contains("MOV EBX, 0"),  "second val param → EBX");
+        assertTrue(asm.contains("MOV ECX, 10"), "third val param → ECX");
+    }
+
+    // ── FPU math functions (new-style val float parameter syntax) ────────
+
+    /**
+     * Verifies that {@code fmod}, {@code modf}, and {@code frexp} resolve
+     * to the correct labels for both float and double usage.
+     */
+    @Test
+    void fmodModfFrexp_resolveToCorrectLabels() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "fld dword [y]",
+                "fld dword [x]",
+                "call @math.fmod",
+                "fstp dword [r1]",
+                "fld dword [v]",
+                "call @math.modf",
+                "fstp dword [frac]",
+                "fstp dword [int_p]",
+                "fld dword [v]",
+                "call @math.frexp",
+                "fstp dword [sig]",
+                "fstp dword [exp]",
+                "fld qword [dy]",
+                "fld qword [dx]",
+                "call @math.fmod",
+                "fstp qword [r2]",
+                "fld qword [dv]",
+                "call @math.modf",
+                "fstp qword [dfrac]",
+                "fstp qword [dint]",
+                "fld qword [dv]",
+                "call @math.frexp",
+                "fstp qword [dsig]",
+                "fstp qword [dexp]");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("CALL math_fmod"),  "fmod → CALL math_fmod");
+        assertTrue(asm.contains("CALL math_modf"),  "modf → CALL math_modf");
+        assertTrue(asm.contains("CALL math_frexp"), "frexp → CALL math_frexp");
+    }
+
+    /**
+     * Verifies that {@code log1p} and {@code expm1} resolve to the correct
+     * labels for both float and double usage.
+     */
+    @Test
+    void log1pExpm1_resolveToCorrectLabels() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "fld dword [v]",
+                "call @math.log1p",
+                "fstp dword [r1]",
+                "fld dword [v]",
+                "call @math.expm1",
+                "fstp dword [r2]",
+                "fld qword [dv]",
+                "call @math.log1p",
+                "fstp qword [r3]",
+                "fld qword [dv]",
+                "call @math.expm1",
+                "fstp qword [r4]");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("CALL math_log1p"),  "log1p → CALL math_log1p");
+        assertTrue(asm.contains("CALL math_expm1"),  "expm1 → CALL math_expm1");
+    }
+
+    /**
+     * Verifies that {@code asin} and {@code acos} resolve to the correct
+     * labels for both float and double usage.
+     */
+    @Test
+    void asinAcos_resolveToCorrectLabels() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "fld dword [v]",
+                "call @math.asin",
+                "fstp dword [r1]",
+                "fld dword [v]",
+                "call @math.acos",
+                "fstp dword [r2]",
+                "fld qword [dv]",
+                "call @math.asin",
+                "fstp qword [r3]",
+                "fld qword [dv]",
+                "call @math.acos",
+                "fstp qword [r4]");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("CALL math_asin"), "asin → CALL math_asin");
+        assertTrue(asm.contains("CALL math_acos"), "acos → CALL math_acos");
+    }
+
+    /**
+     * Verifies that {@code sinh}, {@code cosh}, and {@code tanh} resolve
+     * to the correct labels for both float and double usage.
+     */
+    @Test
+    void sinhCoshTanh_resolveToCorrectLabels() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "fld dword [v]",
+                "call @math.sinh",
+                "fstp dword [r1]",
+                "fld dword [v]",
+                "call @math.cosh",
+                "fstp dword [r2]",
+                "fld dword [v]",
+                "call @math.tanh",
+                "fstp dword [r3]",
+                "fld qword [dv]",
+                "call @math.sinh",
+                "fstp qword [r4]",
+                "fld qword [dv]",
+                "call @math.cosh",
+                "fstp qword [r5]",
+                "fld qword [dv]",
+                "call @math.tanh",
+                "fstp qword [r6]");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("CALL math_sinh"), "sinh → CALL math_sinh");
+        assertTrue(asm.contains("CALL math_cosh"), "cosh → CALL math_cosh");
+        assertTrue(asm.contains("CALL math_tanh"), "tanh → CALL math_tanh");
+    }
+
+    /**
+     * Verifies that {@code hypot}, {@code fract}, {@code deg_to_rad},
+     * and {@code rad_to_deg} resolve to the correct labels for both float
+     * and double usage.
+     */
+    @Test
+    void hypotFractDegRadConversion_resolveToCorrectLabels() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "fld dword [x]",
+                "fld dword [y]",
+                "call @math.hypot",
+                "fstp dword [r1]",
+                "fld dword [v]",
+                "call @math.fract",
+                "fstp dword [r2]",
+                "fld dword [deg]",
+                "call @math.deg_to_rad",
+                "fstp dword [r3]",
+                "fld dword [rad]",
+                "call @math.rad_to_deg",
+                "fstp dword [r4]",
+                "fld qword [dx]",
+                "fld qword [dy]",
+                "call @math.hypot",
+                "fstp qword [r5]",
+                "fld qword [dv]",
+                "call @math.fract",
+                "fstp qword [r6]");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("CALL math_hypot"),      "hypot → CALL math_hypot");
+        assertTrue(asm.contains("CALL math_fract"),      "fract → CALL math_fract");
+        assertTrue(asm.contains("CALL math_deg_to_rad"), "deg_to_rad → CALL math_deg_to_rad");
+        assertTrue(asm.contains("CALL math_rad_to_deg"), "rad_to_deg → CALL math_rad_to_deg");
+    }
+
+    /**
+     * Verifies that {@code ldexp}, {@code log_b}, {@code lerp}, and
+     * {@code clamp_float} resolve to the correct labels for both float
+     * and double usage.
+     */
+    @Test
+    void ldexpLogBLerpClampFloat_resolveToCorrectLabels() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "fld dword [x]",
+                "fld dword [n]",
+                "call @math.ldexp",
+                "fstp dword [r1]",
+                "fld dword [v]",
+                "call @math.log_b",
+                "fstp dword [r2]",
+                "fld dword [a]",
+                "fld dword [b]",
+                "fld dword [t]",
+                "call @math.lerp",
+                "fstp dword [r3]",
+                "fld dword [xv]",
+                "fld dword [lo]",
+                "fld dword [hi]",
+                "call @math.clamp_float",
+                "fstp dword [r4]",
+                "fld qword [dx]",
+                "fld qword [dn]",
+                "call @math.ldexp",
+                "fstp qword [r5]",
+                "fld qword [dv]",
+                "call @math.log_b",
+                "fstp qword [r6]",
+                "fld qword [da]",
+                "fld qword [db]",
+                "fld qword [dt]",
+                "call @math.lerp",
+                "fstp qword [r7]",
+                "fld qword [dxv]",
+                "fld qword [dlo]",
+                "fld qword [dhi]",
+                "call @math.clamp_float",
+                "fstp qword [r8]");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("CALL math_ldexp"),       "ldexp → CALL math_ldexp");
+        assertTrue(asm.contains("CALL math_log_b"),       "log_b → CALL math_log_b");
+        assertTrue(asm.contains("CALL math_lerp"),        "lerp → CALL math_lerp");
+        assertTrue(asm.contains("CALL math_clamp_float"), "clamp_float → CALL math_clamp_float");
+    }
+
+    /**
+     * Verifies that all 24 previously-untested math functions resolve
+     * correctly when called in a single translation unit.
+     */
+    @Test
+    void allNewMathFunctions_resolveCorrectly() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                // integer functions
+                "call @math.abs_int",
+                "call @math.sign",
+                "call @math.clamp",
+                "call @math.leading_zeros",
+                "call @math.trailing_zeros",
+                "call @math.is_power_of_two",
+                // FPU single-input functions
+                "fld dword [v]",
+                "call @math.fmod",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.modf",
+                "fstp dword [r]",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.frexp",
+                "fstp dword [r]",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.log1p",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.expm1",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.asin",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.acos",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.sinh",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.cosh",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.tanh",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.fract",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.deg_to_rad",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.rad_to_deg",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.log_b",
+                "fstp dword [r]",
+                // FPU two-input functions
+                "fld dword [x]",
+                "fld dword [y]",
+                "call @math.hypot",
+                "fstp dword [r]",
+                "fld dword [x]",
+                "fld dword [n]",
+                "call @math.ldexp",
+                "fstp dword [r]",
+                // FPU three-input functions
+                "fld dword [a]",
+                "fld dword [b]",
+                "fld dword [t]",
+                "call @math.lerp",
+                "fstp dword [r]",
+                "fld dword [x]",
+                "fld dword [lo]",
+                "fld dword [hi]",
+                "call @math.clamp_float",
+                "fstp dword [r]");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        String[] expectedCalls = {
+                "CALL math_abs_int",
+                "CALL math_sign",
+                "CALL math_clamp",
+                "CALL math_leading_zeros",
+                "CALL math_trailing_zeros",
+                "CALL math_is_power_of_two",
+                "CALL math_fmod",
+                "CALL math_modf",
+                "CALL math_frexp",
+                "CALL math_log1p",
+                "CALL math_expm1",
+                "CALL math_asin",
+                "CALL math_acos",
+                "CALL math_sinh",
+                "CALL math_cosh",
+                "CALL math_tanh",
+                "CALL math_hypot",
+                "CALL math_fract",
+                "CALL math_deg_to_rad",
+                "CALL math_rad_to_deg",
+                "CALL math_ldexp",
+                "CALL math_log_b",
+                "CALL math_lerp",
+                "CALL math_clamp_float"
+        };
+        for (String expected : expectedCalls) {
+            assertTrue(asm.contains(expected),
+                    expected + " should be present in output");
+        }
+    }
 }

@@ -1,0 +1,530 @@
+// testMathExtra.sasm
+// Project : Test-projects
+//
+// Exercises the 24 math-library routines not covered by testMath.sasm or
+// testMathFPU.sasm:
+//
+//   Integer routines (positional register-parameter form):
+//   @math.abs_int          — EAX = |EAX|
+//   @math.sign             — EAX = -1 / 0 / 1
+//   @math.clamp            — EAX = max(EBX, min(EAX, ECX))
+//   @math.leading_zeros    — EAX = count of leading 0-bits
+//   @math.trailing_zeros   — EAX = count of trailing 0-bits
+//   @math.is_power_of_two  — EAX = 1 if power of two, else 0
+//
+//   FPU routines (x87 stack-based):
+//   @math.fmod             — ST(0) = IEEE fmod(y, x);  pops x
+//   @math.modf             — ST(0) = frac, ST(1) = int  (pushes one entry)
+//   @math.frexp            — ST(0) = sig in [1,2), ST(1) = exponent  (pushes one)
+//   @math.log1p            — ST(0) = ln(1 + x)
+//   @math.expm1            — ST(0) = e^x - 1
+//   @math.asin             — ST(0) = asin(x)  in [-pi/2, pi/2]
+//   @math.acos             — ST(0) = acos(x)  in [0, pi]
+//   @math.sinh             — ST(0) = sinh(x)
+//   @math.cosh             — ST(0) = cosh(x)
+//   @math.tanh             — ST(0) = tanh(x)  in (-1, 1)
+//   @math.hypot            — ST(0) = sqrt(x^2 + y^2);  pops y
+//   @math.fract            — ST(0) = x - floor(x)  in [0, 1)
+//   @math.deg_to_rad       — ST(0) = degrees * pi / 180
+//   @math.rad_to_deg       — ST(0) = radians * 180 / pi
+//   @math.ldexp            — ST(0) = x * 2^n;  pops n
+//   @math.log_b            — ST(0) = unbiased binary exponent
+//   @math.lerp             — ST(0) = a + t*(b-a);  pops b and t
+//   @math.clamp_float      — ST(0) = max(lo, min(x, hi));  pops lo and hi
+//
+// Target: 32-bit Linux ELF executable (uses int 0x80 for exit).
+//
+// Build with:
+//   nasm -f elf32 testMathExtra.asm -o testMathExtra.o
+//   ld -m elf_i386 testMathExtra.o -o testMathExtra
+//
+// NOTE: This file tests SASM-to-NASM translation only.
+//       Running the executable requires Linux with x87 FPU support.
+
+#REF lib/math.sasm math
+
+section .data
+
+// ── integer test results ─────────────────────────────────────────
+var r_abs_neg     as dword = 0     // abs_int(-5)        = 5
+var r_abs_pos     as dword = 0     // abs_int(7)         = 7
+var r_sign_neg    as dword = 0     // sign(-3)           = -1
+var r_sign_zero   as dword = 0     // sign(0)            = 0
+var r_sign_pos    as dword = 0     // sign(4)            = 1
+var r_clamp_lo    as dword = 0     // clamp(-5, 0, 10)   = 0
+var r_clamp_mid   as dword = 0     // clamp(5,  0, 10)   = 5
+var r_clamp_hi    as dword = 0     // clamp(15, 0, 10)   = 10
+var r_lz_1        as dword = 0     // leading_zeros(1)   = 31
+var r_lz_0x80000000 as dword = 0   // leading_zeros(0x80000000) = 0
+var r_lz_zero     as dword = 0     // leading_zeros(0)   = 32
+var r_tz_8        as dword = 0     // trailing_zeros(8)  = 3
+var r_tz_one      as dword = 0     // trailing_zeros(1)  = 0
+var r_tz_zero     as dword = 0     // trailing_zeros(0)  = 32
+var r_pow2_8      as dword = 0     // is_power_of_two(8) = 1
+var r_pow2_6      as dword = 0     // is_power_of_two(6) = 0
+var r_pow2_0      as dword = 0     // is_power_of_two(0) = 0
+
+// ── float input values ───────────────────────────────────────────
+var f_neg3_5      as float = __float32__(-3.5)
+var f_3_75        as float = __float32__(3.75)
+var f_small       as float = __float32__(0.1)    // for log1p / expm1
+var f_half        as float = __float32__(0.5)    // for asin / acos
+var f_one         as float = __float32__(1.0)
+var f_three       as float = __float32__(3.0)
+var f_six         as float = __float32__(6.0)    // for fmod: fmod(6, 2) = 0
+var f_1p5         as float = __float32__(1.5)    // for ldexp: 1.5 * 2^3 = 12
+var f_three_i     as float = __float32__(3.0)    // exponent for ldexp
+var f_180         as float = __float32__(180.0)  // for deg->rad->deg round-trip
+var f_3x4         as float = __float32__(3.0)    // for hypot: hypot(3, 4) = 5
+var f_4x3         as float = __float32__(4.0)
+var f_a_lerp      as float = __float32__(2.0)    // lerp: a=2, b=10, t=0.25 → 4.0 / also fmod x=2.0
+var f_b_lerp      as float = __float32__(10.0)
+var f_t_lerp      as float = __float32__(0.25)
+var f_clamp_x     as float = __float32__(-1.5)   // clamp_float: clamp(-1.5, 0, 5) = 0
+var f_clamp_lo    as float = __float32__(0.0)
+var f_clamp_hi    as float = __float32__(5.0)
+var f_8           as float = __float32__(8.0)    // for log_b(8) = 3
+
+// ── float result variables ───────────────────────────────────────
+var r_fmod_f      as float
+var r_modf_frac   as float
+var r_modf_int    as float
+var r_frexp_sig   as float
+var r_frexp_exp   as float
+var r_log1p_f     as float
+var r_expm1_f     as float
+var r_asin_f      as float
+var r_acos_f      as float
+var r_sinh_f      as float
+var r_cosh_f      as float
+var r_tanh_f      as float
+var r_hypot_f     as float
+var r_fract_pos   as float
+var r_fract_neg   as float
+var r_deg2rad_f   as float
+var r_rad2deg_f   as float
+var r_ldexp_f     as float
+var r_log_b_f     as float
+var r_lerp_f      as float
+var r_clampf_lo   as float   // clamp below range → lo
+var r_clampf_mid  as float   // clamp in range → same
+var r_clampf_hi   as float   // clamp above range → hi
+
+// ── double input values ──────────────────────────────────────────
+var d_3_75        as double = __float64__(3.75)
+var d_small       as double = __float64__(0.1)
+var d_half        as double = __float64__(0.5)
+var d_one         as double = __float64__(1.0)
+var d_six         as double = __float64__(6.0)
+var d_1p5         as double = __float64__(1.5)
+var d_three_i     as double = __float64__(3.0)
+var d_180         as double = __float64__(180.0)
+var d_3x4         as double = __float64__(3.0)
+var d_4x3         as double = __float64__(4.0)
+var d_a_lerp      as double = __float64__(2.0)
+var d_b_lerp      as double = __float64__(10.0)
+var d_t_lerp      as double = __float64__(0.25)
+var d_clamp_x     as double = __float64__(-1.5)
+var d_clamp_lo    as double = __float64__(0.0)
+var d_clamp_hi    as double = __float64__(5.0)
+var d_8           as double = __float64__(8.0)
+
+// ── double result variables ──────────────────────────────────────
+var r_fmod_d      as double
+var r_modf_frac_d as double
+var r_modf_int_d  as double
+var r_frexp_sig_d as double
+var r_frexp_exp_d as double
+var r_log1p_d     as double
+var r_expm1_d     as double
+var r_asin_d      as double
+var r_acos_d      as double
+var r_sinh_d      as double
+var r_cosh_d      as double
+var r_tanh_d      as double
+var r_hypot_d     as double
+var r_fract_d     as double
+var r_deg2rad_d   as double
+var r_rad2deg_d   as double
+var r_ldexp_d     as double
+var r_log_b_d     as double
+var r_lerp_d      as double
+var r_clampf_lo_d as double
+var r_clampf_mid_d as double
+var r_clampf_hi_d  as double
+
+section .text
+
+start:
+
+    // ═════════════════════════════════════════════════════════════
+    //  Integer routines
+    //  Positional register calling: literal → EAX (first val param)
+    // ═════════════════════════════════════════════════════════════
+
+    // ── abs_int ──────────────────────────────────────────────────
+    call @math.abs_int( -5 )         // eax = |-5| = 5
+    move eax to dword [r_abs_neg]
+
+    call @math.abs_int( 7 )          // eax = |7| = 7
+    move eax to dword [r_abs_pos]
+
+    // ── sign ─────────────────────────────────────────────────────
+    call @math.sign( -3 )            // eax = -1
+    move eax to dword [r_sign_neg]
+
+    call @math.sign( 0 )             // eax = 0
+    move eax to dword [r_sign_zero]
+
+    call @math.sign( 4 )             // eax = 1
+    move eax to dword [r_sign_pos]
+
+    // ── clamp ────────────────────────────────────────────────────
+    // val dword params: value→EAX, lo→EBX, hi→ECX
+    call @math.clamp( -5, 0, 10 )   // eax = max(0, min(-5, 10)) = 0
+    move eax to dword [r_clamp_lo]
+
+    call @math.clamp( 5, 0, 10 )    // eax = 5  (in range)
+    move eax to dword [r_clamp_mid]
+
+    call @math.clamp( 15, 0, 10 )   // eax = 10  (above hi)
+    move eax to dword [r_clamp_hi]
+
+    // ── leading_zeros ─────────────────────────────────────────────
+    call @math.leading_zeros( 1 )        // 0x00000001 → 31 leading zeros
+    move eax to dword [r_lz_1]
+
+    call @math.leading_zeros( 0x80000000 ) // bit 31 set → 0 leading zeros
+    move eax to dword [r_lz_0x80000000]
+
+    call @math.leading_zeros( 0 )        // eax = 32
+    move eax to dword [r_lz_zero]
+
+    // ── trailing_zeros ────────────────────────────────────────────
+    call @math.trailing_zeros( 8 )       // 0b1000 → 3 trailing zeros
+    move eax to dword [r_tz_8]
+
+    call @math.trailing_zeros( 1 )       // 0b0001 → 0 trailing zeros
+    move eax to dword [r_tz_one]
+
+    call @math.trailing_zeros( 0 )       // eax = 32
+    move eax to dword [r_tz_zero]
+
+    // ── is_power_of_two ───────────────────────────────────────────
+    call @math.is_power_of_two( 8 )  // eax = 1
+    move eax to dword [r_pow2_8]
+
+    call @math.is_power_of_two( 6 )  // eax = 0
+    move eax to dword [r_pow2_6]
+
+    call @math.is_power_of_two( 0 )  // eax = 0  (zero is not a power of two)
+    move eax to dword [r_pow2_0]
+
+    // ═════════════════════════════════════════════════════════════
+    //  fmod — IEEE 754 remainder
+    // ═════════════════════════════════════════════════════════════
+
+    // float: fmod(6.0, 2.0) = 0.0  (push y first, then x)
+    fld dword [f_six]              // push y = 6.0
+    fld dword [f_a_lerp]           // push x = 2.0  (f_a_lerp = 2.0)
+    call @math.fmod                // ST(0) = 0.0
+    fstp dword [r_fmod_f]
+
+    // double: fmod(3.75, 1.5) = 0.75
+    fld qword [d_3_75]             // push y = 3.75
+    fld qword [d_1p5]              // push x = 1.5
+    call @math.fmod                // ST(0) = 0.75
+    fstp qword [r_fmod_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  modf — split into integer and fractional parts
+    // ═════════════════════════════════════════════════════════════
+
+    // float: modf(3.75) → frac=0.75, int=3.0
+    fld dword [f_3_75]
+    call @math.modf                // ST(0) = 0.75 (frac), ST(1) = 3.0 (int)
+    fstp dword [r_modf_frac]       // pop frac
+    fstp dword [r_modf_int]        // pop int
+
+    // double: modf(3.75) → frac=0.75, int=3.0
+    fld qword [d_3_75]
+    call @math.modf
+    fstp qword [r_modf_frac_d]
+    fstp qword [r_modf_int_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  frexp — decompose into significand and exponent
+    // ═════════════════════════════════════════════════════════════
+
+    // float: frexp(6.0) → sig=1.5 (in [1,2)), exp=2.0  (6 = 1.5 * 2^2)
+    fld dword [f_six]
+    call @math.frexp               // ST(0) = 1.5 (sig), ST(1) = 2.0 (exp)
+    fstp dword [r_frexp_sig]       // pop significand
+    fstp dword [r_frexp_exp]       // pop exponent
+
+    // double: frexp(6.0) → sig=1.5, exp=2.0
+    fld qword [d_six]
+    call @math.frexp
+    fstp qword [r_frexp_sig_d]
+    fstp qword [r_frexp_exp_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  log1p — ln(1 + x), accurate near zero
+    // ═════════════════════════════════════════════════════════════
+
+    // float: log1p(0.1) = ln(1.1) ≈ 0.09531
+    fld dword [f_small]
+    call @math.log1p
+    fstp dword [r_log1p_f]
+
+    // double: log1p(0.1)
+    fld qword [d_small]
+    call @math.log1p
+    fstp qword [r_log1p_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  expm1 — e^x - 1, accurate near zero
+    // ═════════════════════════════════════════════════════════════
+
+    // float: expm1(0.1) = e^0.1 - 1 ≈ 0.10517
+    fld dword [f_small]
+    call @math.expm1
+    fstp dword [r_expm1_f]
+
+    // double: expm1(0.1)
+    fld qword [d_small]
+    call @math.expm1
+    fstp qword [r_expm1_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  asin — arcsine in [-pi/2, pi/2]
+    // ═════════════════════════════════════════════════════════════
+
+    // float: asin(0.5) = pi/6 ≈ 0.5236
+    fld dword [f_half]
+    call @math.asin
+    fstp dword [r_asin_f]
+
+    // double: asin(0.5)
+    fld qword [d_half]
+    call @math.asin
+    fstp qword [r_asin_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  acos — arccosine in [0, pi]
+    // ═════════════════════════════════════════════════════════════
+
+    // float: acos(0.5) = pi/3 ≈ 1.0472
+    fld dword [f_half]
+    call @math.acos
+    fstp dword [r_acos_f]
+
+    // double: acos(0.5)
+    fld qword [d_half]
+    call @math.acos
+    fstp qword [r_acos_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  sinh — hyperbolic sine
+    // ═════════════════════════════════════════════════════════════
+
+    // float: sinh(1.0) ≈ 1.1752
+    fld dword [f_one]
+    call @math.sinh
+    fstp dword [r_sinh_f]
+
+    // double: sinh(1.0)
+    fld qword [d_one]
+    call @math.sinh
+    fstp qword [r_sinh_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  cosh — hyperbolic cosine
+    // ═════════════════════════════════════════════════════════════
+
+    // float: cosh(1.0) ≈ 1.5431
+    fld dword [f_one]
+    call @math.cosh
+    fstp dword [r_cosh_f]
+
+    // double: cosh(1.0)
+    fld qword [d_one]
+    call @math.cosh
+    fstp qword [r_cosh_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  tanh — hyperbolic tangent
+    // ═════════════════════════════════════════════════════════════
+
+    // float: tanh(1.0) ≈ 0.7616
+    fld dword [f_one]
+    call @math.tanh
+    fstp dword [r_tanh_f]
+
+    // double: tanh(1.0)
+    fld qword [d_one]
+    call @math.tanh
+    fstp qword [r_tanh_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  hypot — hypotenuse sqrt(x^2 + y^2)
+    // ═════════════════════════════════════════════════════════════
+
+    // float: hypot(3, 4) = 5
+    fld dword [f_3x4]              // push x = 3
+    fld dword [f_4x3]              // push y = 4
+    call @math.hypot               // ST(0) = 5.0
+    fstp dword [r_hypot_f]
+
+    // double: hypot(3, 4) = 5
+    fld qword [d_3x4]
+    fld qword [d_4x3]
+    call @math.hypot
+    fstp qword [r_hypot_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  fract — fractional part always in [0, 1)
+    // ═════════════════════════════════════════════════════════════
+
+    // float: fract(3.75) = 0.75
+    fld dword [f_3_75]
+    call @math.fract
+    fstp dword [r_fract_pos]
+
+    // float: fract(-3.5) = 0.5   (x - floor(x): floor(-3.5) = -4, -3.5 - (-4) = 0.5)
+    fld dword [f_neg3_5]
+    call @math.fract
+    fstp dword [r_fract_neg]
+
+    // double: fract(3.75) = 0.75
+    fld qword [d_3_75]
+    call @math.fract
+    fstp qword [r_fract_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  deg_to_rad — degrees * pi / 180
+    // ═════════════════════════════════════════════════════════════
+
+    // float: deg_to_rad(180) = pi ≈ 3.14159
+    fld dword [f_180]
+    call @math.deg_to_rad
+    fstp dword [r_deg2rad_f]
+
+    // double: deg_to_rad(180)
+    fld qword [d_180]
+    call @math.deg_to_rad
+    fstp qword [r_deg2rad_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  rad_to_deg — radians * 180 / pi
+    // ═════════════════════════════════════════════════════════════
+
+    // float: rad_to_deg(pi) = 180  (load the pi result from above)
+    fld dword [r_deg2rad_f]        // ST(0) = pi
+    call @math.rad_to_deg          // ST(0) = 180.0
+    fstp dword [r_rad2deg_f]
+
+    // double: rad_to_deg(pi)
+    fld qword [r_deg2rad_d]
+    call @math.rad_to_deg
+    fstp qword [r_rad2deg_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  ldexp — x * 2^n
+    // ═════════════════════════════════════════════════════════════
+
+    // float: ldexp(1.5, 3) = 1.5 * 8 = 12.0
+    fld dword [f_1p5]              // push x = 1.5
+    fld dword [f_three_i]          // push n = 3.0
+    call @math.ldexp               // ST(0) = 12.0
+    fstp dword [r_ldexp_f]
+
+    // double: ldexp(1.5, 3) = 12.0
+    fld qword [d_1p5]
+    fld qword [d_three_i]
+    call @math.ldexp
+    fstp qword [r_ldexp_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  log_b — unbiased binary exponent (discards significand)
+    // ═════════════════════════════════════════════════════════════
+
+    // float: log_b(8.0) = 3.0  (8 = 1.0 * 2^3)
+    fld dword [f_8]
+    call @math.log_b               // ST(0) = 3.0
+    fstp dword [r_log_b_f]
+
+    // double: log_b(8.0) = 3.0
+    fld qword [d_8]
+    call @math.log_b
+    fstp qword [r_log_b_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  lerp — linear interpolation a + t*(b-a)
+    // ═════════════════════════════════════════════════════════════
+
+    // float: lerp(2.0, 10.0, 0.25) = 2.0 + 0.25 * 8.0 = 4.0
+    fld dword [f_a_lerp]           // push a = 2.0
+    fld dword [f_b_lerp]           // push b = 10.0
+    fld dword [f_t_lerp]           // push t = 0.25
+    call @math.lerp                // ST(0) = 4.0
+    fstp dword [r_lerp_f]
+
+    // double: lerp(2.0, 10.0, 0.25) = 4.0
+    fld qword [d_a_lerp]
+    fld qword [d_b_lerp]
+    fld qword [d_t_lerp]
+    call @math.lerp
+    fstp qword [r_lerp_d]
+
+    // ═════════════════════════════════════════════════════════════
+    //  clamp_float — clamp to [lo, hi]
+    // ═════════════════════════════════════════════════════════════
+
+    // float: clamp_float(-1.5, 0, 5) = 0.0  (below lo)
+    fld dword [f_clamp_x]          // push x = -1.5
+    fld dword [f_clamp_lo]         // push lo = 0.0
+    fld dword [f_clamp_hi]         // push hi = 5.0
+    call @math.clamp_float         // ST(0) = 0.0
+    fstp dword [r_clampf_lo]
+
+    // float: clamp_float(3.0, 0, 5) = 3.0  (in range)
+    fld dword [f_three]            // push x = 3.0
+    fld dword [f_clamp_lo]         // push lo = 0.0
+    fld dword [f_clamp_hi]         // push hi = 5.0
+    call @math.clamp_float         // ST(0) = 3.0
+    fstp dword [r_clampf_mid]
+
+    // float: clamp_float(8.0, 0, 5) = 5.0  (above hi)
+    fld dword [f_8]                // push x = 8.0
+    fld dword [f_clamp_lo]         // push lo = 0.0
+    fld dword [f_clamp_hi]         // push hi = 5.0
+    call @math.clamp_float         // ST(0) = 5.0
+    fstp dword [r_clampf_hi]
+
+    // double: clamp_float(-1.5, 0, 5) = 0.0
+    fld qword [d_clamp_x]
+    fld qword [d_clamp_lo]
+    fld qword [d_clamp_hi]
+    call @math.clamp_float
+    fstp qword [r_clampf_lo_d]
+
+    // double: clamp_float(3.0, 0, 5) = 3.0
+    fld qword [d_3x4]              // 3.0
+    fld qword [d_clamp_lo]
+    fld qword [d_clamp_hi]
+    call @math.clamp_float
+    fstp qword [r_clampf_mid_d]
+
+    // double: clamp_float(8.0, 0, 5) = 5.0
+    fld qword [d_8]
+    fld qword [d_clamp_lo]
+    fld qword [d_clamp_hi]
+    call @math.clamp_float
+    fstp qword [r_clampf_hi_d]
+
+exit:
+    // ── exit cleanly ────────────────────────────────────────────
+    move 1 to eax                  // sys_exit
+    move 0 to ebx                  // exit code 0
+    interrupt 0x80
