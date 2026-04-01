@@ -16,6 +16,10 @@
 //     call @str.to_lower         // lowercase string at ESI in-place
 //     call @str.str_to_int       // EAX = parsed signed integer from ESI
 //     call @str.int_to_str       // write EAX as decimal string to EDI
+//     call @str.str_to_float     // ST(0) = parsed float from ESI (±ddd.ddd[e±n])
+//     call @str.float_to_str     // write ST(0) as decimal string to EDI; EAX = length
+//     call @str.substr           // copy EDX bytes from ESI+ECX start into EDI; EAX = copied
+//     call @str.trim             // skip leading WS in ESI, null after last non-WS; EAX = start
 
 #COMPAT Windows x86 (Win32)
 
@@ -306,5 +310,462 @@ proc int_to_str (val dword n default eax, addr buf default edi) out val dword {
     move 0 to byte [edi]        // null terminator
     move edi to eax
     subtract esi from eax       // eax = total characters written (excl. null)
+    return
+}
+
+// ── str_to_float ─────────────────────────────────────────────────
+// Parses a null-terminated ASCII decimal string and pushes the
+// result as ST(0) on the x87 FPU stack.  Recognises an optional
+// leading '-' or '+', an optional decimal point, and an optional
+// decimal exponent introduced by 'e' or 'E' (also with optional
+// sign).  Parsing stops at the first byte that cannot belong to a
+// number; an empty or non-numeric string yields 0.0.
+//
+// Input:  ESI = pointer to null-terminated string
+// Output: ST(0) = parsed float value (pushed onto FPU stack)
+// Clobbers: EAX, EBX, ECX, EDX, ESI
+//
+// Example:
+//   move num_str to esi          // e.g. "-3.14" or "2.5e3"
+//   call @str.str_to_float       // ST(0) = parsed float
+//   fstp dword [result]
+proc str_to_float (addr str_ptr default esi) out val float {
+    push ebp
+    move esp to ebp
+    // Stack layout (24 bytes):
+    //   [ebp-4]  = scratch dword (fild temp, pow10 temp)
+    //   [ebp-8]  = integer part (dword)
+    //   [ebp-12] = fractional digits as integer (dword)
+    //   [ebp-16] = number of fractional digits (dword)
+    //   [ebp-20] = signed exponent value (dword)
+    //   [ebp-24] = 1 if number is negative, 0 if positive (dword)
+    subtract 24 from esp
+
+    // ── sign ────────────────────────────────────────────────────
+    move 0 to dword [ebp-24]
+    cmp byte [esi], 45              // '-'
+    jne .stf_check_plus
+    move 1 to dword [ebp-24]
+    increment esi
+    jmp .stf_int_parse
+.stf_check_plus:
+    cmp byte [esi], 43              // '+'
+    jne .stf_int_parse
+    increment esi
+
+    // ── integer part ────────────────────────────────────────────
+.stf_int_parse:
+    move 0 to eax
+.stf_int_loop:
+    movzx edx, byte [esi]
+    test edx, edx
+    jz .stf_int_done
+    cmp edx, 46                     // '.'
+    je .stf_int_done
+    cmp edx, 101                    // 'e'
+    je .stf_int_done
+    cmp edx, 69                     // 'E'
+    je .stf_int_done
+    cmp edx, 48                     // '0'
+    jb .stf_int_done
+    cmp edx, 57                     // '9'
+    ja .stf_int_done
+    imul eax, 10
+    sub edx, 48
+    add eax, edx
+    increment esi
+    jmp .stf_int_loop
+.stf_int_done:
+    move eax to dword [ebp-8]
+
+    // ── fractional digits ────────────────────────────────────────
+    move 0 to ebx
+    move 0 to dword [ebp-16]
+    cmp byte [esi], 46              // '.'
+    jne .stf_frac_done
+    increment esi
+.stf_frac_loop:
+    movzx edx, byte [esi]
+    test edx, edx
+    jz .stf_frac_done
+    cmp edx, 101                    // 'e'
+    je .stf_frac_done
+    cmp edx, 69                     // 'E'
+    je .stf_frac_done
+    cmp edx, 48                     // '0'
+    jb .stf_frac_done
+    cmp edx, 57                     // '9'
+    ja .stf_frac_done
+    imul ebx, 10
+    sub edx, 48
+    add ebx, edx
+    add dword [ebp-16], 1
+    increment esi
+    jmp .stf_frac_loop
+.stf_frac_done:
+    move ebx to dword [ebp-12]
+
+    // ── exponent (optional e/E) ──────────────────────────────────
+    move 0 to eax
+    move 0 to ecx               // exp_neg flag
+    cmp byte [esi], 101         // 'e'
+    je .stf_exp_start
+    cmp byte [esi], 69          // 'E'
+    jne .stf_exp_done
+.stf_exp_start:
+    increment esi
+    cmp byte [esi], 45          // '-'
+    jne .stf_exp_plus
+    move 1 to ecx
+    increment esi
+    jmp .stf_exp_digits
+.stf_exp_plus:
+    cmp byte [esi], 43          // '+'
+    jne .stf_exp_digits
+    increment esi
+.stf_exp_digits:
+    movzx edx, byte [esi]
+    cmp edx, 48                 // '0'
+    jb .stf_exp_end
+    cmp edx, 57                 // '9'
+    ja .stf_exp_end
+    imul eax, 10
+    sub edx, 48
+    add eax, edx
+    increment esi
+    jmp .stf_exp_digits
+.stf_exp_end:
+    compare ecx, 1
+    jne .stf_exp_done
+    neg eax
+.stf_exp_done:
+    move eax to dword [ebp-20]
+
+    // ── build float on FPU: push float(int_part) ─────────────────
+    fild dword [ebp-8]              // ST(0) = float(int_part)
+
+    // add fraction: frac_int / 10^frac_count
+    cmp dword [ebp-16], 0
+    je .stf_after_frac
+    move dword [ebp-12] to eax
+    move eax to dword [ebp-4]
+    fild dword [ebp-4]              // ST(0)=frac_int, ST(1)=int_part
+    // compute 10^frac_count in ecx via loop
+    move 1 to ecx
+    move dword [ebp-16] to ebx
+    move 10 to edx
+.stf_pow_loop:
+    test ebx, ebx
+    jz .stf_pow_done
+    imul ecx, edx
+    decrement ebx
+    jmp .stf_pow_loop
+.stf_pow_done:
+    move ecx to dword [ebp-4]
+    fild dword [ebp-4]              // ST(0)=10^n, ST(1)=frac_int, ST(2)=int_part
+    fdivp                           // ST(0)=frac_int/10^n, ST(1)=int_part
+    faddp                           // ST(0)=int_part + frac/10^n
+.stf_after_frac:
+    // apply exponent: multiply or divide by 10 repeatedly
+    move dword [ebp-20] to eax
+    test eax, eax
+    jz .stf_sign
+    move 10 to edx
+    move edx to dword [ebp-4]
+    js .stf_exp_neg
+    // positive exponent: multiply by 10, eax times
+    move eax to ebx
+.stf_exp_mul_loop:
+    test ebx, ebx
+    jz .stf_sign
+    fild dword [ebp-4]              // ST(0) = 10.0
+    fmulp                           // ST(0) = result * 10
+    decrement ebx
+    jmp .stf_exp_mul_loop
+.stf_exp_neg:
+    neg eax
+    move eax to ebx
+.stf_exp_div_loop:
+    test ebx, ebx
+    jz .stf_sign
+    fild dword [ebp-4]              // ST(0) = 10.0
+    fdivp                           // ST(0) = result / 10
+    decrement ebx
+    jmp .stf_exp_div_loop
+.stf_sign:
+    cmp dword [ebp-24], 1
+    jne .stf_done
+    fchs                            // negate if '-' was seen
+.stf_done:
+    move ebp to esp
+    pop ebp
+    return
+}
+
+// ── float_to_str ─────────────────────────────────────────────────
+// Converts the x87 FPU ST(0) value to a null-terminated decimal
+// string and writes it to a caller-supplied buffer.  The buffer
+// must be at least 32 bytes.  The output format is [-]ddd.ddddd
+// with trailing zeros trimmed; a trailing decimal point is also
+// removed (e.g. 3.0 → "3", -0.5 → "-0.5").
+// ST(0) is consumed (popped) by this proc.
+// Fractional output is limited to 6 decimal digits.
+//
+// Input:  ST(0) = float value (consumed/popped)
+//         EDI   = pointer to output buffer (>= 32 bytes)
+// Output: EAX = number of characters written (not counting null)
+// Clobbers: EAX, EBX, ECX, EDX, EDI
+//
+// Example:
+//   fld dword [pi]
+//   move out_buf to edi
+//   call @str.float_to_str     // out_buf = "3.141593", eax = 8
+proc float_to_str (val float value, addr buf default edi) out val dword {
+    push ebp
+    move esp to ebp
+    // Stack layout (24 bytes):
+    //   [ebp-4]  = saved FPU control word (word; upper 2 bytes unused)
+    //   [ebp-8]  = truncation FPU control word (word; upper 2 bytes unused)
+    //   [ebp-12] = integer part of abs(value) (dword)
+    //   [ebp-16] = digit scratch for fistp (dword)
+    //   [ebp-20] = constant 10 for frac-multiply fild (dword)
+    //   [ebp-24] = saved buffer start pointer (dword)
+    subtract 24 from esp
+
+    move edi to dword [ebp-24]          // save buffer start
+    move 10 to dword [ebp-20]           // constant for fraction loop
+
+    // pre-compute truncation CW once
+    fstcw word [ebp-4]                  // save original FPU CW
+    movzx eax, word [ebp-4]
+    or eax, 0x0C00                      // RC = 11 = truncate toward zero
+    move ax to word [ebp-8]             // store truncation CW
+
+    // ── sign ────────────────────────────────────────────────────
+    ftst                                // compare ST(0) with 0.0; sets FPU SW
+    fnstsw ax                           // ax = FPU status word
+    sahf                                // CF=C0, ZF=C3
+    jae .fts_nonneg                     // CF=0 → ST(0) >= 0
+    fchs                                // make positive
+    move 45 to byte [edi]               // '-'
+    increment edi
+.fts_nonneg:
+    // ST(0) = abs(value) >= 0
+
+    // ── extract integer part via truncation ──────────────────────
+    fld st0                             // dup: ST(0)=ST(1)=abs(value)
+    fldcw word [ebp-8]                  // switch to truncation CW
+    frndint                             // ST(0) = trunc(abs(value))
+    fldcw word [ebp-4]                  // restore original CW
+    fistp dword [ebp-12]                // store int_part, pop; ST(0) = abs(value)
+
+    // ── write integer digits ─────────────────────────────────────
+    move dword [ebp-12] to eax
+    compare eax, 0
+    goto .fts_int_not_zero if not equal
+    move 48 to byte [edi]               // '0'
+    increment edi
+    goto .fts_frac_setup
+.fts_int_not_zero:
+    move 0 to ebx                       // digit count
+    move 10 to ecx
+.fts_int_push:
+    compare eax, 0
+    goto .fts_int_pop if equal
+    xor edx, edx
+    div ecx                             // eax = quotient, edx = digit (0..9)
+    add edx, 48
+    push edx
+    increment ebx
+    goto .fts_int_push
+.fts_int_pop:
+    compare ebx, 0
+    goto .fts_frac_setup if equal
+    pop edx
+    move dl to [edi]
+    increment edi
+    decrement ebx
+    goto .fts_int_pop
+
+.fts_frac_setup:
+    // subtract integer from abs(value): ST(0) = fraction in [0, 1)
+    fild dword [ebp-12]                 // ST(0)=int_float, ST(1)=abs(value)
+    fsubp                               // ST(0) = abs(value) - int_float = fraction
+
+    // write '.' and up to 6 fractional digits; stop early if fraction = 0
+    move 46 to byte [edi]               // '.'
+    increment edi
+    move 6 to ecx                       // max 6 frac digits
+.fts_frac_loop:
+    compare ecx, 0
+    goto .fts_frac_end if equal
+    ftst                                // check if fraction is effectively zero
+    fnstsw ax
+    sahf
+    je .fts_frac_end_pop                // ZF=1 (C3=1) → ST(0) = 0.0 → stop
+    fild dword [ebp-20]                 // ST(0)=10, ST(1)=fraction
+    fmulp                               // ST(0) = fraction * 10
+    fld st0                             // dup for digit extraction
+    fldcw word [ebp-8]
+    frndint                             // ST(0) = trunc(fraction*10) = digit
+    fldcw word [ebp-4]
+    fistp dword [ebp-16]                // store digit, pop dup; ST(0) = frac*10
+    move dword [ebp-16] to eax
+    add eax, 48
+    move al to [edi]
+    increment edi
+    // new fraction = frac*10 - digit
+    fild dword [ebp-16]                 // ST(0)=digit_float, ST(1)=frac*10
+    fsubp                               // ST(0) = frac*10 - digit = new_frac
+    decrement ecx
+    goto .fts_frac_loop
+.fts_frac_end:
+    fstp st0                            // pop remaining fraction
+    goto .fts_trim
+.fts_frac_end_pop:
+    fstp st0                            // pop zero fraction
+.fts_trim:
+    // trim trailing '0' digits then a trailing '.' if present
+.fts_trim_loop:
+    cmp edi, dword [ebp-24]
+    jle .fts_null
+    cmp byte [edi-1], 48                // '0'
+    jne .fts_check_dot
+    decrement edi
+    jmp .fts_trim_loop
+.fts_check_dot:
+    cmp byte [edi-1], 46                // '.'
+    jne .fts_null
+    decrement edi                       // remove trailing '.'
+.fts_null:
+    move 0 to byte [edi]                // null terminator
+    move edi to eax
+    sub eax, dword [ebp-24]            // eax = chars written
+    move ebp to esp
+    pop ebp
+    return
+}
+
+// ── substr ───────────────────────────────────────────────────────
+// Copies at most len bytes from src beginning at byte index start
+// into dst and null-terminates dst.  The copy is clamped to the
+// actual source length.  Returns the number of bytes copied.
+//
+// Input:  ESI = pointer to source string (null-terminated)
+//         EDI = pointer to destination buffer
+//         ECX = start index (0-based; 0 = beginning of string)
+//         EDX = maximum bytes to copy
+// Output: EAX = actual bytes copied (0 if start >= source length)
+// Clobbers: EAX, AL, ESI, EDI, ECX, EDX
+//
+// Example:
+//   move src to esi
+//   move dst to edi
+//   move 2 to ecx          // start at index 2
+//   move 3 to edx          // copy up to 3 bytes
+//   call @str.substr       // dst = src[2..4], eax = bytes copied
+proc substr (addr src default esi, addr dst default edi, val dword start default ecx, val dword len default edx) out val dword {
+    push ebp
+    move esp to ebp
+    subtract 8 from esp
+    // [ebp-4] = dst start pointer (for length calc)
+    // [ebp-8] = requested len
+
+    move edi to dword [ebp-4]       // save dst start
+    move edx to dword [ebp-8]       // save len
+
+    // advance src by 'start' bytes, clamping at null terminator
+.ss_skip:
+    compare ecx, 0
+    goto .ss_copy if equal
+    compare byte [esi], 0
+    goto .ss_terminate if equal     // start index is past end of src
+    increment esi
+    decrement ecx
+    goto .ss_skip
+
+.ss_copy:
+    move dword [ebp-8] to ecx       // reload len as loop counter
+.ss_copy_loop:
+    compare ecx, 0
+    goto .ss_terminate if equal
+    move byte [esi] to al
+    compare al, 0
+    goto .ss_terminate if equal     // reached null before copying len bytes
+    move al to [edi]
+    increment esi
+    increment edi
+    decrement ecx
+    goto .ss_copy_loop
+
+.ss_terminate:
+    move 0 to byte [edi]            // null-terminate dst
+    move edi to eax
+    move dword [ebp-4] to ecx
+    subtract ecx from eax           // eax = bytes copied
+    move ebp to esp
+    pop ebp
+    return
+}
+
+// ── trim ─────────────────────────────────────────────────────────
+// Removes leading and trailing ASCII whitespace (space 0x20,
+// horizontal tab 0x09, carriage return 0x0D, newline 0x0A) from a
+// null-terminated string in-place.  Writes a new null terminator
+// after the last non-whitespace byte and returns a pointer to the
+// first non-whitespace byte within the original buffer.  If the
+// string is entirely whitespace or empty, EAX points to the null
+// terminator of the (now empty) string.
+//
+// Input:  ESI = pointer to null-terminated string
+// Output: EAX = pointer to first non-whitespace byte (within ESI's buffer)
+// Clobbers: EAX, AL, EBX, ECX, ESI
+//
+// Example:
+//   move my_str to esi          // buffer holds "  hello  \0"
+//   call @str.trim
+//   // eax points to "hello\0" inside the original buffer
+proc trim (addr str_ptr default esi) out val dword {
+    // ── skip leading whitespace ──────────────────────────────────
+.trim_lead:
+    move byte [esi] to al
+    compare al, 0
+    goto .trim_lead_done if equal
+    cmp al, 32              // space
+    je .trim_lead_skip
+    cmp al, 9               // tab
+    je .trim_lead_skip
+    cmp al, 13              // CR
+    je .trim_lead_skip
+    cmp al, 10              // LF
+    je .trim_lead_skip
+    goto .trim_lead_done
+.trim_lead_skip:
+    increment esi
+    goto .trim_lead
+.trim_lead_done:
+    // ESI = first non-whitespace byte (or null terminator)
+    move esi to eax         // return value: start of trimmed content
+    move esi to ecx         // scan pointer
+    move ecx to ebx         // EBX tracks position-after-last-non-ws
+
+    // ── scan forward tracking last non-whitespace position ───────
+.trim_scan:
+    compare byte [ecx], 0
+    goto .trim_done if equal
+    move byte [ecx] to al
+    increment ecx
+    cmp al, 32              // space
+    je .trim_scan
+    cmp al, 9               // tab
+    je .trim_scan
+    cmp al, 13              // CR
+    je .trim_scan
+    cmp al, 10              // LF
+    je .trim_scan
+    move ecx to ebx         // non-ws found: EBX = pos after this byte
+    goto .trim_scan
+.trim_done:
+    move 0 to byte [ebx]    // null-terminate after last non-ws byte
     return
 }

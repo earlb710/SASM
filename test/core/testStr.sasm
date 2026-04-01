@@ -1,17 +1,22 @@
 // testStr.sasm
 // Project : Test-projects
 //
-// Exercises the str library's eight string functions:
+// Exercises the str library's twelve string functions:
 //   strlen, strcmp, strcpy, strcat, to_upper, to_lower,
-//   str_to_int, int_to_str
+//   str_to_int, int_to_str, str_to_float, float_to_str,
+//   substr, trim
 //
 // Call conventions:
-//   call @str.strlen( src )          // src ≠ esi → MOV ESI emitted
-//   call @str.strlen( esi )          // esi == default → MOV suppressed
-//   call @str.strcmp( esi, edi )     // both defaults → zero setup MOVs
-//   call @str.strcpy( edi, esi )     // both defaults → zero setup MOVs
-//   call @str.str_to_int( esi )      // default → zero setup MOVs for esi
-//   call @str.int_to_str( eax, edi ) // both defaults → zero setup MOVs
+//   call @str.strlen( src )              // src ≠ esi → MOV ESI emitted
+//   call @str.strlen( esi )              // esi == default → MOV suppressed
+//   call @str.strcmp( esi, edi )         // both defaults → zero setup MOVs
+//   call @str.strcpy( edi, esi )         // both defaults → zero setup MOVs
+//   call @str.str_to_int( esi )          // default → zero setup MOVs for esi
+//   call @str.int_to_str( eax, edi )     // both defaults → zero setup MOVs
+//   call @str.str_to_float( esi )        // default → no MOV ESI
+//   call @str.float_to_str( edi )        // default → no MOV EDI
+//   call @str.substr( esi, edi, ecx, edx ) // all defaults → zero setup MOVs
+//   call @str.trim( esi )                // default → no MOV ESI
 //
 // Target: 32-bit Linux ELF executable (uses int 0x80 for exit).
 //
@@ -27,12 +32,23 @@ section .data
 
 var result_len   as dword = 0
 var result_cmp   as dword = 0
+var flt_result   as dword = 0
 
 // Test strings
 data hello_str   as byte = "hello", 0      // 5 chars
 data HELLO_str   as byte = "HELLO", 0      // 5 chars
 data world_str   as byte = "world", 0
 data space_str   as byte = " ", 0
+
+// Float test data
+data pi_str      as byte = "3.14", 0
+data sci_str     as byte = "2.5e3", 0
+data flt_pi      as dword = 0x40490FDB     // IEEE 754 float ≈ 3.14159
+data flt_neg     as dword = 0xBF000000     // IEEE 754 float = -0.5
+
+// Whitespace trimming test
+data padded_str  as byte = "  hello  ", 0
+data other_str   as byte = 9, "trim me", 13, 10, 0  // tab + CR + LF
 
 // Writable buffers for copy/cat/conversion tests
 data copy_buf    as byte = 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
@@ -42,6 +58,8 @@ data lower_buf   as byte = "HELLO WORLD", 0
 data num_str     as byte = "-123", 0
 data zero_str    as byte = "0", 0
 data int_buf     as byte = 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+data float_buf   as byte = 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+data out_buf     as byte = 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
 section .text
 
@@ -159,6 +177,81 @@ start:
 
     // With non-default args → MOVs emitted
     call @str.int_to_str( [result_len], int_buf )  // MOV EAX,[result_len]; MOV EDI,int_buf
+
+    // =========================================================
+    //  str_to_float — parse decimal string to float
+    // =========================================================
+
+    // With default register arg (esi already loaded) → no MOV
+    move num_str to esi
+    call @str.str_to_float( esi )           // ESI == default → NO MOV; str_to_float
+    // ST(0) = -123.0
+    fstp dword [flt_result]
+
+    // With non-default arg (num_str ≠ esi) → MOV ESI emitted
+    call @str.str_to_float( pi_str )        // MOV ESI, pi_str; str_to_float
+    // ST(0) ≈ 3.14
+    fstp dword [flt_result]
+
+    // Parse with decimal point and exponent
+    move sci_str to esi
+    call @str.str_to_float( esi )           // parse "2.5e3" → ST(0) = 2500.0
+    fstp dword [flt_result]
+
+    // =========================================================
+    //  float_to_str — convert float to decimal string
+    // =========================================================
+
+    // With default register arg (edi already loaded) → no MOV
+    fld dword [flt_pi]
+    move float_buf to edi
+    call @str.float_to_str( edi )           // EDI == default → NO MOV; float_to_str
+    // float_buf = "3.141593", eax = 8
+
+    // With non-default arg (out_buf ≠ edi) → MOV EDI emitted
+    fld dword [flt_neg]
+    call @str.float_to_str( out_buf )       // MOV EDI, out_buf; float_to_str
+    // out_buf = "-0.5", eax = 4
+
+    // Zero value
+    fldz
+    move float_buf to edi
+    call @str.float_to_str( edi )           // float_buf = "0", eax = 1
+
+    // =========================================================
+    //  substr — extract a substring
+    // =========================================================
+
+    // With all default registers → zero setup MOVs
+    move hello_str to esi
+    move copy_buf  to edi
+    move 1 to ecx          // start index
+    move 3 to edx          // length
+    call @str.substr( esi, edi, ecx, edx )  // all defaults → zero setup MOVs
+    // copy_buf = "ell\0", eax = 3
+
+    // With non-default args → MOVs emitted for all four parameters
+    call @str.substr( hello_str, copy_buf, 0, 5 )
+    // MOV ESI, hello_str; MOV EDI, copy_buf; MOV ECX, 0; MOV EDX, 5
+
+    // Start past end → copies nothing
+    move hello_str to esi
+    move copy_buf  to edi
+    move 99 to ecx         // beyond end of "hello"
+    move 5  to edx
+    call @str.substr( esi, edi, ecx, edx )  // eax = 0, copy_buf = ""
+
+    // =========================================================
+    //  trim — strip leading and trailing whitespace
+    // =========================================================
+
+    // With default register arg (esi already loaded) → no MOV
+    move padded_str to esi
+    call @str.trim( esi )                   // ESI == default → NO MOV; trim
+    // eax points to first non-space byte within padded_str buffer
+
+    // With non-default arg → MOV ESI emitted
+    call @str.trim( other_str )             // MOV ESI, other_str; trim
 
 exit:
     move 1 to eax                  // sys_exit

@@ -3386,4 +3386,181 @@ class SasmTranslatorTest {
         assertTrue(asm.contains("rep stosb"),
                 "bzero body must contain rep stosb (via XOR EAX/rep stosb)");
     }
+
+    // ── str_to_float / float_to_str tests ───────────────────────────────────
+
+    /**
+     * Verifies that {@code str_to_float} resolves to {@code CALL str_str_to_float}
+     * and that its default register (ESI) suppresses a setup MOV when the argument
+     * matches, but emits one when it does not.
+     */
+    @Test
+    void strLibrary_strToFloat_resolvesToCallAndDefaultRegSuppressesMOV(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/str.sasm"), libDir.resolve("str.sasm"));
+
+        // arg matches default ESI → no MOV ESI
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asmMatch = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.str_to_float( esi )"));
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asmMatch.contains("CALL str_str_to_float"),
+                "str_to_float must emit CALL str_str_to_float");
+        assertFalse(asmMatch.contains("MOV ESI,"),
+                "str_to_float( esi ): ESI matches default → MOV ESI must be suppressed");
+
+        // arg differs from default → MOV ESI must be emitted
+        t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asmDiff = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.str_to_float( my_numstr )"));
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asmDiff.contains("MOV ESI, my_numstr"),
+                "str_to_float( my_numstr ): my_numstr ≠ esi → MOV ESI, my_numstr must be emitted");
+    }
+
+    /**
+     * Verifies that {@code float_to_str} resolves to {@code CALL str_float_to_str}
+     * and that its default buffer register (EDI) suppresses a setup MOV when the
+     * argument matches, but emits one when it does not.
+     */
+    @Test
+    void strLibrary_floatToStr_resolvesToCallAndDefaultRegSuppressesMOV(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/str.sasm"), libDir.resolve("str.sasm"));
+
+        // arg matches default EDI → no MOV EDI
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asmMatch = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.float_to_str( edi )"));
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asmMatch.contains("CALL str_float_to_str"),
+                "float_to_str must emit CALL str_float_to_str");
+        assertFalse(asmMatch.contains("MOV EDI,"),
+                "float_to_str( edi ): EDI matches default → MOV EDI must be suppressed");
+
+        // arg differs from default → MOV EDI must be emitted
+        t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asmDiff = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.float_to_str( out_buf )"));
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asmDiff.contains("MOV EDI, out_buf"),
+                "float_to_str( out_buf ): out_buf ≠ edi → MOV EDI, out_buf must be emitted");
+    }
+
+    // ── substr tests ─────────────────────────────────────────────────────────
+
+    /**
+     * Verifies that {@code substr} with all four default-register arguments
+     * ({@code esi}, {@code edi}, {@code ecx}, {@code edx}) emits zero setup MOVs.
+     */
+    @Test
+    void strLibrary_substr_allDefaultArgs_zeroSetupMOVs(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/str.sasm"), libDir.resolve("str.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.substr( esi, edi, ecx, edx )"));
+
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asm.contains("CALL str_substr"),
+                "substr must emit CALL str_substr");
+        assertFalse(asm.contains("MOV ESI,"),
+                "substr( esi, ... ): ESI matches default → no MOV ESI");
+        assertFalse(asm.contains("MOV EDI,"),
+                "substr( ..., edi, ... ): EDI matches default → no MOV EDI");
+        assertFalse(asm.contains("MOV ECX,"),
+                "substr( ..., ecx, ... ): ECX matches default → no MOV ECX");
+        assertFalse(asm.contains("MOV EDX,"),
+                "substr( ..., edx ): EDX matches default → no MOV EDX");
+    }
+
+    /**
+     * Verifies that {@code substr} with non-default arguments emits all four
+     * expected setup MOVs.
+     */
+    @Test
+    void strLibrary_substr_nonDefaultArgs_emitsAllSetupMOVs(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/str.sasm"), libDir.resolve("str.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.substr( my_src, my_dst, 2, 5 )"));
+
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asm.contains("MOV ESI, my_src"),
+                "my_src ≠ esi → MOV ESI, my_src must be emitted");
+        assertTrue(asm.contains("MOV EDI, my_dst"),
+                "my_dst ≠ edi → MOV EDI, my_dst must be emitted");
+        assertTrue(asm.contains("MOV ECX, 2"),
+                "2 ≠ ecx → MOV ECX, 2 must be emitted");
+        assertTrue(asm.contains("MOV EDX, 5"),
+                "5 ≠ edx → MOV EDX, 5 must be emitted");
+    }
+
+    // ── trim tests ───────────────────────────────────────────────────────────
+
+    /**
+     * Verifies that {@code trim} resolves to {@code CALL str_trim} and that its
+     * default register (ESI) suppresses the setup MOV when the argument matches,
+     * but emits one when it does not.
+     */
+    @Test
+    void strLibrary_trim_resolvesToCallAndDefaultRegSuppressesMOV(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/str.sasm"), libDir.resolve("str.sasm"));
+
+        // arg matches default ESI → no MOV ESI
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asmMatch = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.trim( esi )"));
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asmMatch.contains("CALL str_trim"),
+                "trim must emit CALL str_trim");
+        assertFalse(asmMatch.contains("MOV ESI,"),
+                "trim( esi ): ESI matches default → MOV ESI must be suppressed");
+
+        // arg differs from default → MOV ESI must be emitted
+        t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asmDiff = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.trim( raw_str )"));
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asmDiff.contains("MOV ESI, raw_str"),
+                "trim( raw_str ): raw_str ≠ esi → MOV ESI, raw_str must be emitted");
+    }
 }
