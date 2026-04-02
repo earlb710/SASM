@@ -112,7 +112,9 @@ public class SasmBuilder {
                 && varDef.toolchain.assemble.contains(".obj")) ? ".obj" : ".o";
 
         // ── 4. Translate .sasm → .asm and assemble → object files ─────────────
-        SasmTranslator translator = new SasmTranslator();
+        Architecture targetArch = Architecture.from(
+                varDef.architecture, varDef.bits);
+        SasmTranslator translator = new SasmTranslator(targetArch);
         List<File> objFiles = new ArrayList<>();
 
         for (File sasmFile : sasmFiles) {

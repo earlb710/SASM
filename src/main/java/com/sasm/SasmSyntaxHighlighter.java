@@ -105,13 +105,14 @@ public final class SasmSyntaxHighlighter {
             + "above\\s+or\\s+equal|below\\s+or\\s+equal)\\b",
             Pattern.CASE_INSENSITIVE);
 
-    /** x86 CPU registers. */
+    /** CPU registers: x86 physical names and SASM portable aliases. */
     private static final Pattern PAT_REGISTER = Pattern.compile(
             "\\b(?:r(?:ax|bx|cx|dx|si|di|sp|bp|8|9|10|11|12|13|14|15)|"
             + "e(?:ax|bx|cx|dx|si|di|sp|bp)|"
             + "[abcd][xhl]|[sd][il]|[sb]p|"
             + "st[0-7]?|"
-            + "xmm(?:1[0-5]|[0-9])|ymm(?:1[0-5]|[0-9]))\\b",
+            + "xmm(?:1[0-5]|[0-9])|ymm(?:1[0-5]|[0-9])|"
+            + "reg[1-4](?:\\.[bw])?|ptr[1-2](?:\\.[bw])?|bp(?:\\.[bw])?|freg[1-2])\\b",
             Pattern.CASE_INSENSITIVE);
 
     /** Numeric literals: hex ({@code 0x…}) and decimal. */
