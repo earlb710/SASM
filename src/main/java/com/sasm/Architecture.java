@@ -267,7 +267,10 @@ public enum Architecture {
         m.put("freg1", "s0");
         m.put("freg2", "s1");
 
-        // AArch64 .b → 32-bit w register, .w → 32-bit w register
+        // AArch64 has no byte/word sub-registers for GP regs.  Both .b and
+        // .w resolve to the 32-bit "w" form — the closest AArch64 equivalent.
+        // Users targeting byte/word precision should rely on masking or
+        // explicit type-size instructions rather than sub-register suffixes.
         m.put("reg1.b", "w0");
         m.put("reg2.b", "w1");
         m.put("reg3.b", "w2");
