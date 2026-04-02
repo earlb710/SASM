@@ -53,6 +53,9 @@ public class AddVariantWizard extends JDialog {
     /** True once the user has manually typed into the variant name field. */
     private boolean userEditedName = false;
 
+    /** Suppresses the document listener when the name is set programmatically. */
+    private boolean settingNameProgrammatically = false;
+
     // ── OS data ──────────────────────────────────────────────────────────────
     private OsDefinition currentDef;
 
@@ -186,9 +189,9 @@ public class AddVariantWizard extends JDialog {
         outputTypeChoice.addItemListener(e -> onOutputTypeChanged());
         variantChoice.addItemListener(e -> onVariantChanged());
         variantNameField.getDocument().addDocumentListener(new DocumentListener() {
-            public void insertUpdate(DocumentEvent e) { userEditedName = true; refreshOkButton(); }
-            public void removeUpdate(DocumentEvent e) { userEditedName = true; refreshOkButton(); }
-            public void changedUpdate(DocumentEvent e) { userEditedName = true; refreshOkButton(); }
+            public void insertUpdate(DocumentEvent e) { if (!settingNameProgrammatically) userEditedName = true; refreshOkButton(); }
+            public void removeUpdate(DocumentEvent e) { if (!settingNameProgrammatically) userEditedName = true; refreshOkButton(); }
+            public void changedUpdate(DocumentEvent e) { if (!settingNameProgrammatically) userEditedName = true; refreshOkButton(); }
         });
         okBtn.addActionListener(e -> onOkPressed());
         cancelBtn.addActionListener(e -> dispose());
@@ -572,9 +575,9 @@ public class AddVariantWizard extends JDialog {
         if (!linking.isEmpty()) sb.append('-').append(linking);
 
         // Set the text without triggering the userEditedName flag
-        userEditedName = false;
+        settingNameProgrammatically = true;
         variantNameField.setText(sb.toString());
-        userEditedName = false;
+        settingNameProgrammatically = false;
     }
 
     // ── description builders ──────────────────────────────────────────────────
