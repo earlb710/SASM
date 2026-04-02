@@ -471,6 +471,18 @@ public class SasmMain {
 
         ProjectFile.VariantEntry ve = wizard.toVariantEntry();
 
+        // Reject duplicate names
+        for (ProjectFile.VariantEntry existing : currentProject.getVariants()) {
+            if (ve.variantName != null && ve.variantName.equals(existing.variantName)) {
+                JOptionPane.showMessageDialog(mainFrame,
+                        "A variant named \"" + ve.variantName + "\" already exists.\n"
+                        + "Please choose a unique name.",
+                        "Duplicate Variant Name",
+                        JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+        }
+
         // Create a subdirectory for the variant
         if (currentProject.workingDirectory != null && ve.variantName != null) {
             File variantDir = new File(currentProject.workingDirectory, ve.variantName);
@@ -819,6 +831,21 @@ public class SasmMain {
         if (!wizard.isConfirmed()) return;
 
         ProjectFile.VariantEntry updated = wizard.toVariantEntry();
+
+        // If variant name changed, check for duplicate before proceeding
+        if (!variantDirName.equals(updated.variantName)) {
+            for (int i = 0; i < variants.size(); i++) {
+                if (i != targetIdx && updated.variantName != null
+                        && updated.variantName.equals(variants.get(i).variantName)) {
+                    JOptionPane.showMessageDialog(mainFrame,
+                            "A variant named \"" + updated.variantName + "\" already exists.\n"
+                            + "Please choose a unique name.",
+                            "Duplicate Variant Name",
+                            JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+            }
+        }
 
         // If variant name changed, rename the directory
         if (!variantDirName.equals(updated.variantName)

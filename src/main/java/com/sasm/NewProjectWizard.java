@@ -334,10 +334,23 @@ public class NewProjectWizard extends JDialog {
         if (!wizard.isConfirmed()) return;
 
         ProjectFile.VariantEntry ve = wizard.toVariantEntry();
-        pendingVariants.add(ve);
 
         String displayName = ve.variantName != null && !ve.variantName.isEmpty()
-                ? ve.variantName : "variant-" + pendingVariants.size();
+                ? ve.variantName : "variant-" + (pendingVariants.size() + 1);
+
+        // Reject duplicate names
+        for (ProjectFile.VariantEntry existing : pendingVariants) {
+            if (displayName.equals(existing.variantName)) {
+                javax.swing.JOptionPane.showMessageDialog(this,
+                        "A variant named \"" + displayName + "\" already exists.\n"
+                        + "Please choose a unique name.",
+                        "Duplicate Variant Name",
+                        javax.swing.JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+        }
+
+        pendingVariants.add(ve);
         defaultVariantChoice.addItem(displayName);
 
         // Always select the newly added variant as the default
