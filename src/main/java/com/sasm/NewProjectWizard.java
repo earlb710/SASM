@@ -127,6 +127,16 @@ public class NewProjectWizard extends JDialog {
     /** Returns the {@code .json} file written on OK, or {@code null} if cancelled. */
     public java.io.File getSavedProjectFile() { return savedProjectFile; }
 
+    /** Returns the full list of variants (pre-existing + newly added) after OK. */
+    public java.util.List<ProjectFile.VariantEntry> getPendingVariants() {
+        return java.util.Collections.unmodifiableList(pendingVariants);
+    }
+
+    /** Returns the variant name selected as the default, or {@code null}. */
+    public String getSelectedDefaultVariant() {
+        return (String) defaultVariantChoice.getSelectedItem();
+    }
+
     // ────────────────────────────────────────────────────────────────────────
     // UI construction
     // ────────────────────────────────────────────────────────────────────────

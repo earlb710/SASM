@@ -773,6 +773,21 @@ public class SasmMain {
             currentProject.workingDirectory = wizard.getWorkingDirectory();
             currentProject.targetDirectory  = wizard.getTargetDirectory();
 
+            // Apply variants (pre-existing + any newly added via "New Variant" button)
+            currentProject.variants        = new java.util.ArrayList<>(wizard.getPendingVariants());
+            currentProject.defaultVariant  = wizard.getSelectedDefaultVariant();
+
+            // Create directories for any new variants that don't have one yet
+            if (currentProject.workingDirectory != null) {
+                File workDir = new File(currentProject.workingDirectory);
+                for (ProjectFile.VariantEntry ve : currentProject.variants) {
+                    if (ve.variantName != null && !ve.variantName.isEmpty()) {
+                        File variantDir = new File(workDir, ve.variantName);
+                        if (!variantDir.exists()) variantDir.mkdirs();
+                    }
+                }
+            }
+
             // Re-save the project file
             File dir = new File(currentProject.workingDirectory);
             File newProjFile = new File(dir, currentProject.name + ".json");
