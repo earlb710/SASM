@@ -50,6 +50,9 @@ public class AddVariantWizard extends JDialog {
     // ── result state ─────────────────────────────────────────────────────────
     private boolean confirmed = false;
 
+    /** True once the user has manually typed into the variant name field. */
+    private boolean userEditedName = false;
+
     // ── OS data ──────────────────────────────────────────────────────────────
     private OsDefinition currentDef;
 
@@ -183,9 +186,9 @@ public class AddVariantWizard extends JDialog {
         outputTypeChoice.addItemListener(e -> onOutputTypeChanged());
         variantChoice.addItemListener(e -> onVariantChanged());
         variantNameField.getDocument().addDocumentListener(new DocumentListener() {
-            public void insertUpdate(DocumentEvent e) { refreshOkButton(); }
-            public void removeUpdate(DocumentEvent e) { refreshOkButton(); }
-            public void changedUpdate(DocumentEvent e) { refreshOkButton(); }
+            public void insertUpdate(DocumentEvent e) { userEditedName = true; refreshOkButton(); }
+            public void removeUpdate(DocumentEvent e) { userEditedName = true; refreshOkButton(); }
+            public void changedUpdate(DocumentEvent e) { userEditedName = true; refreshOkButton(); }
         });
         okBtn.addActionListener(e -> onOkPressed());
         cancelBtn.addActionListener(e -> dispose());
@@ -515,6 +518,9 @@ public class AddVariantWizard extends JDialog {
 
     /** Enables OK only when all five fields are non-blank and the name is valid. */
     private void refreshOkButton() {
+        // auto-populate variant name when all combos are filled and user hasn't typed
+        maybePopulateDefaultName();
+
         String name = variantNameField.getText().trim();
         boolean nameOk = !name.isEmpty() && name.matches(VARIANT_NAME_PATTERN);
         boolean ready = nameOk
@@ -523,6 +529,52 @@ public class AddVariantWizard extends JDialog {
                      && !selectedText(variantChoice).isEmpty()
                      && !selectedText(processorChoice).isEmpty();
         okBtn.setEnabled(ready);
+    }
+
+    /**
+     * When all four combo boxes have a non-blank selection and the variant
+     * name field is still empty (and the user has not manually edited it),
+     * populates the name with a default derived from the selected options.
+     * <p>Format: {@code <os>-<processor>-<bits>-<linking>}, e.g.
+     * {@code linux-x86_64-64-static}.</p>
+     */
+    private void maybePopulateDefaultName() {
+        if (userEditedName) return;
+        if (!variantNameField.getText().trim().isEmpty()) return;
+
+        String processor  = selectedText(processorChoice);
+        String os         = selectedText(osChoice);
+        String outputType = selectedText(outputTypeChoice);
+        String variant    = selectedText(variantChoice);
+        if (processor.isEmpty() || os.isEmpty()
+                || outputType.isEmpty() || variant.isEmpty()) {
+            return;
+        }
+
+        // Derive bits and linking from the selected variant definition
+        String bits    = "";
+        String linking = "";
+        if (currentDef != null && currentDef.variants != null) {
+            for (OsDefinition.Variant v : currentDef.variants) {
+                String display = v.name != null ? v.name : v.id;
+                if (variant.equals(display)) {
+                    if (v.bits > 0) bits = String.valueOf(v.bits);
+                    if (v.linking != null) linking = v.linking.toLowerCase();
+                    break;
+                }
+            }
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(os.toLowerCase());
+        sb.append('-').append(processor.toLowerCase());
+        if (!bits.isEmpty())    sb.append('-').append(bits);
+        if (!linking.isEmpty()) sb.append('-').append(linking);
+
+        // Set the text without triggering the userEditedName flag
+        userEditedName = false;
+        variantNameField.setText(sb.toString());
+        userEditedName = false;
     }
 
     // ── description builders ──────────────────────────────────────────────────
