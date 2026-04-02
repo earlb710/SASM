@@ -504,7 +504,7 @@ On AArch64, current dword-pair `_long` functions can be dramatically simplified:
 
 | Function | Current (32-bit pairs) | AArch64 Native |
 |----------|----------------------|----------------|
-| abs_long | 7 instructions | 3: `LDR x0,[x4]` / `CMP x0,#0` / `CNEG x0,x0,LT` / `STR x0,[x4]` |
+| abs_long | 7 instructions | 4: `LDR x0,[x4]` / `CMP x0,#0` / `CNEG x0,x0,LT` / `STR x0,[x4]` |
 | sign_long | 9 instructions | 2: `LDR x0,[x4]` / `CMP x0,#0` + conditional set |
 | max_long | 8 instructions | 4: two `LDR` + `CMP` + `CSEL` + `STR` |
 | min_long | 8 instructions | 4: two `LDR` + `CMP` + `CSEL` + `STR` |
