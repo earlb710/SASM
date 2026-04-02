@@ -2709,6 +2709,82 @@ class SasmTranslatorTest {
         }
     }
 
+    /**
+     * Verifies that all 5 long (64-bit) integer math functions resolve
+     * correctly when called in a single translation unit.
+     *
+     * <p>Functions tested: sqrt_long, abs_long, max_long, min_long,
+     * sign_long.  These use pointer-based (addr) parameters with ESI
+     * and EDI, operating on qword values in memory.</p>
+     */
+    @Test
+    void allLongMathFunctions_resolveCorrectly() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .data",
+                "var q_val as qword = 100",
+                "var q_b   as qword = 50",
+                "var r_sign as dword = 0",
+                "section .text",
+                "lea esi, [q_val]",
+                "call @math.sqrt_long",
+                "lea esi, [q_val]",
+                "call @math.abs_long",
+                "lea esi, [q_val]",
+                "lea edi, [q_b]",
+                "call @math.max_long",
+                "lea esi, [q_val]",
+                "lea edi, [q_b]",
+                "call @math.min_long",
+                "lea esi, [q_val]",
+                "call @math.sign_long",
+                "move eax to dword [r_sign]");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // Without a working directory, all procs emit CALL labels
+        String[] expectedCalls = {
+                "CALL math_sqrt_long",
+                "CALL math_abs_long",
+                "CALL math_max_long",
+                "CALL math_min_long",
+                "CALL math_sign_long"
+        };
+        for (String expected : expectedCalls) {
+            assertTrue(asm.contains(expected),
+                    expected + " should be present in output");
+        }
+    }
+
+    /**
+     * Verifies that the testMathLong.sasm test file translates without
+     * errors and that inline procs (sqrt_long, abs_long, sign_long) are
+     * correctly expanded when the library is readable.
+     */
+    @Test
+    void testMathLong_translatesCleanly() throws IOException {
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(new File("test"));
+        String src = Files.readString(Path.of("test/core/testMathLong.sasm"));
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "testMathLong.sasm should translate without errors: " + t.getErrors());
+        assertFalse(asm.isBlank(), "Output must not be blank");
+        // Inline procs expand their body (lowercase from library)
+        assertTrue(asm.contains("fsqrt"),
+                "sqrt_long (inline) must produce fsqrt");
+        assertTrue(asm.contains("fabs"),
+                "abs_long (inline) must produce fabs");
+        assertTrue(asm.contains("ftst"),
+                "sign_long (inline) must produce ftst");
+        // Non-inline procs generate CALL
+        assertTrue(asm.contains("CALL math_max_long"),
+                "max_long must produce CALL");
+        assertTrue(asm.contains("CALL math_min_long"),
+                "min_long must produce CALL");
+    }
+
     // ── default <reg> parameter annotation ──────────────────────────────────
 
     /**
