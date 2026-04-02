@@ -1192,6 +1192,51 @@ public class SasmMain {
 
         currentProject = pf;
 
+        // ── Reconcile variants with filesystem ───────────────────────────────
+        // If any variant directories exist on disk that are not tracked in
+        // pf.variants (e.g. the project was created before variants were
+        // persisted to JSON), create minimal VariantEntry objects so that
+        // every poplist that reads pf.variants stays in sync with the tree.
+        if (pf.workingDirectory != null) {
+            File workDir = new File(pf.workingDirectory);
+            if (workDir.isDirectory()) {
+                File[] subDirs = workDir.listFiles(
+                        f -> f.isDirectory()
+                                && !f.getName().equals("core")
+                                && !f.getName().equals("lib")
+                                && !f.getName().startsWith("."));
+                if (subDirs != null && subDirs.length > 0) {
+                    List<ProjectFile.VariantEntry> existing = pf.getVariants();
+                    java.util.Set<String> knownNames = new java.util.HashSet<>();
+                    for (ProjectFile.VariantEntry ve : existing) {
+                        if (ve.variantName != null) knownNames.add(ve.variantName);
+                    }
+                    boolean changed = false;
+                    for (File sub : subDirs) {
+                        if (!knownNames.contains(sub.getName())) {
+                            ProjectFile.VariantEntry orphan = new ProjectFile.VariantEntry();
+                            orphan.variantName = sub.getName();
+                            existing.add(orphan);
+                            changed = true;
+                        }
+                    }
+                    // Persist the migration so it does not re-run on every load
+                    if (changed && currentProjectFile != null) {
+                        try {
+                            JsonLoader.saveProjectFile(pf, currentProjectFile);
+                        } catch (Exception ex) {
+                            // statusBar may not yet exist at startup; fall back to stderr
+                            if (statusBar != null) {
+                                statusBar.setText(" Warning: could not save migrated project — " + ex.getMessage());
+                            } else {
+                                System.err.println("SASM: could not save migrated project: " + ex.getMessage());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Switch to IDE card
         cardLayout.show(cardPanel, CARD_IDE);
         idePanel.setProject(pf);
