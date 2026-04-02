@@ -79,7 +79,10 @@ public class SasmIdePanel extends JPanel {
     private LineNumberComponent editorLineNumbers;
 
     // ── assembler output (right pane — NASM, 1/3 width) ─────────────────────
-    private final JLabel    asmHeader = new JLabel("  Assembler Output", SwingConstants.LEFT);
+    /** Dropdown listing all project variants; replaces the plain "Assembler Output" label. */
+    private final JComboBox<String> variantChoice = new JComboBox<>();
+    /** The single action listener on variantChoice; stored so it can be cleanly removed during model refresh. */
+    private final ActionListener variantChoiceListener = e -> onVariantSelected();
     private final JTextArea asmOutput = new JTextArea(30, 40);
     private JScrollPane     asmScroll;
     private LineNumberComponent asmLineNumbers;
@@ -175,7 +178,7 @@ public class SasmIdePanel extends JPanel {
     }
 
     // ── SASM → NASM translator ───────────────────────────────────────────────
-    private final SasmTranslator translator = new SasmTranslator();
+    private SasmTranslator translator = new SasmTranslator();
 
     // ── undo / redo ───────────────────────────────────────────────────────────
     private final UndoManager undoManager = new UndoManager();
@@ -225,12 +228,83 @@ public class SasmIdePanel extends JPanel {
         asmOutput.setText("");
         editorHeader.setText("  (no file open)");
         treeHeader.setText(pf != null && pf.name != null ? pf.name : "Project Files");
-        // Tell the translator where to find library files referenced by #REF
-        // so that inline proc bodies can be expanded at call sites.
-        translator.setWorkingDirectory(
-                pf != null && pf.workingDirectory != null
-                        ? new File(pf.workingDirectory) : null);
+        // Repopulate the variant dropdown and rebuild the translator
+        refreshVariantChoice();
         refreshFileList();
+    }
+
+    /**
+     * Repopulates the variant dropdown from the current project's variant list
+     * and rebuilds the translator to match the selected variant's architecture.
+     */
+    private void refreshVariantChoice() {
+        // Temporarily remove the listener to avoid cascading re-translate calls
+        // while we rebuild the model.
+        variantChoice.removeActionListener(variantChoiceListener);
+
+        variantChoice.removeAllItems();
+
+        if (project != null) {
+            java.util.List<ProjectFile.VariantEntry> variants = project.getVariants();
+            for (ProjectFile.VariantEntry ve : variants) {
+                String name = ve.variantName != null ? ve.variantName : "(unnamed)";
+                variantChoice.addItem(name);
+            }
+            // Select the project's default variant if set
+            if (project.defaultVariant != null && !project.defaultVariant.isEmpty()) {
+                variantChoice.setSelectedItem(project.defaultVariant);
+            } else if (variantChoice.getItemCount() > 0) {
+                variantChoice.setSelectedIndex(0);
+            }
+        }
+
+        // Restore action listener
+        variantChoice.addActionListener(variantChoiceListener);
+
+        // Rebuild translator for the currently selected variant
+        rebuildTranslatorForSelectedVariant();
+    }
+
+    /**
+     * Derives the target {@link Architecture} from a {@link ProjectFile.VariantEntry}
+     * using the processor name stored in the entry.
+     */
+    private static Architecture architectureFor(ProjectFile.VariantEntry ve) {
+        if (ve == null || ve.processor == null) return Architecture.X86_32;
+        return Architecture.from(ve.processor, 0);
+    }
+
+    /**
+     * (Re-)creates the {@link SasmTranslator} configured for the architecture of
+     * whichever variant is currently selected in the dropdown.
+     */
+    private void rebuildTranslatorForSelectedVariant() {
+        Architecture arch = Architecture.X86_32;
+        if (project != null) {
+            String sel = (String) variantChoice.getSelectedItem();
+            if (sel != null) {
+                for (ProjectFile.VariantEntry ve : project.getVariants()) {
+                    String name = ve.variantName != null ? ve.variantName : "(unnamed)";
+                    if (sel.equals(name)) {
+                        arch = architectureFor(ve);
+                        break;
+                    }
+                }
+            }
+        }
+        translator = new SasmTranslator(arch);
+        translator.setWorkingDirectory(
+                project != null && project.workingDirectory != null
+                        ? new File(project.workingDirectory) : null);
+        lastAsmText = ""; // force a re-translate
+    }
+
+    /** Called when the user picks a different variant from the dropdown. */
+    private void onVariantSelected() {
+        rebuildTranslatorForSelectedVariant();
+        if (asmVisible) {
+            updateAsmOutput();
+        }
     }
 
     /**
@@ -630,12 +704,22 @@ public class SasmIdePanel extends JPanel {
         // ── right pane (assembler output — 1/3 of remaining width) ───────────
         asmPane = new JPanel(new BorderLayout(0, 0));
 
-        asmHeader.setFont(new Font("SansSerif", Font.BOLD, 12));
-        asmHeader.setOpaque(true);
-        asmHeader.setBackground(new Color(0x2B, 0x57, 0x97));
-        asmHeader.setForeground(Color.WHITE);
-        asmHeader.setPreferredSize(new Dimension(0, 28));
-        asmPane.add(asmHeader, BorderLayout.NORTH);
+        // Header bar: blue background, variant dropdown instead of a plain label
+        JPanel asmHeaderBar = new JPanel(new BorderLayout(4, 0));
+        asmHeaderBar.setBackground(new Color(0x2B, 0x57, 0x97));
+        asmHeaderBar.setPreferredSize(new Dimension(0, 28));
+
+        JLabel asmHeaderLabel = new JLabel("  Variant:", SwingConstants.LEFT);
+        asmHeaderLabel.setFont(new Font("SansSerif", Font.BOLD, 12));
+        asmHeaderLabel.setForeground(Color.WHITE);
+        asmHeaderBar.add(asmHeaderLabel, BorderLayout.WEST);
+
+        variantChoice.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        variantChoice.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+        variantChoice.addActionListener(variantChoiceListener);
+        asmHeaderBar.add(variantChoice, BorderLayout.CENTER);
+
+        asmPane.add(asmHeaderBar, BorderLayout.NORTH);
 
         asmOutput.setFont(new Font("Monospaced", Font.PLAIN, 13));
         asmOutput.setBackground(new Color(0x0A, 0x14, 0x28));
