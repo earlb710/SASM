@@ -3,15 +3,15 @@
 //
 // Exercises the 5 long (64-bit) integer math-library routines:
 //
-//   @math.sqrt_long   — [ESI] = integer √[ESI]          (qword via FPU)
-//   @math.abs_long    — [ESI] = |[ESI]|                  (qword, pure integer)
-//   @math.max_long    — [ESI] = max([ESI],[EDI])         (signed qword, pure integer)
-//   @math.min_long    — [ESI] = min([ESI],[EDI])         (signed qword, pure integer)
-//   @math.sign_long   — EAX  = sign([ESI]): -1, 0, or 1 (qword, pure integer)
+//   @math.sqrt_long   — [ptr1] = integer √[ptr1]          (qword via FPU)
+//   @math.abs_long    — [ptr1] = |[ptr1]|                  (qword, pure integer)
+//   @math.max_long    — [ptr1] = max([ptr1],[ptr2])         (signed qword, pure integer)
+//   @math.min_long    — [ptr1] = min([ptr1],[ptr2])         (signed qword, pure integer)
+//   @math.sign_long   — reg1  = sign([ptr1]): -1, 0, or 1 (qword, pure integer)
 //
-// These routines use pointer-based calling conventions: ESI (and EDI
+// These routines use pointer-based calling conventions: ptr1 (and ptr2
 // for two-operand functions) point to qword values in memory.  Results
-// are stored back to the qword at [ESI] (or in EAX for sign_long).
+// are stored back to the qword at [ptr1] (or in reg1 for sign_long).
 //
 // Target: 32-bit Linux ELF executable (uses int 0x80 for exit).
 //
@@ -66,7 +66,7 @@ start:
     // Copy input to result buffer, then operate in-place
     fild qword [q_sqrt_val]
     fistp qword [r_sqrt]
-    lea esi, [r_sqrt]
+    lea ptr1, [r_sqrt]
     call @math.sqrt_long               // [r_sqrt] = 10
 
     // ═════════════════════════════════════════════════════════════
@@ -75,12 +75,12 @@ start:
 
     fild qword [q_abs_neg]
     fistp qword [r_abs_neg]
-    lea esi, [r_abs_neg]
+    lea ptr1, [r_abs_neg]
     call @math.abs_long                // [r_abs_neg] = 42
 
     fild qword [q_abs_pos]
     fistp qword [r_abs_pos]
-    lea esi, [r_abs_pos]
+    lea ptr1, [r_abs_pos]
     call @math.abs_long                // [r_abs_pos] = 7
 
     // ═════════════════════════════════════════════════════════════
@@ -90,8 +90,8 @@ start:
     // Copy q_a → r_max, then compare with q_b
     fild qword [q_a]
     fistp qword [r_max]
-    lea esi, [r_max]
-    lea edi, [q_b]
+    lea ptr1, [r_max]
+    lea ptr2, [q_b]
     call @math.max_long                // [r_max] = 500
 
     // ═════════════════════════════════════════════════════════════
@@ -101,28 +101,28 @@ start:
     // Copy q_a → r_min, then compare with q_b
     fild qword [q_a]
     fistp qword [r_min]
-    lea esi, [r_min]
-    lea edi, [q_b]
+    lea ptr1, [r_min]
+    lea ptr2, [q_b]
     call @math.min_long                // [r_min] = 300
 
     // ═════════════════════════════════════════════════════════════
     //  sign_long: sign(-99) = -1, sign(0) = 0, sign(42) = 1
     // ═════════════════════════════════════════════════════════════
 
-    lea esi, [q_neg]
-    call @math.sign_long               // eax = -1
-    move eax to dword [r_sign_neg]
+    lea ptr1, [q_neg]
+    call @math.sign_long               // reg1 = -1
+    move reg1 to dword [r_sign_neg]
 
-    lea esi, [q_zero]
-    call @math.sign_long               // eax = 0
-    move eax to dword [r_sign_zero]
+    lea ptr1, [q_zero]
+    call @math.sign_long               // reg1 = 0
+    move reg1 to dword [r_sign_zero]
 
-    lea esi, [q_pos]
-    call @math.sign_long               // eax = 1
-    move eax to dword [r_sign_pos]
+    lea ptr1, [q_pos]
+    call @math.sign_long               // reg1 = 1
+    move reg1 to dword [r_sign_pos]
 
 exit:
     // ── exit cleanly ────────────────────────────────────────────
-    move 1 to eax                      // sys_exit
-    move 0 to ebx                      // exit code 0
+    move 1 to reg1                      // sys_exit
+    move 0 to reg2                      // exit code 0
     interrupt 0x80

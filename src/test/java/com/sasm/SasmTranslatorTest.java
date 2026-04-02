@@ -2775,11 +2775,11 @@ class SasmTranslatorTest {
         assertTrue(asm.contains("fsqrt"),
                 "sqrt_long (inline) must produce fsqrt");
         // abs_long: pure integer — NOT + ADD with carry
-        assertTrue(asm.contains("NOT dword [esi]"),
+        assertTrue(asm.contains("NOT dword [ESI]"),
                 "abs_long (inline) must produce NOT (pure integer)");
         // sign_long: pure integer — test high dword
-        assertTrue(asm.contains("mov eax, [esi+4]"),
-                "sign_long (inline) must produce mov eax, [esi+4] (pure integer)");
+        assertTrue(asm.contains("mov EAX, [ESI+4]"),
+                "sign_long (inline) must produce mov EAX, [ESI+4] (pure integer)");
         // Non-inline procs generate CALL
         assertTrue(asm.contains("CALL math_max_long"),
                 "max_long must produce CALL");

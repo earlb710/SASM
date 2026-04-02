@@ -11,8 +11,8 @@
 //     call @kbd.read_char
 //     call @kbd.read_line
 //
-// After calling read_char, the character read is in AL.
-// After calling read_line, EAX contains the number of bytes read.
+// After calling read_char, the character read is in reg1.b.
+// After calling read_line, reg1 contains the number of bytes read.
 
 #COMPAT Linux x86 (i386, int 0x80 ABI)
 
@@ -22,39 +22,39 @@ section .text
 // Reads a single character from stdin (Linux sys_read).
 //
 // Input:  none
-// Output: AL = character read (0 on error/EOF)
-// Clobbers: EAX, EBX, ECX, EDX
+// Output: reg1.b = character read (0 on error/EOF)
+// Clobbers: reg1, reg2, reg3, reg4
 //
 // Example:
 //   call @kbd.read_char
-//   // al = character typed by user
+//   // reg1.b = character typed by user
 proc read_char () out val byte {
-    push ebp
-    move esp to ebp
-    subtract 4 from esp       // local: [ebp-4] = char buffer
+    push bp
+    move sp to bp
+    subtract 4 from sp       // local: [bp-4] = char buffer
 
-    move 0 to dword [ebp-4]   // clear buffer
+    move 0 to dword [bp-4]   // clear buffer
 
     // sys_read(stdin, &buf, 1)
-    move 3 to eax              // sys_read
-    move 0 to ebx              // fd = stdin
-    address of ebp-4 to ecx    // ecx = pointer to buffer
-    move 1 to edx              // length = 1
+    move 3 to reg1              // sys_read
+    move 0 to reg2              // fd = stdin
+    address of bp-4 to reg3    // reg3 = pointer to buffer
+    move 1 to reg4              // length = 1
     interrupt 0x80
 
-    // If eax <= 0, return 0 in al
-    compare eax, 0
+    // If reg1 <= 0, return 0 in reg1.b
+    compare reg1, 0
     if less or equal {
-        move 0 to al
-        move ebp to esp
-        pop ebp
+        move 0 to reg1.b
+        move bp to sp
+        pop bp
         return
     }
 
-    move byte [ebp-4] to al    // return character in al
+    move byte [bp-4] to reg1.b    // return character in reg1.b
 
-    move ebp to esp
-    pop ebp
+    move bp to sp
+    pop bp
     return
 }
 
@@ -65,32 +65,32 @@ proc read_char () out val byte {
 // pressed Enter.
 //
 // Input:
-//   [esp+4]  = pointer to destination buffer
-//   [esp+8]  = maximum number of bytes to read (buffer size)
+//   [sp+4]  = pointer to destination buffer
+//   [sp+8]  = maximum number of bytes to read (buffer size)
 //
 // Output:
-//   EAX = number of bytes actually read, or negative on error
+//   reg1 = number of bytes actually read, or negative on error
 //
-// Clobbers: EAX, EBX, ECX, EDX
+// Clobbers: reg1, reg2, reg3, reg4
 //
 // Example:
 //   push 80                   // max bytes
 //   push input_buf            // buffer pointer
 //   call @kbd.read_line
-//   // eax = number of bytes read
+//   // reg1 = number of bytes read
 proc read_line uses stack ( buffer_ptr, max_bytes ) {
-    push ebp
-    move esp to ebp
+    push bp
+    move sp to bp
 
     // sys_read(stdin, buffer, max_len)
-    move 3 to eax              // sys_read
-    move 0 to ebx              // fd = stdin
-    move [ebp+8] to ecx        // ecx = buffer pointer
-    move [ebp+12] to edx       // edx = max bytes to read
+    move 3 to reg1              // sys_read
+    move 0 to reg2              // fd = stdin
+    move [bp+8] to reg3        // reg3 = buffer pointer
+    move [bp+12] to reg4       // reg4 = max bytes to read
     interrupt 0x80
 
-    // eax = bytes read (or negative error code)
+    // reg1 = bytes read (or negative error code)
 
-    pop ebp
+    pop bp
     return
 }

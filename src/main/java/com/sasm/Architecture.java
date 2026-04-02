@@ -93,7 +93,7 @@ public enum Architecture {
      * <p>Groups: (1) base name, (2) suffix or null.</p>
      */
     public static final Pattern PORTABLE_REG = Pattern.compile(
-            "\\b(reg[1-4]|ptr[1-2]|bp|freg[1-2])(?:\\.(b|w))?\\b",
+            "\\b(reg[1-4]|ptr[1-2]|bp|sp|freg[1-2])(?:\\.(b|w))?\\b",
             Pattern.CASE_INSENSITIVE);
 
     /**
@@ -180,6 +180,7 @@ public enum Architecture {
         m.put("ptr2", "EDI");
         // Frame / stack
         m.put("bp",   "EBP");
+        m.put("sp",   "ESP");
         // Float registers (x87 FPU)
         m.put("freg1", "ST0");
         m.put("freg2", "ST1");
@@ -198,6 +199,7 @@ public enum Architecture {
         m.put("ptr1.w", "SI");
         m.put("ptr2.w", "DI");
         m.put("bp.w",   "BP");
+        m.put("sp.w",   "SP");
         return m;
     }
 
@@ -210,6 +212,7 @@ public enum Architecture {
         m.put("ptr1", "RSI");
         m.put("ptr2", "RDI");
         m.put("bp",   "RBP");
+        m.put("sp",   "RSP");
         m.put("freg1", "ST0");
         m.put("freg2", "ST1");
 
@@ -225,6 +228,7 @@ public enum Architecture {
         m.put("ptr1.w", "SI");
         m.put("ptr2.w", "DI");
         m.put("bp.w",   "BP");
+        m.put("sp.w",   "SP");
         return m;
     }
 
@@ -237,6 +241,7 @@ public enum Architecture {
         m.put("ptr1", "r4");
         m.put("ptr2", "r5");
         m.put("bp",   "r11");
+        m.put("sp",   "sp");
         m.put("freg1", "s0");
         m.put("freg2", "s1");
 
@@ -252,6 +257,7 @@ public enum Architecture {
         m.put("ptr1.w", "r4");
         m.put("ptr2.w", "r5");
         m.put("bp.w",   "r11");
+        m.put("sp.w",   "sp");
         return m;
     }
 
@@ -264,6 +270,7 @@ public enum Architecture {
         m.put("ptr1", "x4");
         m.put("ptr2", "x5");
         m.put("bp",   "x29");
+        m.put("sp",   "sp");
         m.put("freg1", "s0");
         m.put("freg2", "s1");
 
@@ -282,6 +289,7 @@ public enum Architecture {
         m.put("ptr1.w", "w4");
         m.put("ptr2.w", "w5");
         m.put("bp.w",   "w29");
+        m.put("sp.w",   "wsp");
         return m;
     }
 

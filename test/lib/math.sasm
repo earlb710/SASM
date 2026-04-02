@@ -10,25 +10,25 @@
 //     #REF lib/math.sasm math
 //
 // Integer routines:
-//     call @math.square          // EAX = EAX * EAX (unsigned)
-//     call @math.sqrt_int        // EAX = integer √EAX
-//     call @math.max             // EAX = max(EAX, EBX) signed
-//     call @math.min             // EAX = min(EAX, EBX) signed
-//     call @math.max_array       // EAX = max of dword array (ESI=ptr, ECX=count)
-//     call @math.min_array       // EAX = min of dword array (ESI=ptr, ECX=count)
-//     call @math.abs_int         // EAX = |EAX|
-//     call @math.sign            // EAX = sign(EAX): -1, 0, or 1
-//     call @math.clamp           // EAX = clamp(EAX, EBX, ECX) to [EBX..ECX]
-//     call @math.leading_zeros   // EAX = count of leading zero bits (32 if EAX=0)
-//     call @math.trailing_zeros  // EAX = count of trailing zero bits (32 if EAX=0)
-//     call @math.is_power_of_two // EAX = 1 if EAX is a power of two, 0 otherwise
+//     call @math.square          // reg1 = reg1 * reg1 (unsigned)
+//     call @math.sqrt_int        // reg1 = integer √reg1
+//     call @math.max             // reg1 = max(reg1, reg2) signed
+//     call @math.min             // reg1 = min(reg1, reg2) signed
+//     call @math.max_array       // reg1 = max of dword array (ptr1=ptr, reg3=count)
+//     call @math.min_array       // reg1 = min of dword array (ptr1=ptr, reg3=count)
+//     call @math.abs_int         // reg1 = |reg1|
+//     call @math.sign            // reg1 = sign(reg1): -1, 0, or 1
+//     call @math.clamp           // reg1 = clamp(reg1, reg2, reg3) to [reg2..reg3]
+//     call @math.leading_zeros   // reg1 = count of leading zero bits (32 if reg1=0)
+//     call @math.trailing_zeros  // reg1 = count of trailing zero bits (32 if reg1=0)
+//     call @math.is_power_of_two // reg1 = 1 if reg1 is a power of two, 0 otherwise
 //
 // Long (64-bit) integer routines (pointer-based, qword in memory):
-//     call @math.sqrt_long       // [ESI] = integer √[ESI]  (qword at ESI, via FPU)
-//     call @math.abs_long        // [ESI] = |[ESI]|          (qword at ESI, pure integer)
-//     call @math.max_long        // [ESI] = max([ESI],[EDI]) (signed qword, pure integer)
-//     call @math.min_long        // [ESI] = min([ESI],[EDI]) (signed qword, pure integer)
-//     call @math.sign_long       // EAX = sign([ESI]): -1, 0, or 1  (qword, pure integer)
+//     call @math.sqrt_long       // [ptr1] = integer √[ptr1]  (qword at ptr1, via FPU)
+//     call @math.abs_long        // [ptr1] = |[ptr1]|          (qword at ptr1, pure integer)
+//     call @math.max_long        // [ptr1] = max([ptr1],[ptr2]) (signed qword, pure integer)
+//     call @math.min_long        // [ptr1] = min([ptr1],[ptr2]) (signed qword, pure integer)
+//     call @math.sign_long       // reg1 = sign([ptr1]): -1, 0, or 1  (qword, pure integer)
 //
 // Float/double routines (x87 FPU stack):
 //     call @math.square_float    // ST(0) = ST(0) * ST(0)
@@ -56,10 +56,10 @@
 //     call @math.div_float       // ST(0) = ST(0) / ST(1);  pops ST(1)
 //     call @math.max_float       // ST(0) = max(ST(0), ST(1)); pops ST(1)  (works with doubles too)
 //     call @math.min_float       // ST(0) = min(ST(0), ST(1)); pops ST(1)  (works with doubles too)
-//     call @math.max_array_float // ST(0) = max of float array (ESI=ptr, ECX=count)
-//     call @math.min_array_float // ST(0) = min of float array (ESI=ptr, ECX=count)
-//     call @math.max_array_double // ST(0) = max of double array (ESI=ptr, ECX=count)
-//     call @math.min_array_double // ST(0) = min of double array (ESI=ptr, ECX=count)
+//     call @math.max_array_float // ST(0) = max of float array (ptr1=ptr, reg3=count)
+//     call @math.min_array_float // ST(0) = min of float array (ptr1=ptr, reg3=count)
+//     call @math.max_array_double // ST(0) = max of double array (ptr1=ptr, reg3=count)
+//     call @math.min_array_double // ST(0) = min of double array (ptr1=ptr, reg3=count)
 //     call @math.fmod            // ST(0) = fmod(ST(1), ST(0));  pops ST(1)
 //     call @math.modf            // ST(0) = frac(ST(0)), pushes ST(1) = trunc(ST(0))
 //     call @math.frexp           // ST(0) = significand [1,2), pushes ST(1) = exponent
@@ -88,66 +88,66 @@ section .text
 // ═══════════════════════════════════════════════════════════════
 
 // ── square ──────────────────────────────────────────────────────
-// Computes the unsigned integer square of EAX.
+// Computes the unsigned integer square of reg1.
 //
-// Input:  EAX = value to square (unsigned 32-bit)
-// Output: EAX = low 32 bits of value * value
-//         EDX = high 32 bits of value * value
-// Clobbers: EDX
+// Input:  reg1 = value to square (unsigned 32-bit)
+// Output: reg1 = low 32 bits of value * value
+//         reg4 = high 32 bits of value * value
+// Clobbers: reg4
 //
 // Example:
-//   move 7 to eax
-//   call @math.square      // eax = 49, edx = 0
-inline proc square (val dword value default eax) out val dword {
-    multiply by eax            // MUL EAX → EDX:EAX = EAX * EAX
+//   move 7 to reg1
+//   call @math.square      // reg1 = 49, reg4 = 0
+inline proc square (val dword value default reg1) out val dword {
+    multiply by reg1            // MUL reg1 → reg4:reg1 = reg1 * reg1
     return
 }
 
 // ── sqrt_int ────────────────────────────────────────────────────
-// Computes the integer square root of EAX using the x87 FPU.
-// The result is the nearest integer to sqrt(EAX).  For perfect
+// Computes the integer square root of reg1 using the x87 FPU.
+// The result is the nearest integer to sqrt(reg1).  For perfect
 // squares the result is exact.
 //
-// Input:  EAX = value (unsigned 32-bit; must be <= 2^31 - 1 for
+// Input:  reg1 = value (unsigned 32-bit; must be <= 2^31 - 1 for
 //                FILD to interpret correctly as signed positive)
-// Output: EAX = nearest integer to sqrt(value)
+// Output: reg1 = nearest integer to sqrt(value)
 // Clobbers: x87 FPU stack (one push/pop cycle)
 //
 // Example:
-//   move 49 to eax
-//   call @math.sqrt_int    // eax = 7
-proc sqrt_int (val dword value default eax) out val dword {
-    push ebp
-    move esp to ebp
-    esp = esp - 4        // local: [ebp-4] = temp dword
+//   move 49 to reg1
+//   call @math.sqrt_int    // reg1 = 7
+proc sqrt_int (val dword value default reg1) out val dword {
+    push bp
+    move sp to bp
+    sp = sp - 4        // local: [bp-4] = temp dword
 
-    move eax to dword [ebp-4]  // store input
-    fild dword [ebp-4]         // push integer onto FPU stack
+    move reg1 to dword [bp-4]  // store input
+    fild dword [bp-4]         // push integer onto FPU stack
     fsqrt                       // ST(0) = sqrt(ST(0))
-    fistp dword [ebp-4]        // pop and store as nearest integer
-    move dword [ebp-4] to eax  // return result in EAX
+    fistp dword [bp-4]        // pop and store as nearest integer
+    move dword [bp-4] to reg1  // return result in reg1
 
-    move ebp to esp
-    pop ebp
+    move bp to sp
+    pop bp
     return
 }
 
 // ── max ─────────────────────────────────────────────────────────
 // Returns the larger of two signed integers.
 //
-// Input:  EAX = first value (signed 32-bit)
-//         EBX = second value (signed 32-bit)
-// Output: EAX = max(EAX, EBX)
+// Input:  reg1 = first value (signed 32-bit)
+//         reg2 = second value (signed 32-bit)
+// Output: reg1 = max(reg1, reg2)
 // Clobbers: none
 //
 // Example:
-//   move 10 to eax
-//   move 20 to ebx
-//   call @math.max         // eax = 20
-inline proc max (val dword first default eax, val dword second default ebx) out val dword {
-    compare eax with ebx
+//   move 10 to reg1
+//   move 20 to reg2
+//   call @math.max         // reg1 = 20
+inline proc max (val dword first default reg1, val dword second default reg2) out val dword {
+    compare reg1 with reg2
     goto .max_done if greater or equal
-    move ebx to eax
+    move reg2 to reg1
 .max_done:
     return
 }
@@ -155,19 +155,19 @@ inline proc max (val dword first default eax, val dword second default ebx) out 
 // ── min ─────────────────────────────────────────────────────────
 // Returns the smaller of two signed integers.
 //
-// Input:  EAX = first value (signed 32-bit)
-//         EBX = second value (signed 32-bit)
-// Output: EAX = min(EAX, EBX)
+// Input:  reg1 = first value (signed 32-bit)
+//         reg2 = second value (signed 32-bit)
+// Output: reg1 = min(reg1, reg2)
 // Clobbers: none
 //
 // Example:
-//   move 10 to eax
-//   move 20 to ebx
-//   call @math.min         // eax = 10
-inline proc min (val dword first default eax, val dword second default ebx) out val dword {
-    compare eax with ebx
+//   move 10 to reg1
+//   move 20 to reg2
+//   call @math.min         // reg1 = 10
+inline proc min (val dword first default reg1, val dword second default reg2) out val dword {
+    compare reg1 with reg2
     goto .min_done if less or equal
-    move ebx to eax
+    move reg2 to reg1
 .min_done:
     return
 }
@@ -175,28 +175,28 @@ inline proc min (val dword first default eax, val dword second default ebx) out 
 // ── max_array ───────────────────────────────────────────────────
 // Finds the maximum value in a signed dword array.
 //
-// Input:  ESI = pointer to first element (dword array)
-//         ECX = number of elements (must be >= 1)
-// Output: EAX = maximum signed value in the array
-// Clobbers: ECX, ESI
+// Input:  ptr1 = pointer to first element (dword array)
+//         reg3 = number of elements (must be >= 1)
+// Output: reg1 = maximum signed value in the array
+// Clobbers: reg3, ptr1
 //
 // Example:
-//   move arr to esi
-//   move 5 to ecx
-//   call @math.max_array   // eax = max element
-proc max_array (addr array_ptr default esi, val dword count default ecx) out val dword {
-    move dword [esi] to eax    // start with first element
-    esi = esi + 4
-    ecx = ecx - 1
+//   move arr to ptr1
+//   move 5 to reg3
+//   call @math.max_array   // reg1 = max element
+proc max_array (addr array_ptr default ptr1, val dword count default reg3) out val dword {
+    move dword [ptr1] to reg1    // start with first element
+    ptr1 = ptr1 + 4
+    reg3 = reg3 - 1
 .max_array_loop:
-    compare ecx with 0
+    compare reg3 with 0
     goto .max_array_done if equal
-    compare eax with dword [esi]
+    compare reg1 with dword [ptr1]
     goto .max_array_skip if greater or equal
-    move dword [esi] to eax
+    move dword [ptr1] to reg1
 .max_array_skip:
-    esi = esi + 4
-    ecx = ecx - 1
+    ptr1 = ptr1 + 4
+    reg3 = reg3 - 1
     goto .max_array_loop
 .max_array_done:
     return
@@ -205,28 +205,28 @@ proc max_array (addr array_ptr default esi, val dword count default ecx) out val
 // ── min_array ───────────────────────────────────────────────────
 // Finds the minimum value in a signed dword array.
 //
-// Input:  ESI = pointer to first element (dword array)
-//         ECX = number of elements (must be >= 1)
-// Output: EAX = minimum signed value in the array
-// Clobbers: ECX, ESI
+// Input:  ptr1 = pointer to first element (dword array)
+//         reg3 = number of elements (must be >= 1)
+// Output: reg1 = minimum signed value in the array
+// Clobbers: reg3, ptr1
 //
 // Example:
-//   move arr to esi
-//   move 5 to ecx
-//   call @math.min_array   // eax = min element
-proc min_array (addr array_ptr default esi, val dword count default ecx) out val dword {
-    move dword [esi] to eax    // start with first element
-    esi = esi + 4
-    ecx = ecx - 1
+//   move arr to ptr1
+//   move 5 to reg3
+//   call @math.min_array   // reg1 = min element
+proc min_array (addr array_ptr default ptr1, val dword count default reg3) out val dword {
+    move dword [ptr1] to reg1    // start with first element
+    ptr1 = ptr1 + 4
+    reg3 = reg3 - 1
 .min_array_loop:
-    compare ecx with 0
+    compare reg3 with 0
     goto .min_array_done if equal
-    compare eax with dword [esi]
+    compare reg1 with dword [ptr1]
     goto .min_array_skip if less or equal
-    move dword [esi] to eax
+    move dword [ptr1] to reg1
 .min_array_skip:
-    esi = esi + 4
-    ecx = ecx - 1
+    ptr1 = ptr1 + 4
+    reg3 = reg3 - 1
     goto .min_array_loop
 .min_array_done:
     return
@@ -234,42 +234,42 @@ proc min_array (addr array_ptr default esi, val dword count default ecx) out val
 
 // ── abs_int ─────────────────────────────────────────────────────
 // Returns the absolute value of a signed 32-bit integer.
-// Branchless: sign-extend to EDX, XOR, then subtract sign mask.
+// Branchless: sign-extend to reg4, XOR, then subtract sign mask.
 //
-// Input:  EAX = signed 32-bit value
-// Output: EAX = |value|
-// Clobbers: EDX
+// Input:  reg1 = signed 32-bit value
+// Output: reg1 = |value|
+// Clobbers: reg4
 //
 // Example:
-//   move -7 to eax
-//   call @math.abs_int     // eax = 7
-inline proc abs_int (val dword value default eax) out val dword {
-    cdq                         // EDX = sign mask: 0 if EAX >= 0, 0xFFFFFFFF if EAX < 0
-    xor eax, edx               // if negative: flip all bits
-    sub eax, edx               // if negative: subtract -1 → two's complement negation
+//   move -7 to reg1
+//   call @math.abs_int     // reg1 = 7
+inline proc abs_int (val dword value default reg1) out val dword {
+    cdq                         // reg4 = sign mask: 0 if reg1 >= 0, 0xFFFFFFFF if reg1 < 0
+    xor reg1, reg4               // if negative: flip all bits
+    sub reg1, reg4               // if negative: subtract -1 → two's complement negation
     return
 }
 
 // ── sign ────────────────────────────────────────────────────────
 // Returns the sign of a signed 32-bit integer as -1, 0, or 1.
 //
-// Input:  EAX = signed 32-bit value
-// Output: EAX = -1 if value < 0,  0 if value == 0,  1 if value > 0
+// Input:  reg1 = signed 32-bit value
+// Output: reg1 = -1 if value < 0,  0 if value == 0,  1 if value > 0
 // Clobbers: none
 //
 // Example:
-//   move -5 to eax
-//   call @math.sign        // eax = -1
-//   move 3 to eax
-//   call @math.sign        // eax = 1
-inline proc sign (val dword value default eax) out val dword {
-    compare eax with 0
+//   move -5 to reg1
+//   call @math.sign        // reg1 = -1
+//   move 3 to reg1
+//   call @math.sign        // reg1 = 1
+inline proc sign (val dword value default reg1) out val dword {
+    compare reg1 with 0
     goto .negative if less
     goto .done if equal
-    move 1 to eax
+    move 1 to reg1
     goto .done
 .negative:
-    move -1 to eax
+    move -1 to reg1
 .done:
     return
 }
@@ -278,99 +278,99 @@ inline proc sign (val dword value default eax) out val dword {
 // Clamps a signed 32-bit integer to the range [lo, hi].
 // Equivalent to max(lo, min(value, hi)).
 //
-// Input:  EAX = value to clamp (signed 32-bit)
-//         EBX = lo  (lower bound, inclusive)
-//         ECX = hi  (upper bound, inclusive)
-// Output: EAX = clamped value
+// Input:  reg1 = value to clamp (signed 32-bit)
+//         reg2 = lo  (lower bound, inclusive)
+//         reg3 = hi  (upper bound, inclusive)
+// Output: reg1 = clamped value
 // Clobbers: none
 //
 // Example:
-//   move -5 to eax
-//   move 0  to ebx
-//   move 10 to ecx
-//   call @math.clamp       // eax = 0
-inline proc clamp (val dword value default eax, val dword lo default ebx, val dword hi default ecx) out val dword {
-    compare eax with ebx
+//   move -5 to reg1
+//   move 0  to reg2
+//   move 10 to reg3
+//   call @math.clamp       // reg1 = 0
+inline proc clamp (val dword value default reg1, val dword lo default reg2, val dword hi default reg3) out val dword {
+    compare reg1 with reg2
     goto .hi_check if greater or equal
-    move ebx to eax
+    move reg2 to reg1
 .hi_check:
-    compare eax with ecx
+    compare reg1 with reg3
     goto .done if less or equal
-    move ecx to eax
+    move reg3 to reg1
 .done:
     return
 }
 
 // ── leading_zeros ───────────────────────────────────────────────
 // Counts the number of leading zero bits in a 32-bit integer.
-// Uses BSR (Bit Scan Reverse).  Returns 32 when EAX = 0.
+// Uses BSR (Bit Scan Reverse).  Returns 32 when reg1 = 0.
 //
-// Input:  EAX = unsigned 32-bit value
-// Output: EAX = count of leading zero bits (0..32)
-//              = 32 if EAX was 0
-// Clobbers: ECX
+// Input:  reg1 = unsigned 32-bit value
+// Output: reg1 = count of leading zero bits (0..32)
+//              = 32 if reg1 was 0
+// Clobbers: reg3
 //
 // Example:
-//   move 1 to eax
-//   call @math.leading_zeros  // eax = 31
-inline proc leading_zeros (val dword value default eax) out val dword {
-    bsr ecx, eax               // ECX = index of highest set bit; ZF set if EAX=0
+//   move 1 to reg1
+//   call @math.leading_zeros  // reg1 = 31
+inline proc leading_zeros (val dword value default reg1) out val dword {
+    bsr reg3, reg1               // reg3 = index of highest set bit; ZF set if reg1=0
     jz .lz_zero
-    move 31 to eax
-    sub eax, ecx               // 31 - bit_index = leading zero count
+    move 31 to reg1
+    sub reg1, reg3               // 31 - bit_index = leading zero count
     goto .lz_done
 .lz_zero:
-    move 32 to eax
+    move 32 to reg1
 .lz_done:
     return
 }
 
 // ── trailing_zeros ──────────────────────────────────────────────
 // Counts the number of trailing zero bits in a 32-bit integer.
-// Uses BSF (Bit Scan Forward).  Returns 32 when EAX = 0.
+// Uses BSF (Bit Scan Forward).  Returns 32 when reg1 = 0.
 //
-// Input:  EAX = unsigned 32-bit value
-// Output: EAX = count of trailing zero bits (0..32)
-//              = 32 if EAX was 0
-// Clobbers: ECX
+// Input:  reg1 = unsigned 32-bit value
+// Output: reg1 = count of trailing zero bits (0..32)
+//              = 32 if reg1 was 0
+// Clobbers: reg3
 //
 // Example:
-//   move 8 to eax
-//   call @math.trailing_zeros // eax = 3
-inline proc trailing_zeros (val dword value default eax) out val dword {
-    bsf ecx, eax               // ECX = index of lowest set bit; ZF set if EAX=0
+//   move 8 to reg1
+//   call @math.trailing_zeros // reg1 = 3
+inline proc trailing_zeros (val dword value default reg1) out val dword {
+    bsf reg3, reg1               // reg3 = index of lowest set bit; ZF set if reg1=0
     jz .tz_zero
-    move ecx to eax
+    move reg3 to reg1
     goto .tz_done
 .tz_zero:
-    move 32 to eax
+    move 32 to reg1
 .tz_done:
     return
 }
 
 // ── is_power_of_two ─────────────────────────────────────────────
-// Tests whether EAX is an exact power of two (1, 2, 4, 8, ...).
+// Tests whether reg1 is an exact power of two (1, 2, 4, 8, ...).
 // Zero is NOT considered a power of two.
 //
-// Input:  EAX = unsigned 32-bit value
-// Output: EAX = 1 if EAX is a power of two, 0 otherwise
-// Clobbers: ECX
+// Input:  reg1 = unsigned 32-bit value
+// Output: reg1 = 1 if reg1 is a power of two, 0 otherwise
+// Clobbers: reg3
 //
 // Example:
-//   move 8 to eax
-//   call @math.is_power_of_two // eax = 1
-//   move 6 to eax
-//   call @math.is_power_of_two // eax = 0
-inline proc is_power_of_two (val dword value default eax) out val dword {
-    test eax, eax              // check EAX != 0
+//   move 8 to reg1
+//   call @math.is_power_of_two // reg1 = 1
+//   move 6 to reg1
+//   call @math.is_power_of_two // reg1 = 0
+inline proc is_power_of_two (val dword value default reg1) out val dword {
+    test reg1, reg1              // check reg1 != 0
     jz .not_pow2
-    lea ecx, [eax-1]           // ECX = EAX - 1
-    test eax, ecx              // EAX & (EAX-1): 0 iff EAX is a power of two
+    lea reg3, [reg1-1]           // reg3 = reg1 - 1
+    test reg1, reg3              // reg1 & (reg1-1): 0 iff reg1 is a power of two
     jnz .not_pow2
-    move 1 to eax
+    move 1 to reg1
     goto .pow2_done
 .not_pow2:
-    xor eax, eax
+    xor reg1, reg1
 .pow2_done:
     return
 }
@@ -382,20 +382,20 @@ inline proc is_power_of_two (val dword value default eax) out val dword {
 
 // ── sqrt_long ────────────────────────────────────────────────────
 // Integer square root of a signed 64-bit value (via x87 FPU).
-// The qword at [ESI] is loaded onto the FPU stack, square-rooted,
+// The qword at [ptr1] is loaded onto the FPU stack, square-rooted,
 // and stored back as a 64-bit integer (rounded to nearest).
 //
-// Input:  ESI = pointer to qword (signed 64-bit integer, must be >= 0)
-// Output: [ESI] = integer √value (qword, rounded to nearest)
+// Input:  ptr1 = pointer to qword (signed 64-bit integer, must be >= 0)
+// Output: [ptr1] = integer √value (qword, rounded to nearest)
 // Clobbers: FPU stack (one push/pop cycle)
 //
 // Example:
-//   lea esi, [my_qword]
+//   lea ptr1, [my_qword]
 //   call @math.sqrt_long        // [my_qword] = √[my_qword]
-inline proc sqrt_long (addr value_ptr default esi) {
-    fild qword [esi]               // push 64-bit integer onto FPU stack
+inline proc sqrt_long (addr value_ptr default ptr1) {
+    fild qword [ptr1]               // push 64-bit integer onto FPU stack
     fsqrt                           // ST(0) = sqrt(value)
-    fistp qword [esi]              // pop and store as 64-bit integer
+    fistp qword [ptr1]              // pop and store as 64-bit integer
     return
 }
 
@@ -404,21 +404,21 @@ inline proc sqrt_long (addr value_ptr default esi) {
 // Tests the sign bit of the high dword; if negative, negates the
 // full 64-bit value via two's complement (NOT + ADD 1 with carry).
 //
-// Input:  ESI = pointer to qword (signed 64-bit integer)
-// Output: [ESI] = |value| (qword)
-// Clobbers: EAX
+// Input:  ptr1 = pointer to qword (signed 64-bit integer)
+// Output: [ptr1] = |value| (qword)
+// Clobbers: reg1
 //
 // Example:
-//   lea esi, [my_qword]
+//   lea ptr1, [my_qword]
 //   call @math.abs_long           // [my_qword] = |[my_qword]|
-inline proc abs_long (addr value_ptr default esi) {
-    mov eax, [esi+4]              // high dword (sign in bit 31)
-    test eax, eax
+inline proc abs_long (addr value_ptr default ptr1) {
+    mov reg1, [ptr1+4]              // high dword (sign in bit 31)
+    test reg1, reg1
     jns .abs_long_done             // already non-negative → done
-    not dword [esi]                // negate 64-bit: NOT low
-    not dword [esi+4]              //                NOT high
-    add dword [esi], 1             //                ADD 1 to low
-    adc dword [esi+4], 0           //                carry into high
+    not dword [ptr1]                // negate 64-bit: NOT low
+    not dword [ptr1+4]              //                NOT high
+    add dword [ptr1], 1             //                ADD 1 to low
+    adc dword [ptr1+4], 0           //                carry into high
 .abs_long_done:
     return
 }
@@ -428,28 +428,28 @@ inline proc abs_long (addr value_ptr default esi) {
 // Compares high dwords (signed), then low dwords (unsigned) if equal.
 // The result is stored back to the first operand.
 //
-// Input:  ESI = pointer to first qword (also receives the result)
-//         EDI = pointer to second qword
-// Output: [ESI] = max([ESI], [EDI])  (signed comparison)
-// Clobbers: EAX
+// Input:  ptr1 = pointer to first qword (also receives the result)
+//         ptr2 = pointer to second qword
+// Output: [ptr1] = max([ptr1], [ptr2])  (signed comparison)
+// Clobbers: reg1
 //
 // Example:
-//   lea esi, [val_a]
-//   lea edi, [val_b]
+//   lea ptr1, [val_a]
+//   lea ptr2, [val_b]
 //   call @math.max_long           // [val_a] = max(val_a, val_b)
-proc max_long (addr first_ptr default esi, addr second_ptr default edi) {
-    mov eax, [esi+4]              // first high dword
-    cmp eax, [edi+4]              // compare high dwords (signed)
+proc max_long (addr first_ptr default ptr1, addr second_ptr default ptr2) {
+    mov reg1, [ptr1+4]              // first high dword
+    cmp reg1, [ptr2+4]              // compare high dwords (signed)
     jg .max_long_keep              // first > second → keep first
     jl .max_long_copy              // first < second → copy second
-    mov eax, [esi]                 // high dwords equal → compare low
-    cmp eax, [edi]                 // compare low dwords (unsigned)
+    mov reg1, [ptr1]                 // high dwords equal → compare low
+    cmp reg1, [ptr2]                 // compare low dwords (unsigned)
     jae .max_long_keep             // first >= second → keep first
 .max_long_copy:
-    mov eax, [edi]                 // copy second low to first
-    mov [esi], eax
-    mov eax, [edi+4]               // copy second high to first
-    mov [esi+4], eax
+    mov reg1, [ptr2]                 // copy second low to first
+    mov [ptr1], reg1
+    mov reg1, [ptr2+4]               // copy second high to first
+    mov [ptr1+4], reg1
 .max_long_keep:
     return
 }
@@ -459,28 +459,28 @@ proc max_long (addr first_ptr default esi, addr second_ptr default edi) {
 // Compares high dwords (signed), then low dwords (unsigned) if equal.
 // The result is stored back to the first operand.
 //
-// Input:  ESI = pointer to first qword (also receives the result)
-//         EDI = pointer to second qword
-// Output: [ESI] = min([ESI], [EDI])  (signed comparison)
-// Clobbers: EAX
+// Input:  ptr1 = pointer to first qword (also receives the result)
+//         ptr2 = pointer to second qword
+// Output: [ptr1] = min([ptr1], [ptr2])  (signed comparison)
+// Clobbers: reg1
 //
 // Example:
-//   lea esi, [val_a]
-//   lea edi, [val_b]
+//   lea ptr1, [val_a]
+//   lea ptr2, [val_b]
 //   call @math.min_long           // [val_a] = min(val_a, val_b)
-proc min_long (addr first_ptr default esi, addr second_ptr default edi) {
-    mov eax, [esi+4]              // first high dword
-    cmp eax, [edi+4]              // compare high dwords (signed)
+proc min_long (addr first_ptr default ptr1, addr second_ptr default ptr2) {
+    mov reg1, [ptr1+4]              // first high dword
+    cmp reg1, [ptr2+4]              // compare high dwords (signed)
     jl .min_long_keep              // first < second → keep first
     jg .min_long_copy              // first > second → copy second
-    mov eax, [esi]                 // high dwords equal → compare low
-    cmp eax, [edi]                 // compare low dwords (unsigned)
+    mov reg1, [ptr1]                 // high dwords equal → compare low
+    cmp reg1, [ptr2]                 // compare low dwords (unsigned)
     jbe .min_long_keep             // first <= second → keep first
 .min_long_copy:
-    mov eax, [edi]                 // copy second low to first
-    mov [esi], eax
-    mov eax, [edi+4]               // copy second high to first
-    mov [esi+4], eax
+    mov reg1, [ptr2]                 // copy second low to first
+    mov [ptr1], reg1
+    mov reg1, [ptr2+4]               // copy second high to first
+    mov [ptr1+4], reg1
 .min_long_keep:
     return
 }
@@ -490,26 +490,26 @@ proc min_long (addr first_ptr default esi, addr second_ptr default edi) {
 // Tests high dword sign bit; if zero, checks low dword.
 // Pure integer — no FPU required.
 //
-// Input:  ESI = pointer to qword (signed 64-bit integer)
-// Output: EAX = -1 (negative), 0 (zero), or 1 (positive)
-// Clobbers: EAX
+// Input:  ptr1 = pointer to qword (signed 64-bit integer)
+// Output: reg1 = -1 (negative), 0 (zero), or 1 (positive)
+// Clobbers: reg1
 //
 // Example:
-//   lea esi, [my_qword]
-//   call @math.sign_long          // eax = -1, 0, or 1
-inline proc sign_long (addr value_ptr default esi) out val dword {
-    mov eax, [esi+4]              // high dword (signed)
-    test eax, eax
+//   lea ptr1, [my_qword]
+//   call @math.sign_long          // reg1 = -1, 0, or 1
+inline proc sign_long (addr value_ptr default ptr1) out val dword {
+    mov reg1, [ptr1+4]              // high dword (signed)
+    test reg1, reg1
     js .sign_long_neg              // bit 31 set → negative
     jnz .sign_long_pos             // high > 0 → positive
-    mov eax, [esi]                 // high == 0, check low dword
-    test eax, eax
-    jz .sign_long_done             // both zero → eax = 0
+    mov reg1, [ptr1]                 // high == 0, check low dword
+    test reg1, reg1
+    jz .sign_long_done             // both zero → reg1 = 0
 .sign_long_pos:
-    move 1 to eax                  // positive
+    move 1 to reg1                  // positive
     goto .sign_long_done
 .sign_long_neg:
-    move -1 to eax                 // negative
+    move -1 to reg1                 // negative
 .sign_long_done:
     return
 }
@@ -536,7 +536,7 @@ inline proc sign_long (addr value_ptr default esi) out val dword {
 //   fstp qword [dresult]
 // overload: proc square_float ( in double value, out double result )
 inline proc square_float (val float value) out val float {
-    fmul st0, st0              // ST(0) = ST(0) * ST(0)
+    fmul freg1, freg1              // ST(0) = ST(0) * ST(0)
     return
 }
 
@@ -613,7 +613,7 @@ inline proc cos (val float angle) out val float {
 // Output: ST(0) = tan(angle)
 // Clobbers: ST(1) temporarily (FPTAN replaces ST(0) with the tangent,
 //           then pushes 1.0, so after FPTAN: ST(0)=1.0, ST(1)=tan;
-//           the trailing FSTP ST0 discards 1.0, leaving tan in ST(0))
+//           the trailing FSTP freg1 discards 1.0, leaving tan in ST(0))
 //
 // Example (float):
 //   fld dword [my_angle]
@@ -627,7 +627,7 @@ inline proc cos (val float angle) out val float {
 // overload: proc tan ( in double angle, out double result )
 inline proc tan (val float angle) out val float {
     fptan                       // replaces ST(0) with tan(angle), then pushes 1.0: ST(0)=1.0, ST(1)=tan
-    fstp st0                    // discard the 1.0; ST(0) = tan result
+    fstp freg1                    // discard the 1.0; ST(0) = tan result
     return
 }
 
@@ -654,14 +654,14 @@ inline proc tan (val float angle) out val float {
 //   fstp qword [dresult]
 // overload: proc max_float ( in double first, in double second, out double result )
 inline proc max_float (val float first, val float second) out val float {
-    fcom st1                    // compare ST(0) to ST(1)
-    fstsw ax                    // store FPU status word in AX
+    fcom freg2                    // compare ST(0) to ST(1)
+    fstsw reg1.w                    // store FPU status word in reg1.w
     sahf                        // load status flags from AH
     jae .max_float_keep_st0     // if ST(0) >= ST(1), keep ST(0)
-    fstp st0                    // discard ST(0); ST(1) becomes ST(0)
+    fstp freg1                    // discard ST(0); ST(1) becomes ST(0)
     return
 .max_float_keep_st0:
-    fstp st1                    // copy ST(0) over ST(1) and pop
+    fstp freg2                    // copy ST(0) over ST(1) and pop
     return
 }
 
@@ -688,49 +688,49 @@ inline proc max_float (val float first, val float second) out val float {
 //   fstp qword [dresult]
 // overload: proc min_float ( in double first, in double second, out double result )
 inline proc min_float (val float first, val float second) out val float {
-    fcom st1                    // compare ST(0) to ST(1)
-    fstsw ax                    // store FPU status word in AX
+    fcom freg2                    // compare ST(0) to ST(1)
+    fstsw reg1.w                    // store FPU status word in reg1.w
     sahf                        // load status flags from AH
     jbe .min_float_keep_st0     // if ST(0) <= ST(1), keep ST(0)
-    fstp st0                    // discard ST(0); ST(1) becomes ST(0)
+    fstp freg1                    // discard ST(0); ST(1) becomes ST(0)
     return
 .min_float_keep_st0:
-    fstp st1                    // copy ST(0) over ST(1) and pop
+    fstp freg2                    // copy ST(0) over ST(1) and pop
     return
 }
 
 // ── max_array_float ─────────────────────────────────────────────
 // Finds the maximum value in a float (dword) array.
 //
-// Input:  ESI = pointer to first element (float array)
-//         ECX = number of elements (must be >= 1)
+// Input:  ptr1 = pointer to first element (float array)
+//         reg3 = number of elements (must be >= 1)
 // Output: ST(0) = maximum float value in the array
-// Clobbers: ECX, ESI, x87 FPU stack (one entry pushed)
+// Clobbers: reg3, ptr1, x87 FPU stack (one entry pushed)
 //
 // Example:
-//   move float_arr to esi
-//   move 4 to ecx
+//   move float_arr to ptr1
+//   move 4 to reg3
 //   call @math.max_array_float  // ST(0) = max element
 //   fstp dword [result]
-proc max_array_float (addr array_ptr default esi, val dword count default ecx) {
-    fld dword [esi]             // ST(0) = first element
-    esi = esi + 4
-    ecx = ecx - 1
+proc max_array_float (addr array_ptr default ptr1, val dword count default reg3) {
+    fld dword [ptr1]             // ST(0) = first element
+    ptr1 = ptr1 + 4
+    reg3 = reg3 - 1
 .max_af_loop:
-    compare ecx with 0
+    compare reg3 with 0
     goto .max_af_done if equal
-    fld dword [esi]             // ST(0) = next element, ST(1) = current max
-    fcom st1                    // compare ST(0) to ST(1)
-    fstsw ax
+    fld dword [ptr1]             // ST(0) = next element, ST(1) = current max
+    fcom freg2                    // compare ST(0) to ST(1)
+    fstsw reg1.w
     sahf
     jae .max_af_new             // if new >= max, keep new
-    fstp st0                    // discard new; keep old max
+    fstp freg1                    // discard new; keep old max
     goto .max_af_next
 .max_af_new:
-    fstp st1                    // replace old max with new
+    fstp freg2                    // replace old max with new
 .max_af_next:
-    esi = esi + 4
-    ecx = ecx - 1
+    ptr1 = ptr1 + 4
+    reg3 = reg3 - 1
     goto .max_af_loop
 .max_af_done:
     return
@@ -739,35 +739,35 @@ proc max_array_float (addr array_ptr default esi, val dword count default ecx) {
 // ── min_array_float ─────────────────────────────────────────────
 // Finds the minimum value in a float (dword) array.
 //
-// Input:  ESI = pointer to first element (float array)
-//         ECX = number of elements (must be >= 1)
+// Input:  ptr1 = pointer to first element (float array)
+//         reg3 = number of elements (must be >= 1)
 // Output: ST(0) = minimum float value in the array
-// Clobbers: ECX, ESI, x87 FPU stack (one entry pushed)
+// Clobbers: reg3, ptr1, x87 FPU stack (one entry pushed)
 //
 // Example:
-//   move float_arr to esi
-//   move 4 to ecx
+//   move float_arr to ptr1
+//   move 4 to reg3
 //   call @math.min_array_float  // ST(0) = min element
 //   fstp dword [result]
-proc min_array_float (addr array_ptr default esi, val dword count default ecx) {
-    fld dword [esi]             // ST(0) = first element
-    esi = esi + 4
-    ecx = ecx - 1
+proc min_array_float (addr array_ptr default ptr1, val dword count default reg3) {
+    fld dword [ptr1]             // ST(0) = first element
+    ptr1 = ptr1 + 4
+    reg3 = reg3 - 1
 .min_af_loop:
-    compare ecx with 0
+    compare reg3 with 0
     goto .min_af_done if equal
-    fld dword [esi]             // ST(0) = next element, ST(1) = current min
-    fcom st1                    // compare ST(0) to ST(1)
-    fstsw ax
+    fld dword [ptr1]             // ST(0) = next element, ST(1) = current min
+    fcom freg2                    // compare ST(0) to ST(1)
+    fstsw reg1.w
     sahf
     jbe .min_af_new             // if new <= min, keep new
-    fstp st0                    // discard new; keep old min
+    fstp freg1                    // discard new; keep old min
     goto .min_af_next
 .min_af_new:
-    fstp st1                    // replace old min with new
+    fstp freg2                    // replace old min with new
 .min_af_next:
-    esi = esi + 4
-    ecx = ecx - 1
+    ptr1 = ptr1 + 4
+    reg3 = reg3 - 1
     goto .min_af_loop
 .min_af_done:
     return
@@ -776,35 +776,35 @@ proc min_array_float (addr array_ptr default esi, val dword count default ecx) {
 // ── max_array_double ──────────────────────────────────────────────
 // Finds the maximum value in a double (qword) array.
 //
-// Input:  ESI = pointer to first element (double array)
-//         ECX = number of elements (must be >= 1)
+// Input:  ptr1 = pointer to first element (double array)
+//         reg3 = number of elements (must be >= 1)
 // Output: ST(0) = maximum double value in the array
-// Clobbers: ECX, ESI, x87 FPU stack (one entry pushed)
+// Clobbers: reg3, ptr1, x87 FPU stack (one entry pushed)
 //
 // Example:
-//   move double_arr to esi
-//   move 4 to ecx
+//   move double_arr to ptr1
+//   move 4 to reg3
 //   call @math.max_array_double  // ST(0) = max element
 //   fstp qword [result]
-proc max_array_double (addr array_ptr default esi, val dword count default ecx) {
-    fld qword [esi]             // ST(0) = first element
-    esi = esi + 8
-    ecx = ecx - 1
+proc max_array_double (addr array_ptr default ptr1, val dword count default reg3) {
+    fld qword [ptr1]             // ST(0) = first element
+    ptr1 = ptr1 + 8
+    reg3 = reg3 - 1
 .max_ad_loop:
-    compare ecx with 0
+    compare reg3 with 0
     goto .max_ad_done if equal
-    fld qword [esi]             // ST(0) = next element, ST(1) = current max
-    fcom st1                    // compare ST(0) to ST(1)
-    fstsw ax
+    fld qword [ptr1]             // ST(0) = next element, ST(1) = current max
+    fcom freg2                    // compare ST(0) to ST(1)
+    fstsw reg1.w
     sahf
     jae .max_ad_new             // if new >= max, keep new
-    fstp st0                    // discard new; keep old max
+    fstp freg1                    // discard new; keep old max
     goto .max_ad_next
 .max_ad_new:
-    fstp st1                    // replace old max with new
+    fstp freg2                    // replace old max with new
 .max_ad_next:
-    esi = esi + 8
-    ecx = ecx - 1
+    ptr1 = ptr1 + 8
+    reg3 = reg3 - 1
     goto .max_ad_loop
 .max_ad_done:
     return
@@ -813,35 +813,35 @@ proc max_array_double (addr array_ptr default esi, val dword count default ecx) 
 // ── min_array_double ──────────────────────────────────────────────
 // Finds the minimum value in a double (qword) array.
 //
-// Input:  ESI = pointer to first element (double array)
-//         ECX = number of elements (must be >= 1)
+// Input:  ptr1 = pointer to first element (double array)
+//         reg3 = number of elements (must be >= 1)
 // Output: ST(0) = minimum double value in the array
-// Clobbers: ECX, ESI, x87 FPU stack (one entry pushed)
+// Clobbers: reg3, ptr1, x87 FPU stack (one entry pushed)
 //
 // Example:
-//   move double_arr to esi
-//   move 4 to ecx
+//   move double_arr to ptr1
+//   move 4 to reg3
 //   call @math.min_array_double  // ST(0) = min element
 //   fstp qword [result]
-proc min_array_double (addr array_ptr default esi, val dword count default ecx) {
-    fld qword [esi]             // ST(0) = first element
-    esi = esi + 8
-    ecx = ecx - 1
+proc min_array_double (addr array_ptr default ptr1, val dword count default reg3) {
+    fld qword [ptr1]             // ST(0) = first element
+    ptr1 = ptr1 + 8
+    reg3 = reg3 - 1
 .min_ad_loop:
-    compare ecx with 0
+    compare reg3 with 0
     goto .min_ad_done if equal
-    fld qword [esi]             // ST(0) = next element, ST(1) = current min
-    fcom st1                    // compare ST(0) to ST(1)
-    fstsw ax
+    fld qword [ptr1]             // ST(0) = next element, ST(1) = current min
+    fcom freg2                    // compare ST(0) to ST(1)
+    fstsw reg1.w
     sahf
     jbe .min_ad_new             // if new <= min, keep new
-    fstp st0                    // discard new; keep old min
+    fstp freg1                    // discard new; keep old min
     goto .min_ad_next
 .min_ad_new:
-    fstp st1                    // replace old min with new
+    fstp freg2                    // replace old min with new
 .min_ad_next:
-    esi = esi + 8
-    ecx = ecx - 1
+    ptr1 = ptr1 + 8
+    reg3 = reg3 - 1
     goto .min_ad_loop
 .min_ad_done:
     return
@@ -908,7 +908,7 @@ inline proc round (val float value) out val float {
 //
 // Input:  ST(0) = value (IEEE 754 single or double)
 // Output: ST(0) = floor(value)  (largest integer <= value)
-// Clobbers: AX, FPU control word (restored)
+// Clobbers: reg1.w, FPU control word (restored)
 //
 // Example:
 //   fld dword [my_float]
@@ -916,16 +916,16 @@ inline proc round (val float value) out val float {
 //   fistp dword [result]
 // overload: proc floor ( in double value, out double result )
 proc floor (val float value) out val float {
-    esp = esp - 4
-    fstcw word [esp]            // save FPU control word
-    mov ax, word [esp]
-    and ax, 0xF3FF              // clear RC bits (10-11)
-    or  ax, 0x0400              // RC = 01 = round toward -inf (floor)
-    mov word [esp+2], ax
-    fldcw word [esp+2]          // load modified control word
+    sp = sp - 4
+    fstcw word [sp]            // save FPU control word
+    mov reg1.w, word [sp]
+    and reg1.w, 0xF3FF              // clear RC bits (10-11)
+    or  reg1.w, 0x0400              // RC = 01 = round toward -inf (floor)
+    mov word [sp+2], reg1.w
+    fldcw word [sp+2]          // load modified control word
     frndint                     // ST(0) = floor(ST(0))
-    fldcw word [esp]            // restore original control word
-    esp = esp + 4
+    fldcw word [sp]            // restore original control word
+    sp = sp + 4
     return
 }
 
@@ -934,7 +934,7 @@ proc floor (val float value) out val float {
 //
 // Input:  ST(0) = value (IEEE 754 single or double)
 // Output: ST(0) = ceil(value)  (smallest integer >= value)
-// Clobbers: AX, FPU control word (restored)
+// Clobbers: reg1.w, FPU control word (restored)
 //
 // Example:
 //   fld dword [my_float]
@@ -942,16 +942,16 @@ proc floor (val float value) out val float {
 //   fistp dword [result]
 // overload: proc ceil ( in double value, out double result )
 proc ceil (val float value) out val float {
-    esp = esp - 4
-    fstcw word [esp]            // save FPU control word
-    mov ax, word [esp]
-    and ax, 0xF3FF              // clear RC bits (10-11)
-    or  ax, 0x0800              // RC = 10 = round toward +inf (ceil)
-    mov word [esp+2], ax
-    fldcw word [esp+2]          // load modified control word
+    sp = sp - 4
+    fstcw word [sp]            // save FPU control word
+    mov reg1.w, word [sp]
+    and reg1.w, 0xF3FF              // clear RC bits (10-11)
+    or  reg1.w, 0x0800              // RC = 10 = round toward +inf (ceil)
+    mov word [sp+2], reg1.w
+    fldcw word [sp+2]          // load modified control word
     frndint                     // ST(0) = ceil(ST(0))
-    fldcw word [esp]            // restore original control word
-    esp = esp + 4
+    fldcw word [sp]            // restore original control word
+    sp = sp + 4
     return
 }
 
@@ -960,7 +960,7 @@ proc ceil (val float value) out val float {
 //
 // Input:  ST(0) = value (IEEE 754 single or double)
 // Output: ST(0) = trunc(value)  (integer part, toward zero)
-// Clobbers: AX, FPU control word (restored)
+// Clobbers: reg1.w, FPU control word (restored)
 //
 // Example:
 //   fld dword [my_float]
@@ -968,16 +968,16 @@ proc ceil (val float value) out val float {
 //   fistp dword [result]
 // overload: proc trunc ( in double value, out double result )
 proc trunc (val float value) out val float {
-    esp = esp - 4
-    fstcw word [esp]            // save FPU control word
-    mov ax, word [esp]
-    and ax, 0xF3FF              // clear RC bits (10-11)
-    or  ax, 0x0C00              // RC = 11 = truncate toward zero
-    mov word [esp+2], ax
-    fldcw word [esp+2]          // load modified control word
+    sp = sp - 4
+    fstcw word [sp]            // save FPU control word
+    mov reg1.w, word [sp]
+    and reg1.w, 0xF3FF              // clear RC bits (10-11)
+    or  reg1.w, 0x0C00              // RC = 11 = truncate toward zero
+    mov word [sp+2], reg1.w
+    fldcw word [sp+2]          // load modified control word
     frndint                     // ST(0) = trunc(ST(0))
-    fldcw word [esp]            // restore original control word
-    esp = esp + 4
+    fldcw word [sp]            // restore original control word
+    sp = sp + 4
     return
 }
 
@@ -1116,15 +1116,15 @@ inline proc log10 (val float value) out val float {
 proc exp (val float value) out val float {
     fldl2e                      // push log2(e); ST(0) = log2(e), ST(1) = x
     fmulp                       // ST(0) = x * log2(e)
-    fld st0                     // duplicate: ST(0) = ST(1) = x*log2(e)
+    fld freg1                     // duplicate: ST(0) = ST(1) = x*log2(e)
     frndint                     // ST(0) = round(x*log2(e)) = integer part n
-    fxch st1                    // ST(0) = x*log2(e), ST(1) = n
-    fsub st0, st1               // ST(0) = fractional part of x*log2(e)
+    fxch freg2                    // ST(0) = x*log2(e), ST(1) = n
+    fsub freg1, freg2               // ST(0) = fractional part of x*log2(e)
     f2xm1                       // ST(0) = 2^frac - 1
     fld1                        // push 1.0
     faddp                       // ST(0) = 2^frac
     fscale                      // ST(0) = 2^frac * 2^n = e^x
-    fstp st1                    // pop n; ST(0) = e^x
+    fstp freg2                    // pop n; ST(0) = e^x
     return
 }
 
@@ -1151,17 +1151,17 @@ proc exp (val float value) out val float {
 //   fstp dword [result]
 // overload: proc pow ( in double base, in double exponent, out double result )
 proc pow (val float base, val float exponent) out val float {
-    fxch st1                    // ST(0) = base, ST(1) = exponent
+    fxch freg2                    // ST(0) = base, ST(1) = exponent
     fyl2x                       // ST(0) = exponent * log2(base); pops ST(1)
-    fld st0                     // duplicate: ST(0) = ST(1) = z = exp*log2(base)
+    fld freg1                     // duplicate: ST(0) = ST(1) = z = exp*log2(base)
     frndint                     // ST(0) = round(z) = integer part n
-    fxch st1                    // ST(0) = z, ST(1) = n
-    fsub st0, st1               // ST(0) = fractional part of z
+    fxch freg2                    // ST(0) = z, ST(1) = n
+    fsub freg1, freg2               // ST(0) = fractional part of z
     f2xm1                       // ST(0) = 2^frac - 1
     fld1                        // push 1.0
     faddp                       // ST(0) = 2^frac
     fscale                      // ST(0) = 2^frac * 2^n = base^exponent
-    fstp st1                    // pop n; ST(0) = base^exponent
+    fstp freg2                    // pop n; ST(0) = base^exponent
     return
 }
 
@@ -1197,8 +1197,8 @@ inline proc add_float (val float first, val float second) out val float {
 //   fstp dword [result]
 // overload: proc sub_float ( in double first, in double second, out double result )
 inline proc sub_float (val float first, val float second) out val float {
-    fsub st0, st1               // ST(0) = ST(0) - ST(1)
-    fstp st1                    // ST(1) = result, pop → ST(0) = result
+    fsub freg1, freg2               // ST(0) = ST(0) - ST(1)
+    fstp freg2                    // ST(1) = result, pop → ST(0) = result
     return
 }
 
@@ -1234,8 +1234,8 @@ inline proc mul_float (val float first, val float second) out val float {
 //   fstp dword [result]
 // overload: proc div_float ( in double first, in double second, out double result )
 inline proc div_float (val float first, val float second) out val float {
-    fdiv st0, st1               // ST(0) = ST(0) / ST(1)
-    fstp st1                    // ST(1) = result, pop → ST(0) = result
+    fdiv freg1, freg2               // ST(0) = ST(0) / ST(1)
+    fstp freg2                    // ST(1) = result, pop → ST(0) = result
     return
 }
 
@@ -1248,7 +1248,7 @@ inline proc div_float (val float first, val float second) out val float {
 //         ST(1) = dividend y  (pushed first)
 // Output: ST(0) = y - trunc(y/x) * x  (remainder; same sign as y)
 //         ST(1) is popped.  (net pop of one FPU stack entry)
-// Clobbers: AX
+// Clobbers: reg1.w
 //
 // Note: x = 0 produces an IEEE 754 invalid-operation result (NaN).
 //
@@ -1261,10 +1261,10 @@ inline proc div_float (val float first, val float second) out val float {
 inline proc fmod (val float y, val float x) out val float {
 .fmod_loop:
     fprem1                      // partial IEEE 754 remainder; sets C2 in status if incomplete
-    fstsw ax                    // AX = FPU status word
+    fstsw reg1.w                    // reg1.w = FPU status word
     test ah, 4                  // test C2 bit (bit 10 of status word → bit 2 of AH)
     jnz .fmod_loop              // loop until reduction is complete
-    fstp st1                    // pop divisor; ST(0) = remainder
+    fstp freg2                    // pop divisor; ST(0) = remainder
     return
 }
 
@@ -1275,7 +1275,7 @@ inline proc fmod (val float y, val float x) out val float {
 // Input:  ST(0) = value (IEEE 754 single or double)
 // Output: ST(0) = fractional part  (same sign as input, in (-1, 1))
 //         ST(1) = integer  part    (one entry pushed onto FPU stack)
-// Clobbers: AX, FPU control word (restored before return)
+// Clobbers: reg1.w, FPU control word (restored before return)
 //
 // Example:
 //   fld dword [my_float]      // push 3.75
@@ -1284,19 +1284,19 @@ inline proc fmod (val float y, val float x) out val float {
 //   fstp dword [int_part]     // pop and store integer part
 // overload: proc modf ( in double value, out double int_part, out double frac_part )
 proc modf (val float value) out val float {
-    esp = esp - 4
-    fstcw word [esp]            // save FPU control word
-    mov ax, word [esp]
-    and ax, 0xF3FF              // clear RC bits (10-11)
-    or  ax, 0x0C00              // RC = 11 = truncate toward zero
-    mov word [esp+2], ax
-    fldcw word [esp+2]          // load modified control word
-    fld st0                     // duplicate: ST(0)=x, ST(1)=x
+    sp = sp - 4
+    fstcw word [sp]            // save FPU control word
+    mov reg1.w, word [sp]
+    and reg1.w, 0xF3FF              // clear RC bits (10-11)
+    or  reg1.w, 0x0C00              // RC = 11 = truncate toward zero
+    mov word [sp+2], reg1.w
+    fldcw word [sp+2]          // load modified control word
+    fld freg1                     // duplicate: ST(0)=x, ST(1)=x
     frndint                     // ST(0) = int_part,  ST(1) = x
-    fldcw word [esp]            // restore original control word
-    esp = esp + 4
-    fxch st1                    // ST(0) = x, ST(1) = int_part
-    fsub st0, st1               // ST(0) = x - int_part = frac_part
+    fldcw word [sp]            // restore original control word
+    sp = sp + 4
+    fxch freg2                    // ST(0) = x, ST(1) = int_part
+    fsub freg1, freg2               // ST(0) = x - int_part = frac_part
     return
 }
 
@@ -1378,8 +1378,8 @@ inline proc expm1 (val float value) out val float {
 //   fstp dword [result]
 // overload: proc asin ( in double value, out double result )
 inline proc asin (val float value) out val float {
-    fld st0                     // dup x: ST(0)=x, ST(1)=x
-    fmul st0, st0               // ST(0) = x^2, ST(1) = x
+    fld freg1                     // dup x: ST(0)=x, ST(1)=x
+    fmul freg1, freg1               // ST(0) = x^2, ST(1) = x
     fld1                        // push 1.0
     fsubrp                      // ST(0) = 1 - x^2 (= ST(0) - ST(1)); pops ST(1)
     fsqrt                       // ST(0) = sqrt(1 - x^2), ST(1) = x
@@ -1401,8 +1401,8 @@ inline proc asin (val float value) out val float {
 //   fstp dword [result]
 // overload: proc acos ( in double value, out double result )
 inline proc acos (val float value) out val float {
-    fld st0                     // dup x: ST(0)=x, ST(1)=x
-    fmul st0, st0               // ST(0) = x^2, ST(1) = x
+    fld freg1                     // dup x: ST(0)=x, ST(1)=x
+    fmul freg1, freg1               // ST(0) = x^2, ST(1) = x
     fld1                        // push 1.0
     fsubrp                      // ST(0) = 1 - x^2; pops ST(1)
     fsqrt                       // ST(0) = sqrt(1 - x^2), ST(1) = x
@@ -1425,37 +1425,37 @@ inline proc acos (val float value) out val float {
 //   fstp dword [result]
 // overload: proc sinh ( in double value, out double result )
 proc sinh (val float value) out val float {
-    fld st0                     // save x: ST(0)=x, ST(1)=x
+    fld freg1                     // save x: ST(0)=x, ST(1)=x
     // compute e^x
     fldl2e                      // ST(0) = log2(e)
     fmulp                       // ST(0) = x * log2(e)
-    fld st0
+    fld freg1
     frndint
-    fxch st1
-    fsub st0, st1               // fractional part
+    fxch freg2
+    fsub freg1, freg2               // fractional part
     f2xm1
     fld1
     faddp
     fscale
-    fstp st1                    // ST(0) = e^x, ST(1) = x (saved)
+    fstp freg2                    // ST(0) = e^x, ST(1) = x (saved)
     // negate x and compute e^(-x)
-    fxch st1                    // ST(0) = x, ST(1) = e^x
+    fxch freg2                    // ST(0) = x, ST(1) = e^x
     fchs                        // ST(0) = -x, ST(1) = e^x
     fldl2e
     fmulp
-    fld st0
+    fld freg1
     frndint
-    fxch st1
-    fsub st0, st1
+    fxch freg2
+    fsub freg1, freg2
     f2xm1
     fld1
     faddp
     fscale
-    fstp st1                    // ST(0) = e^(-x), ST(1) = e^x
+    fstp freg2                    // ST(0) = e^(-x), ST(1) = e^x
     // (e^x - e^(-x)) / 2
     fsubp                       // ST(0) = e^x - e^(-x)
     fld1
-    fadd st0, st0               // ST(0) = 2.0, ST(1) = e^x - e^(-x)
+    fadd freg1, freg1               // ST(0) = 2.0, ST(1) = e^x - e^(-x)
     fdivp                       // ST(0) = (e^x - e^(-x)) / 2 = sinh(x)
     return
 }
@@ -1474,37 +1474,37 @@ proc sinh (val float value) out val float {
 //   fstp dword [result]
 // overload: proc cosh ( in double value, out double result )
 proc cosh (val float value) out val float {
-    fld st0                     // save x: ST(0)=x, ST(1)=x
+    fld freg1                     // save x: ST(0)=x, ST(1)=x
     // compute e^x
     fldl2e
     fmulp
-    fld st0
+    fld freg1
     frndint
-    fxch st1
-    fsub st0, st1
+    fxch freg2
+    fsub freg1, freg2
     f2xm1
     fld1
     faddp
     fscale
-    fstp st1                    // ST(0) = e^x, ST(1) = x (saved)
+    fstp freg2                    // ST(0) = e^x, ST(1) = x (saved)
     // negate x and compute e^(-x)
-    fxch st1                    // ST(0) = x, ST(1) = e^x
+    fxch freg2                    // ST(0) = x, ST(1) = e^x
     fchs                        // ST(0) = -x, ST(1) = e^x
     fldl2e
     fmulp
-    fld st0
+    fld freg1
     frndint
-    fxch st1
-    fsub st0, st1
+    fxch freg2
+    fsub freg1, freg2
     f2xm1
     fld1
     faddp
     fscale
-    fstp st1                    // ST(0) = e^(-x), ST(1) = e^x
+    fstp freg2                    // ST(0) = e^(-x), ST(1) = e^x
     // (e^x + e^(-x)) / 2
     faddp                       // ST(0) = e^x + e^(-x)
     fld1
-    fadd st0, st0               // ST(0) = 2.0, ST(1) = e^x + e^(-x)
+    fadd freg1, freg1               // ST(0) = 2.0, ST(1) = e^x + e^(-x)
     fdivp                       // ST(0) = (e^x + e^(-x)) / 2 = cosh(x)
     return
 }
@@ -1523,23 +1523,23 @@ proc cosh (val float value) out val float {
 //   fstp dword [result]
 // overload: proc tanh ( in double value, out double result )
 proc tanh (val float value) out val float {
-    fadd st0, st0               // ST(0) = 2x
+    fadd freg1, freg1               // ST(0) = 2x
     // compute e^(2x)
     fldl2e
     fmulp
-    fld st0
+    fld freg1
     frndint
-    fxch st1
-    fsub st0, st1
+    fxch freg2
+    fsub freg1, freg2
     f2xm1
     fld1
     faddp
     fscale
-    fstp st1                    // ST(0) = e^(2x)
+    fstp freg2                    // ST(0) = e^(2x)
     fld1
     faddp                       // ST(0) = e^(2x) + 1
     fld1
-    fadd st0, st0               // ST(0) = 2.0, ST(1) = e^(2x) + 1
+    fadd freg1, freg1               // ST(0) = 2.0, ST(1) = e^(2x) + 1
     fdivrp                      // ST(0) = 2 / (e^(2x) + 1)
     fld1
     fsubrp                      // ST(0) = 1 - 2/(e^(2x)+1) = tanh(x)
@@ -1561,9 +1561,9 @@ proc tanh (val float value) out val float {
 //   fstp dword [result]
 // overload: proc hypot ( in double x, in double y, out double result )
 inline proc hypot (val float x, val float y) out val float {
-    fmul st0, st0               // ST(0) = y^2, ST(1) = x
-    fxch st1                    // ST(0) = x, ST(1) = y^2
-    fmul st0, st0               // ST(0) = x^2, ST(1) = y^2
+    fmul freg1, freg1               // ST(0) = y^2, ST(1) = x
+    fxch freg2                    // ST(0) = x, ST(1) = y^2
+    fmul freg1, freg1               // ST(0) = x^2, ST(1) = y^2
     faddp                       // ST(0) = x^2 + y^2
     fsqrt                       // ST(0) = sqrt(x^2 + y^2)
     return
@@ -1575,7 +1575,7 @@ inline proc hypot (val float x, val float y) out val float {
 //
 // Input:  ST(0) = value (IEEE 754 single or double)
 // Output: ST(0) = value - floor(value)  in [0, 1)
-// Clobbers: AX, FPU control word (restored before return)
+// Clobbers: reg1.w, FPU control word (restored before return)
 //
 // Example:
 //   fld dword [my_float]      // push 3.75
@@ -1583,17 +1583,17 @@ inline proc hypot (val float x, val float y) out val float {
 //   fstp dword [result]
 // overload: proc fract ( in double value, out double result )
 proc fract (val float value) out val float {
-    esp = esp - 4
-    fstcw word [esp]            // save FPU control word
-    mov ax, word [esp]
-    and ax, 0xF3FF              // clear RC bits (10-11)
-    or  ax, 0x0400              // RC = 01 = round toward -inf (floor)
-    mov word [esp+2], ax
-    fldcw word [esp+2]          // load modified control word
-    fld st0                     // duplicate x: ST(0)=x, ST(1)=x
+    sp = sp - 4
+    fstcw word [sp]            // save FPU control word
+    mov reg1.w, word [sp]
+    and reg1.w, 0xF3FF              // clear RC bits (10-11)
+    or  reg1.w, 0x0400              // RC = 01 = round toward -inf (floor)
+    mov word [sp+2], reg1.w
+    fldcw word [sp+2]          // load modified control word
+    fld freg1                     // duplicate x: ST(0)=x, ST(1)=x
     frndint                     // ST(0) = floor(x), ST(1) = x
-    fldcw word [esp]            // restore original control word
-    esp = esp + 4
+    fldcw word [sp]            // restore original control word
+    sp = sp + 4
     fsubp                       // ST(0) = x - floor(x); pops floor
     return
 }
@@ -1613,10 +1613,10 @@ proc fract (val float value) out val float {
 inline proc deg_to_rad (val float value) out val float {
     fldpi                       // push pi; ST(0) = pi, ST(1) = degrees
     fmulp                       // ST(0) = degrees * pi
-    esp = esp - 4
-    mov dword [esp], 180
-    fild dword [esp]            // push 180.0
-    esp = esp + 4
+    sp = sp - 4
+    mov dword [sp], 180
+    fild dword [sp]            // push 180.0
+    sp = sp + 4
     fdivp                       // ST(0) = degrees * pi / 180
     return
 }
@@ -1634,10 +1634,10 @@ inline proc deg_to_rad (val float value) out val float {
 //   fstp dword [result]
 // overload: proc rad_to_deg ( in double value, out double result )
 inline proc rad_to_deg (val float value) out val float {
-    esp = esp - 4
-    mov dword [esp], 180
-    fild dword [esp]            // push 180.0; ST(0) = 180, ST(1) = radians
-    esp = esp + 4
+    sp = sp - 4
+    mov dword [sp], 180
+    fild dword [sp]            // push 180.0; ST(0) = 180, ST(1) = radians
+    sp = sp + 4
     fmulp                       // ST(0) = radians * 180
     fldpi                       // push pi; ST(0) = pi, ST(1) = radians * 180
     fdivp                       // ST(0) = radians * 180 / pi
@@ -1662,7 +1662,7 @@ inline proc rad_to_deg (val float value) out val float {
 inline proc ldexp (val float x, val float n) out val float {
     fxch                        // ST(0) = x, ST(1) = n
     fscale                      // ST(0) = x * 2^n, ST(1) = n (unchanged)
-    fstp st1                    // pop n; ST(0) = x * 2^n
+    fstp freg2                    // pop n; ST(0) = x * 2^n
     return
 }
 
@@ -1685,7 +1685,7 @@ inline proc ldexp (val float x, val float n) out val float {
 // overload: proc log_b ( in double value, out double result )
 inline proc log_b (val float value) out val float {
     fxtract                     // ST(0) = significand in [1,2), ST(1) = exponent; pushes
-    fstp st0                    // discard significand; ST(0) = exponent
+    fstp freg1                    // discard significand; ST(0) = exponent
     return
 }
 
@@ -1708,10 +1708,10 @@ inline proc log_b (val float value) out val float {
 inline proc lerp (val float a, val float b, val float t) out val float {
     fld st2                     // push copy of a: ST(0)=a, ST(1)=t, ST(2)=b, ST(3)=a
     fxch st2                    // ST(0)=b, ST(1)=t, ST(2)=a(copy), ST(3)=a(orig)
-    fsub st0, st2               // ST(0) = b - a
+    fsub freg1, st2               // ST(0) = b - a
     fmulp                       // ST(0) = t * (b - a); pops t
     faddp                       // ST(0) = a(copy) + t*(b-a); pops a(copy)
-    fstp st1                    // overwrite a(orig) with result; pop → ST(0) = lerp
+    fstp freg2                    // overwrite a(orig) with result; pop → ST(0) = lerp
     return
 }
 
@@ -1722,7 +1722,7 @@ inline proc lerp (val float a, val float b, val float t) out val float {
 //         ST(1) = lo  (lower bound)
 //         ST(2) = x   (value to clamp, pushed first)
 // Output: ST(0) = max(lo, min(x, hi))  (ST(1) and ST(2) popped; net pop of two)
-// Clobbers: AX
+// Clobbers: reg1.w
 //
 // Example (float):
 //   fld dword [x]             // push x
@@ -1733,19 +1733,19 @@ inline proc lerp (val float a, val float b, val float t) out val float {
 // overload: proc clamp_float ( in double x, in double lo, in double hi, out double result )
 proc clamp_float (val float x, val float lo, val float hi) out val float {
     fxch st2                    // ST(0)=x, ST(1)=lo, ST(2)=hi
-    fcom st1                    // compare x with lo
-    fstsw ax
+    fcom freg2                    // compare x with lo
+    fstsw reg1.w
     sahf
     jae .cf_above_lo            // x >= lo: keep x
-    fxch st1                    // x < lo: bring lo to top
+    fxch freg2                    // x < lo: bring lo to top
 .cf_above_lo:
-    fstp st1                    // drop the smaller; ST(0)=max(x,lo), ST(1)=hi
-    fcom st1                    // compare max(x,lo) with hi
-    fstsw ax
+    fstp freg2                    // drop the smaller; ST(0)=max(x,lo), ST(1)=hi
+    fcom freg2                    // compare max(x,lo) with hi
+    fstsw reg1.w
     sahf
     jbe .cf_below_hi            // max(x,lo) <= hi: keep it
-    fxch st1                    // max(x,lo) > hi: bring hi to top
+    fxch freg2                    // max(x,lo) > hi: bring hi to top
 .cf_below_hi:
-    fstp st1                    // drop the larger; ST(0) = clamp(x, lo, hi)
+    fstp freg2                    // drop the larger; ST(0) = clamp(x, lo, hi)
     return
 }

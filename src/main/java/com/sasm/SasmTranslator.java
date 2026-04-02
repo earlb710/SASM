@@ -1805,10 +1805,13 @@ public class SasmTranslator {
             // Mangle local labels (.foo → .foo_N) to avoid collisions across
             // multiple expansions of the same inline proc.
             String mangledLine = bodyLine.replaceAll("\\.(\\w+)", ".$1_" + id);
-            String asm = tryTranslateCode(mangledLine);
+            // Resolve portable register names so library bodies that use
+            // reg1/ptr1/bp/sp etc. get the physical names for the target arch.
+            String resolvedLine = arch.resolvePortableRegisters(mangledLine);
+            String asm = tryTranslateCode(resolvedLine);
             if (asm == null) {
                 // Unrecognised line — pass through (raw ASM)
-                asm = "    " + mangledLine;
+                asm = "    " + resolvedLine;
             }
             if (!asm.isEmpty()) {
                 sb.append('\n').append(asm);
