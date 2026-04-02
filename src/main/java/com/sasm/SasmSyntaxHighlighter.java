@@ -115,6 +115,82 @@ public final class SasmSyntaxHighlighter {
             + "reg[1-4](?:\\.[bw])?|ptr[1-2](?:\\.[bw])?|bp(?:\\.[bw])?|freg[1-2])\\b",
             Pattern.CASE_INSENSITIVE);
 
+    /**
+     * ARM 32-bit physical register names and SASM portable aliases.
+     * Covers: r0–r15, sp, lr, pc, fp, ip, and VFP/NEON: s0–s31, d0–d15, q0–q15.
+     */
+    private static final Pattern PAT_REGISTER_ARM32 = Pattern.compile(
+            "\\b(?:"
+            // Numbered GP registers r0–r15
+            + "r(?:1[0-5]|[0-9])|"
+            // Special-purpose aliases
+            + "sp|lr|pc|fp|ip|"
+            // VFP single-precision s0–s31
+            + "s(?:[12][0-9]|3[01]|[0-9])|"
+            // VFP double-precision d0–d15
+            + "d(?:1[0-5]|[0-9])|"
+            // NEON quad q0–q15
+            + "q(?:1[0-5]|[0-9])|"
+            // SASM portable aliases
+            + "reg[1-4](?:\\.[bw])?|ptr[1-2](?:\\.[bw])?|bp(?:\\.[bw])?|freg[1-2]"
+            + ")\\b",
+            Pattern.CASE_INSENSITIVE);
+
+    /**
+     * AArch64 (ARM 64-bit) physical register names and SASM portable aliases.
+     * Covers: x0–x30, w0–w30, xzr, wzr, sp, lr, pc, fp, wsp, and
+     * FP/SIMD: s0–s31, d0–d31, v0–v31, q0–q31, b0–b31, h0–h31.
+     */
+    private static final Pattern PAT_REGISTER_AARCH64 = Pattern.compile(
+            "\\b(?:"
+            // 64-bit GP x0–x30
+            + "x(?:2[0-9]|1[0-9]|[0-9]|30)|"
+            // 32-bit GP w0–w30
+            + "w(?:2[0-9]|1[0-9]|[0-9]|30)|"
+            // Special aliases
+            + "xzr|wzr|wsp|sp|lr|pc|fp|"
+            // FP scalar s0–s31
+            + "s(?:[12][0-9]|3[01]|[0-9])|"
+            // FP double d0–d31
+            + "d(?:[12][0-9]|3[01]|[0-9])|"
+            // SIMD vector v0–v31 / q0–q31
+            + "v(?:[12][0-9]|3[01]|[0-9])|"
+            + "q(?:[12][0-9]|3[01]|[0-9])|"
+            // Byte / half-word SIMD b0–b31 / h0–h31
+            + "b(?:[12][0-9]|3[01]|[0-9])|"
+            + "h(?:[12][0-9]|3[01]|[0-9])|"
+            // SASM portable aliases
+            + "reg[1-4](?:\\.[bw])?|ptr[1-2](?:\\.[bw])?|bp(?:\\.[bw])?|freg[1-2]"
+            + ")\\b",
+            Pattern.CASE_INSENSITIVE);
+
+    /**
+     * ARM assembly mnemonics (ARM32 and AArch64) that appear in inline
+     * proc bodies inside SASM source files.  These complement the
+     * existing SASM keyword list which only covers SASM-level keywords.
+     */
+    private static final Pattern PAT_KEYWORD_ARM = Pattern.compile(
+            "\\b(?:"
+            // Load / store
+            + "ldr[bh]?|str[bh]?|ldm(?:ia|ib|da|db|ea|ed|fa|fd)?|stm(?:ia|ib|da|db|ea|ed|fa|fd)?|"
+            + "ldp|stp|"
+            // Branches
+            + "b(?:l[rx]?|x|ne|eq|lt|gt|le|ge|ls|hi|lo|cs|cc|mi|pl|vs|vc|al)?|"
+            + "blr|cbz|cbnz|tbz|tbnz|"
+            // Data processing
+            + "mvn|orr|eor|bic|lsl|lsr|asr|ror|rrx|"
+            + "adc|sbc|rsb|rsc|"
+            + "mul[s]?|mla|mls|smull|umull|smulh|umulh|"
+            + "sub[s]?|adds?|"
+            + "cmp|cmn|tst|teq|"
+            // System / address
+            + "adr[p]?|svc|stp|eret|"
+            // Miscellaneous
+            + "nop|clz|rev(?:16|sh)?|bfi|bfx|ubfx|sbfx|"
+            + "mrs|msr|dsb|dmb|isb|wfe|wfi|sev"
+            + ")\\b",
+            Pattern.CASE_INSENSITIVE);
+
     /** Numeric literals: hex ({@code 0x…}) and decimal. */
     private static final Pattern PAT_NUMBER = Pattern.compile(
             "\\b(?:0[xX][0-9a-fA-F]+|[0-9]+(?:\\.[0-9]*)?)\\b");
@@ -141,18 +217,33 @@ public final class SasmSyntaxHighlighter {
     // ── public API ───────────────────────────────────────────────────────────
 
     /**
-     * Applies syntax-highlighting colours to {@code doc}.
-     *
-     * <p>The method first resets all character attributes to
-     * {@link #COLOR_DEFAULT}, then applies each token category in ascending
-     * priority order, finishing with comment patterns (highest priority) so
-     * they always overwrite any keyword/register colouring inside a comment.</p>
+     * Applies syntax-highlighting colours to {@code doc} using x86 register
+     * and keyword rules.  Convenience overload for callers that have no
+     * architecture context (defaults to x86 / no ARM keywords).
      *
      * <p>Must be called on the Event Dispatch Thread.</p>
      *
      * @param doc the {@link StyledDocument} to decorate
      */
     public static void applyHighlights(StyledDocument doc) {
+        applyHighlights(doc, null);
+    }
+
+    /**
+     * Applies syntax-highlighting colours to {@code doc}, choosing
+     * arch-appropriate register and keyword patterns.
+     *
+     * <p>When {@code arch} is {@link Architecture#ARM32} or
+     * {@link Architecture#AARCH64}, ARM physical register names (r0–r15,
+     * sp, lr, pc, x0–x30, w0–w30, …) and common ARM assembly mnemonics
+     * (ldr, str, bl, orr, …) are recognised and coloured.</p>
+     *
+     * <p>Must be called on the Event Dispatch Thread.</p>
+     *
+     * @param doc  the {@link StyledDocument} to decorate
+     * @param arch the target architecture, or {@code null} for x86
+     */
+    public static void applyHighlights(StyledDocument doc, Architecture arch) {
         try {
             int len = doc.getLength();
             if (len == 0) return;
@@ -161,16 +252,26 @@ public final class SasmSyntaxHighlighter {
             // 1. Reset all text to the default colour.
             doc.setCharacterAttributes(0, len, ATTR_DEFAULT, true);
 
-            // 2. Apply token colours in ascending priority order.
+            // 2. Choose arch-specific patterns.
+            boolean isArm32   = arch == Architecture.ARM32;
+            boolean isAarch64 = arch == Architecture.AARCH64;
+            Pattern regPat = isAarch64 ? PAT_REGISTER_AARCH64
+                           : isArm32   ? PAT_REGISTER_ARM32
+                                       : PAT_REGISTER;
+
+            // 3. Apply token colours in ascending priority order.
             paint(doc, text, PAT_LABEL,      ATTR_LABEL);
             paint(doc, text, PAT_DIRECTIVE,  ATTR_DIRECTIVE);
             paint(doc, text, PAT_KEYWORD,    ATTR_KEYWORD);
-            paint(doc, text, PAT_REGISTER,   ATTR_REGISTER);
+            if (isArm32 || isAarch64) {
+                paint(doc, text, PAT_KEYWORD_ARM, ATTR_KEYWORD);
+            }
+            paint(doc, text, regPat,         ATTR_REGISTER);
             paint(doc, text, PAT_NUMBER,     ATTR_NUMBER);
             paint(doc, text, PAT_STRING,     ATTR_STRING);
             paint(doc, text, PAT_REFERENCE,  ATTR_REFERENCE);
 
-            // 3. Comments are highest priority — always on top.
+            // 4. Comments are highest priority — always on top.
             paint(doc, text, PAT_BLOCK_COMMENT, ATTR_COMMENT);
             paint(doc, text, PAT_LINE_COMMENT,  ATTR_COMMENT);
 

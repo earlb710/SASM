@@ -109,6 +109,13 @@ public class SasmIdePanel extends JPanel {
     private String lastAsmText = "";
 
     /**
+     * Architecture of the currently selected variant.  Updated by
+     * {@link #rebuildTranslatorForSelectedVariant()} and used by the syntax
+     * highlighter to choose arch-appropriate register and keyword patterns.
+     */
+    private Architecture currentArch = Architecture.X86_32;
+
+    /**
      * Set of 0-based line indices in the editor that are padding blanks
      * inserted for ASM alignment.  These lines are not part of the real
      * source — the {@link LineNumberComponent} skips drawing a number for
@@ -308,6 +315,7 @@ public class SasmIdePanel extends JPanel {
         translator.setWorkingDirectory(
                 project != null && project.workingDirectory != null
                         ? new File(project.workingDirectory) : null);
+        currentArch = arch;
         lastAsmText = ""; // force a re-translate
     }
 
@@ -1277,7 +1285,7 @@ public class SasmIdePanel extends JPanel {
     private void applyHighlights() {
         updatingHighlight = true;
         try {
-            SasmSyntaxHighlighter.applyHighlights(editor.getStyledDocument());
+            SasmSyntaxHighlighter.applyHighlights(editor.getStyledDocument(), currentArch);
             applyEditorTabStops();
         } finally {
             updatingHighlight = false;
