@@ -3563,4 +3563,212 @@ class SasmTranslatorTest {
         assertTrue(asmDiff.contains("MOV ESI, raw_str"),
                 "trim( raw_str ): raw_str ≠ esi → MOV ESI, raw_str must be emitted");
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Architecture-neutral portable register tests
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // ── Architecture enum tests ─────────────────────────────────────────────
+
+    @Test
+    void architecture_from_x86_32() {
+        assertEquals(Architecture.X86_32, Architecture.from("x86", 32));
+        assertEquals(Architecture.X86_32, Architecture.from("i386", 32));
+        assertEquals(Architecture.X86_32, Architecture.from(null, 32));
+    }
+
+    @Test
+    void architecture_from_x86_64() {
+        assertEquals(Architecture.X86_64, Architecture.from("x86_64", 64));
+        assertEquals(Architecture.X86_64, Architecture.from("x86-64", 64));
+        assertEquals(Architecture.X86_64, Architecture.from("amd64", 64));
+    }
+
+    @Test
+    void architecture_from_arm32() {
+        assertEquals(Architecture.ARM32, Architecture.from("arm32", 32));
+        assertEquals(Architecture.ARM32, Architecture.from("arm", 32));
+    }
+
+    @Test
+    void architecture_from_aarch64() {
+        assertEquals(Architecture.AARCH64, Architecture.from("aarch64", 64));
+        assertEquals(Architecture.AARCH64, Architecture.from("arm64", 64));
+    }
+
+    // ── Register resolution tests ───────────────────────────────────────────
+
+    @Test
+    void resolveReg_x86_32() {
+        Architecture a = Architecture.X86_32;
+        assertEquals("EAX", a.resolveReg("reg1"));
+        assertEquals("EBX", a.resolveReg("reg2"));
+        assertEquals("ECX", a.resolveReg("reg3"));
+        assertEquals("EDX", a.resolveReg("reg4"));
+        assertEquals("ESI", a.resolveReg("ptr1"));
+        assertEquals("EDI", a.resolveReg("ptr2"));
+        assertEquals("EBP", a.resolveReg("bp"));
+        // Pass-through for raw register names
+        assertEquals("eax", a.resolveReg("eax"));
+    }
+
+    @Test
+    void resolveReg_arm32() {
+        Architecture a = Architecture.ARM32;
+        assertEquals("r0", a.resolveReg("reg1"));
+        assertEquals("r1", a.resolveReg("reg2"));
+        assertEquals("r2", a.resolveReg("reg3"));
+        assertEquals("r3", a.resolveReg("reg4"));
+        assertEquals("r4", a.resolveReg("ptr1"));
+        assertEquals("r5", a.resolveReg("ptr2"));
+        assertEquals("r11", a.resolveReg("bp"));
+    }
+
+    @Test
+    void resolveReg_aarch64() {
+        Architecture a = Architecture.AARCH64;
+        assertEquals("x0", a.resolveReg("reg1"));
+        assertEquals("x1", a.resolveReg("reg2"));
+        assertEquals("x2", a.resolveReg("reg3"));
+        assertEquals("x3", a.resolveReg("reg4"));
+        assertEquals("x4", a.resolveReg("ptr1"));
+        assertEquals("x5", a.resolveReg("ptr2"));
+        assertEquals("x29", a.resolveReg("bp"));
+    }
+
+    // ── Sub-register resolution tests ───────────────────────────────────────
+
+    @Test
+    void resolvePortableRegisters_subRegs_x86_32() {
+        Architecture a = Architecture.X86_32;
+        assertEquals("    MOV AL, 5", a.resolvePortableRegisters("    MOV reg1.b, 5"));
+        assertEquals("    MOV AX, 42", a.resolvePortableRegisters("    MOV reg1.w, 42"));
+        assertEquals("    CMP CL, 0", a.resolvePortableRegisters("    CMP reg3.b, 0"));
+    }
+
+    @Test
+    void resolvePortableRegisters_subRegs_aarch64() {
+        Architecture a = Architecture.AARCH64;
+        assertEquals("    MOV w0, 5", a.resolvePortableRegisters("    MOV reg1.b, 5"));
+        assertEquals("    MOV w0, 42", a.resolvePortableRegisters("    MOV reg1.w, 42"));
+    }
+
+    // ── Portable register resolution in translation ─────────────────────────
+
+    @Test
+    void translateLine_portableRegisters_resolvedOnX86_32() {
+        SasmTranslator t = new SasmTranslator(Architecture.X86_32);
+        String src = String.join("\n",
+                "section .text",
+                "    MOV reg1, 42",
+                "    ADD reg1, reg2",
+                "    MOV ptr1, msg");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("MOV EAX, 42"),
+                "reg1 should resolve to EAX: " + asm);
+        assertTrue(asm.contains("ADD EAX, EBX"),
+                "reg1/reg2 should resolve to EAX/EBX: " + asm);
+        assertTrue(asm.contains("MOV ESI, msg"),
+                "ptr1 should resolve to ESI: " + asm);
+    }
+
+    @Test
+    void translateLine_portableRegisters_resolvedOnARM32() {
+        SasmTranslator t = new SasmTranslator(Architecture.ARM32);
+        String src = String.join("\n",
+                "section .text",
+                "    MOV reg1, 42",
+                "    ADD reg1, reg2",
+                "    MOV ptr1, msg");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("MOV r0, 42"),
+                "reg1 should resolve to r0: " + asm);
+        assertTrue(asm.contains("ADD r0, r1"),
+                "reg1/reg2 should resolve to r0/r1: " + asm);
+        assertTrue(asm.contains("MOV r4, msg"),
+                "ptr1 should resolve to r4: " + asm);
+    }
+
+    @Test
+    void translateLine_portableRegisters_resolvedOnAarch64() {
+        SasmTranslator t = new SasmTranslator(Architecture.AARCH64);
+        String src = String.join("\n",
+                "section .text",
+                "    MOV reg1, 42",
+                "    ADD reg1, reg2",
+                "    MOV ptr1, msg");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("MOV x0, 42"),
+                "reg1 should resolve to x0: " + asm);
+        assertTrue(asm.contains("ADD x0, x1"),
+                "reg1/reg2 should resolve to x0/x1: " + asm);
+        assertTrue(asm.contains("MOV x4, msg"),
+                "ptr1 should resolve to x4: " + asm);
+    }
+
+    // ── Default constructor preserves backward compatibility ─────────────────
+
+    @Test
+    void defaultConstructor_usesX86_32() {
+        SasmTranslator t = new SasmTranslator();
+        assertEquals(Architecture.X86_32, t.getArchitecture());
+    }
+
+    // ── Portable register names in proc signatures with default annotation ──
+
+    @Test
+    void procSignature_portableDefaultRegs_x86(@TempDir Path tempDir) throws IOException {
+        // Create a lib file using portable register names
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        String libContent = String.join("\n",
+                "#COMPAT Test",
+                "section .text",
+                "inline proc add_vals (val dword a default reg1, val dword b default reg2) out val dword {",
+                "    ADD reg1, reg2",
+                "    return",
+                "}");
+        Files.writeString(libDir.resolve("mylib.sasm"), libContent);
+
+        SasmTranslator t = new SasmTranslator(Architecture.X86_32);
+        t.setWorkingDirectory(tempDir.toFile());
+        String src = String.join("\n",
+                "#REF lib/mylib.sasm mylib",
+                "section .text",
+                "call @mylib.add_vals( [x], [y] )");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(), "No errors: " + t.getErrors());
+        // Both args should generate MOVs to EAX and EBX
+        assertTrue(asm.contains("MOV EAX, [x]"),
+                "First arg → reg1 → EAX: " + asm);
+        assertTrue(asm.contains("MOV EBX, [y]"),
+                "Second arg → reg2 → EBX: " + asm);
+    }
+
+    @Test
+    void procSignature_portableDefaultRegs_suppressesMOV(@TempDir Path tempDir) throws IOException {
+        // When the caller passes the default register, MOV should be suppressed
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        String libContent = String.join("\n",
+                "#COMPAT Test",
+                "section .text",
+                "inline proc my_strlen (addr str_ptr default ptr1) out val dword {",
+                "    move ptr1 to reg4",
+                "    return",
+                "}");
+        Files.writeString(libDir.resolve("mylib.sasm"), libContent);
+
+        SasmTranslator t = new SasmTranslator(Architecture.X86_32);
+        t.setWorkingDirectory(tempDir.toFile());
+        // Call with ESI which is the physical equivalent of ptr1 → MOV suppressed
+        String src = String.join("\n",
+                "#REF lib/mylib.sasm mylib",
+                "section .text",
+                "call @mylib.my_strlen( ESI )");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(), "No errors: " + t.getErrors());
+        assertFalse(asm.contains("MOV ESI, ESI"),
+                "MOV ESI, ESI should be suppressed when arg matches default: " + asm);
+    }
 }
