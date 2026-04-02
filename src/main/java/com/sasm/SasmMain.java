@@ -289,7 +289,17 @@ public class SasmMain {
             wizard.setVisible(true);
             if (wizard.isConfirmed()) {
                 currentProjectFile = wizard.getSavedProjectFile();
-                ProjectFile pf = toProjectFile(wizard);
+                // Load the project from the JSON the wizard just wrote so that
+                // variants (and defaultVariant) added inside the wizard are
+                // reflected in currentProject — not just in the file on disk.
+                ProjectFile pf;
+                try {
+                    pf = JsonLoader.loadProjectFile(currentProjectFile);
+                } catch (Exception ex) {
+                    // Fallback: build from wizard fields (variants will be absent)
+                    statusBar.setText(" Warning: could not reload project file — " + ex.getMessage());
+                    pf = toProjectFile(wizard);
+                }
                 applyLoadedProject(pf);
                 saveLastProject(currentProjectFile);
             } else {
