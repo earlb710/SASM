@@ -35,6 +35,8 @@ public class NewProjectWizard extends JDialog {
     private final JButton    browseBtn        = new JButton("Browse…");
     private final JTextField targetField      = new JTextField(50);
     private final JButton    targetBrowseBtn  = new JButton("Browse…");
+    private final JComboBox<String> defaultVariantChoice = new JComboBox<>();
+    private final JButton    newVariantBtn    = new JButton("New Variant");
 
     /**
      * {@code true} once the user has manually edited the Target Directory
@@ -57,6 +59,13 @@ public class NewProjectWizard extends JDialog {
     private boolean confirmed = false;
     /** Path of the {@code <name>.json} file written when the user clicks OK. */
     private java.io.File savedProjectFile;
+
+    /**
+     * Variants accumulated during this dialog session (pre-filled from an
+     * existing project and/or added via the "New Variant" button).
+     */
+    private final java.util.List<ProjectFile.VariantEntry> pendingVariants =
+            new java.util.ArrayList<>();
 
     /** Existing project to pre-fill the form when editing properties, or null. */
     private ProjectFile preFill;
@@ -86,11 +95,24 @@ public class NewProjectWizard extends JDialog {
                 // Derive default from workingDirectory
                 syncTargetDefault();
             }
+
+            // Pre-fill the default variant dropdown with existing variants
+            for (ProjectFile.VariantEntry ve : existing.getVariants()) {
+                pendingVariants.add(ve);
+                if (ve.variantName != null && !ve.variantName.isEmpty()) {
+                    defaultVariantChoice.addItem(ve.variantName);
+                }
+            }
+            // Select the saved default variant (if any)
+            if (existing.defaultVariant != null) {
+                defaultVariantChoice.setSelectedItem(existing.defaultVariant);
+            }
+
             refreshOkButton();
         }
         pack();
         setResizable(true);
-        setMinimumSize(new Dimension(600, 320));
+        setMinimumSize(new Dimension(600, 380));
         setLocationRelativeTo(owner);
     }
 
@@ -156,6 +178,16 @@ public class NewProjectWizard extends JDialog {
                 "Compiled output (object files, binaries) will be placed here. "
                 + "Defaults to <working directory>/target.");
 
+        // ── Default Variant ──────────────────────────────────────────────────
+        defaultVariantChoice.addItem("");   // empty = no default chosen
+        JPanel variantPanel = new JPanel(new BorderLayout(4, 0));
+        variantPanel.setBackground(Color.WHITE);
+        variantPanel.add(defaultVariantChoice, BorderLayout.CENTER);
+        variantPanel.add(newVariantBtn, BorderLayout.EAST);
+        gbRow = addLabeledControl(canvas, gbRow, "Default Variant:", variantPanel,
+                "Select the variant used as the default build target. "
+                + "Click 'New Variant' to add one.");
+
         // spacer row keeps content pinned to top
         GridBagConstraints sp = new GridBagConstraints();
         sp.gridx = 0; sp.gridy = gbRow; sp.gridwidth = 2;
@@ -175,6 +207,7 @@ public class NewProjectWizard extends JDialog {
         // ── wire events ─────────────────────────────────────────────────────
         browseBtn.addActionListener(e -> browseForDirectory());
         targetBrowseBtn.addActionListener(e -> browseForTargetDirectory());
+        newVariantBtn.addActionListener(e -> onNewVariant());
 
         DocumentListener refreshListener = new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { refreshOkButton(); }
@@ -290,6 +323,30 @@ public class NewProjectWizard extends JDialog {
     }
 
     /**
+     * Opens the Add Variant wizard.  If the user confirms, the new variant
+     * is added to {@link #pendingVariants} and the Default Variant dropdown.
+     */
+    private void onNewVariant() {
+        AddVariantWizard wizard = new AddVariantWizard(
+                (Frame) getOwner());
+        wizard.setVisible(true);
+
+        if (!wizard.isConfirmed()) return;
+
+        ProjectFile.VariantEntry ve = wizard.toVariantEntry();
+        pendingVariants.add(ve);
+
+        String displayName = ve.variantName != null && !ve.variantName.isEmpty()
+                ? ve.variantName : "variant-" + pendingVariants.size();
+        defaultVariantChoice.addItem(displayName);
+
+        // Auto-select the newly added variant if it's the first one
+        if (pendingVariants.size() == 1) {
+            defaultVariantChoice.setSelectedItem(displayName);
+        }
+    }
+
+    /**
      * Sets the Target Directory to {@code <workingDir>/target} without marking
      * it as manually set.  Called during initial layout and when loading a
      * project whose {@code targetDirectory} was null.
@@ -366,6 +423,13 @@ public class NewProjectWizard extends JDialog {
         pf.name             = name;
         pf.workingDirectory = dirField.getText().trim();
         pf.targetDirectory  = targetField.getText().trim();
+
+        // Persist variants and the selected default variant
+        pf.variants = new java.util.ArrayList<>(pendingVariants);
+        String selected = (String) defaultVariantChoice.getSelectedItem();
+        if (selected != null && !selected.isEmpty()) {
+            pf.defaultVariant = selected;
+        }
 
         java.io.File dir = new java.io.File(pf.workingDirectory);
         if (!dir.exists() && !dir.mkdirs()) {
