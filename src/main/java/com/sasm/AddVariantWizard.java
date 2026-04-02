@@ -189,9 +189,16 @@ public class AddVariantWizard extends JDialog {
         outputTypeChoice.addItemListener(e -> onOutputTypeChanged());
         variantChoice.addItemListener(e -> onVariantChanged());
         variantNameField.getDocument().addDocumentListener(new DocumentListener() {
-            public void insertUpdate(DocumentEvent e) { if (!settingNameProgrammatically) userEditedName = true; refreshOkButton(); }
-            public void removeUpdate(DocumentEvent e) { if (!settingNameProgrammatically) userEditedName = true; refreshOkButton(); }
-            public void changedUpdate(DocumentEvent e) { if (!settingNameProgrammatically) userEditedName = true; refreshOkButton(); }
+            public void insertUpdate(DocumentEvent e) { onNameFieldChanged(); }
+            public void removeUpdate(DocumentEvent e) { onNameFieldChanged(); }
+            public void changedUpdate(DocumentEvent e) { onNameFieldChanged(); }
+            private void onNameFieldChanged() {
+                if (!settingNameProgrammatically) {
+                    // Reset if user clears the field so auto-population can resume
+                    userEditedName = !variantNameField.getText().trim().isEmpty();
+                }
+                refreshOkButton();
+            }
         });
         okBtn.addActionListener(e -> onOkPressed());
         cancelBtn.addActionListener(e -> dispose());
