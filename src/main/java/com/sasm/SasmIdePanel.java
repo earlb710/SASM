@@ -228,8 +228,7 @@ public class SasmIdePanel extends JPanel {
         asmOutput.setText("");
         editorHeader.setText("  (no file open)");
         treeHeader.setText(pf != null && pf.name != null ? pf.name : "Project Files");
-        // Repopulate the variant dropdown and rebuild the translator
-        refreshVariantChoice();
+        // refreshFileList also repopulates the variant dropdown and rebuilds the translator
         refreshFileList();
     }
 
@@ -308,12 +307,68 @@ public class SasmIdePanel extends JPanel {
     }
 
     /**
+     * Returns the concatenated {@code code_example.source} blocks from every
+     * {@code required_component} of the selected variant's OS format definition,
+     * or an empty string if the variant has no OS/format data or none of its
+     * components have code examples.
+     *
+     * <p>Each block is preceded by a short banner comment so the reader can
+     * identify which binary-format component it belongs to.</p>
+     */
+    private String buildPluginCode() {
+        if (project == null) return "";
+        String sel = (String) variantChoice.getSelectedItem();
+        if (sel == null) return "";
+
+        ProjectFile.VariantEntry ve = null;
+        for (ProjectFile.VariantEntry entry : project.getVariants()) {
+            String name = entry.variantName != null ? entry.variantName : "(unnamed)";
+            if (sel.equals(name)) { ve = entry; break; }
+        }
+        if (ve == null || ve.os == null || ve.os.isEmpty()) return "";
+
+        try {
+            OsDefinition osDef = JsonLoader.load(ve.os, ve.outputType);
+            // Find the OsDefinition.Variant whose name matches the stored variant field
+            OsDefinition.Variant osVariant = null;
+            if (osDef.variants != null) {
+                for (OsDefinition.Variant ov : osDef.variants) {
+                    if (ov.name != null && ov.name.equals(ve.variant)) {
+                        osVariant = ov;
+                        break;
+                    }
+                }
+            }
+            if (osVariant == null || osVariant.required_components == null) return "";
+
+            StringBuilder sb = new StringBuilder();
+            for (OsDefinition.Component comp : osVariant.required_components) {
+                if (comp.code_example != null
+                        && comp.code_example.source != null
+                        && !comp.code_example.source.isBlank()) {
+                    if (sb.length() > 0) sb.append("\n\n");
+                    if (comp.name != null && !comp.name.isBlank()) {
+                        sb.append("; ── ").append(comp.name).append(" ──\n");
+                    }
+                    sb.append(comp.code_example.source);
+                }
+            }
+            return sb.toString();
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    /**
      * Rescans the project working directory for subdirectories and
      * {@code .sasm} files, building a tree-like list.  The {@code core/}
      * directory is always shown first, followed by variant subdirectories
      * in alphabetical order.
      */
     public void refreshFileList() {
+        // Always keep the variant dropdown in sync with the project's variant list
+        refreshVariantChoice();
+
         String prevSel = currentFile != null ? currentFile.getAbsolutePath() : null;
         fileListModel.clear();
         fileIndex.clear();
@@ -983,6 +1038,15 @@ public class SasmIdePanel extends JPanel {
         String source = getSourceText();
         try {
             String asm = translator.translate(source);
+            // Append variant plugin code (binary-format component templates) if any
+            String plugin = buildPluginCode();
+            if (!plugin.isEmpty()) {
+                asm = asm
+                        + "\n\n; ════════════════════════════════════════\n"
+                        + "; Variant plugin code\n"
+                        + "; ════════════════════════════════════════\n\n"
+                        + plugin;
+            }
             // Skip the expensive setText + repaint cycle when the
             // translated output hasn't changed (e.g. typing in a comment).
             if (asm.equals(lastAsmText)) return;
