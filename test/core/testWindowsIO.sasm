@@ -43,11 +43,11 @@ _start:
 
     // ── Step 2: create a file and write to it ───────────────────
     push path_bytes                   // file path: "test.txt"
-    call @io.create_file_write        // eax = file handle
-    esp = esp + 4                     // clean caller arg (wrapper uses plain RET)
+    call @io.create_file_write        // reg1 = file handle
+    sp = sp + 4                     // clean caller arg (wrapper uses plain RET)
 
     // Check for error
-    compare eax with io_INVALID_HANDLE
+    compare reg1 with io_INVALID_HANDLE
     if equal {
         // File creation failed — exit with error code 1
         push 1
@@ -55,7 +55,7 @@ _start:
     }
 
     // Save handle
-    move eax to [file_handle]
+    move reg1 to [file_handle]
 
     // Write "SASM\r\n" to the file
     push 6                            // length
@@ -69,16 +69,16 @@ _start:
 
     // ── Step 3: re-open the file for reading ────────────────────
     push path_bytes                   // file path: "test.txt"
-    call @io.open_file_read           // eax = file handle
-    esp = esp + 4
+    call @io.open_file_read           // reg1 = file handle
+    sp = sp + 4
 
-    compare eax with io_INVALID_HANDLE
+    compare reg1 with io_INVALID_HANDLE
     if equal {
         push 2
         call _ExitProcess@4
     }
 
-    move eax to [file_handle]
+    move reg1 to [file_handle]
 
     // Read up to 256 bytes from the file
     push 256                          // bytes to read

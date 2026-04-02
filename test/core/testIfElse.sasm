@@ -173,6 +173,6 @@ _start:
     call test_if_in_for
 
     // Exit (Linux syscall: sys_exit)
-    move 0 to bl
-    move 1 to ax
+    move 0 to reg2.b
+    move 1 to reg1.w
     syscall 0x80

@@ -5,24 +5,24 @@
 // affect the code generated for formulas that chain multiple functions.
 //
 // ── Default register mapping for integer math procs ────────────────────────
-//   abs_int     (val dword value default eax)          → result in EAX
-//   sign        (val dword value default eax)          → result in EAX
-//   clamp       (val dword value default eax,
-//                val dword lo    default ebx,
-//                val dword hi    default ecx)          → result in EAX
-//   max         (val dword first default eax,
-//                val dword second default ebx)         → result in EAX
-//   min         (val dword first default eax,
-//                val dword second default ebx)         → result in EAX
+//   abs_int     (val dword value default reg1)          → result in reg1
+//   sign        (val dword value default reg1)          → result in reg1
+//   clamp       (val dword value default reg1,
+//                val dword lo    default reg2,
+//                val dword hi    default reg3)          → result in reg1
+//   max         (val dword first default reg1,
+//                val dword second default reg2)         → result in reg1
+//   min         (val dword first default reg1,
+//                val dword second default reg2)         → result in reg1
 //
 // ── Two call styles ────────────────────────────────────────────────────────
 //
 //  Style A  –  memory / literal args
 //    The translator emits a setup MOV for every argument.
 //    Example: call @math.clamp( [val], [lo], [hi] )
-//      → MOV EAX, [val]
-//        MOV EBX, [lo]
-//        MOV ECX, [hi]
+//      → MOV reg1, [val]
+//        MOV reg2, [lo]
+//        MOV reg3, [hi]
 //        <clamp inline body>
 //    Three setup MOVs generated automatically.
 //
@@ -30,10 +30,10 @@
 //    The caller pre-loads values into the expected default registers.
 //    When a call argument exactly matches the declared default, the
 //    translator suppresses that MOV entirely.
-//    Example (after pre-loading EAX/EBX/ECX):
-//      call @math.clamp( eax, ebx, ecx )
+//    Example (after pre-loading reg1/reg2/reg3):
+//      call @math.clamp( reg1, reg2, reg3 )
 //      → <clamp inline body>          ; zero setup MOVs
-//    Chain-friendly: the EAX result of one function feeds directly into
+//    Chain-friendly: the reg1 result of one function feeds directly into
 //    the first parameter of the next without any intermediate MOV.
 //
 // Target: 32-bit Linux ELF executable (uses int 0x80 for exit).
@@ -71,39 +71,39 @@ start:
     // translator to emit a setup MOV.
     //
     // Code generated:
-    //   MOV EAX, [x]          ← abs_int value param (eax default, [x] ≠ eax)
-    //   <abs_int body>         ← CDQ / XOR / SUB; result in EAX
-    //   MOV EBX, [lo_bound]   ← clamp lo param ([lo_bound] ≠ ebx default)
-    //   MOV ECX, [hi_bound]   ← clamp hi param ([hi_bound] ≠ ecx default)
-    //   <clamp body>           ← CMP/J* ; result in EAX
+    //   MOV reg1, [x]          ← abs_int value param (reg1 default, [x] ≠ reg1)
+    //   <abs_int body>         ← CDQ / XOR / SUB; result in reg1
+    //   MOV reg2, [lo_bound]   ← clamp lo param ([lo_bound] ≠ reg2 default)
+    //   MOV reg3, [hi_bound]   ← clamp hi param ([hi_bound] ≠ reg3 default)
+    //   <clamp body>           ← CMP/J* ; result in reg1
     //
     //   Total setup MOVs: 3  (1 for abs_int + 2 for clamp)
-    //   (clamp value=eax is already the default after abs_int → no 4th MOV)
+    //   (clamp value=reg1 is already the default after abs_int → no 4th MOV)
 
-    call @math.abs_int( [x] )                           // MOV EAX,[x]; abs_int
-    call @math.clamp( eax, [lo_bound], [hi_bound] )     // EAX=default (skip); MOV EBX,[lo_bound]; MOV ECX,[hi_bound]; clamp
-    move eax to dword [result1]
+    call @math.abs_int( [x] )                           // MOV reg1,[x]; abs_int
+    call @math.clamp( reg1, [lo_bound], [hi_bound] )     // reg1=default (skip); MOV reg2,[lo_bound]; MOV reg3,[hi_bound]; clamp
+    move reg1 to dword [result1]
 
     // ── Style B: default-register args ────────────────────────────────────
-    // Pre-load EBX and ECX before the chain; abs_int returns EAX which
+    // Pre-load reg2 and reg3 before the chain; abs_int returns reg1 which
     // feeds clamp's first param directly.  All three call args now match
     // their declared defaults → zero setup MOVs for both calls.
     //
     // Code generated:
-    //   MOV EBX, [lo_bound]   ← user's explicit pre-load
-    //   MOV ECX, [hi_bound]   ← user's explicit pre-load
-    //   MOV EAX, [x]          ← abs_int value param ([x] ≠ eax, still needed)
-    //   <abs_int body>         ← result in EAX
-    //   <clamp body>           ← eax/ebx/ecx all match defaults → 0 setup MOVs
+    //   MOV reg2, [lo_bound]   ← user's explicit pre-load
+    //   MOV reg3, [hi_bound]   ← user's explicit pre-load
+    //   MOV reg1, [x]          ← abs_int value param ([x] ≠ reg1, still needed)
+    //   <abs_int body>         ← result in reg1
+    //   <clamp body>           ← reg1/reg2/reg3 all match defaults → 0 setup MOVs
     //
     //   Total translator-generated setup MOVs for clamp: 0
     //   Net change vs Style A: 2 fewer MOVs in the clamp call
 
-    move dword [lo_bound] to ebx                        // pre-load lo → EBX (clamp.lo default)
-    move dword [hi_bound] to ecx                        // pre-load hi → ECX (clamp.hi default)
-    call @math.abs_int( [x] )                           // MOV EAX,[x]; abs_int → EAX=|x|
-    call @math.clamp( eax, ebx, ecx )                   // ALL defaults → zero setup MOVs; clamp
-    move eax to dword [result1]
+    move dword [lo_bound] to reg2                        // pre-load lo → reg2 (clamp.lo default)
+    move dword [hi_bound] to reg3                        // pre-load hi → reg3 (clamp.hi default)
+    call @math.abs_int( [x] )                           // MOV reg1,[x]; abs_int → reg1=|x|
+    call @math.clamp( reg1, reg2, reg3 )                   // ALL defaults → zero setup MOVs; clamp
+    move reg1 to dword [result1]
 
     // ═════════════════════════════════════════════════════════════════════
     //  Formula 2: result2 = clamp(max(a_val, b_val), 0, 10)
@@ -112,58 +112,58 @@ start:
     // ── Style A: memory args ──────────────────────────────────────────────
     //
     // Code generated:
-    //   MOV EAX, [a_val]      ← max first param
-    //   MOV EBX, [b_val]      ← max second param
-    //   <max body>             ← CMP/JGE; result in EAX
-    //   MOV EBX, 0            ← clamp lo param (EAX=default, skip)
-    //   MOV ECX, 10           ← clamp hi param
-    //   <clamp body>           ← CMP/J* ; result in EAX
+    //   MOV reg1, [a_val]      ← max first param
+    //   MOV reg2, [b_val]      ← max second param
+    //   <max body>             ← CMP/JGE; result in reg1
+    //   MOV reg2, 0            ← clamp lo param (reg1=default, skip)
+    //   MOV reg3, 10           ← clamp hi param
+    //   <clamp body>           ← CMP/J* ; result in reg1
     //
     //   Total setup MOVs: 4  (2 for max + 2 for clamp)
 
-    call @math.max( [a_val], [b_val] )                  // MOV EAX,[a_val]; MOV EBX,[b_val]; max
-    call @math.clamp( eax, 0, 10 )                      // EAX=default (skip); MOV EBX,0; MOV ECX,10; clamp
-    move eax to dword [result2]
+    call @math.max( [a_val], [b_val] )                  // MOV reg1,[a_val]; MOV reg2,[b_val]; max
+    call @math.clamp( reg1, 0, 10 )                      // reg1=default (skip); MOV reg2,0; MOV reg3,10; clamp
+    move reg1 to dword [result2]
 
     // ── Style B: default-register args ────────────────────────────────────
-    // Pre-load all four values; the output of max (EAX) feeds clamp's
+    // Pre-load all four values; the output of max (reg1) feeds clamp's
     // value param directly.  Both calls have all args matching defaults.
     //
     // Code generated:
-    //   MOV EAX, [a_val]      ← user pre-load (same instruction as Style A)
-    //   MOV EBX, [b_val]      ← user pre-load
-    //   <max body>             ← result in EAX
-    //   MOV EBX, 0            ← user pre-load
-    //   MOV ECX, 10           ← user pre-load
+    //   MOV reg1, [a_val]      ← user pre-load (same instruction as Style A)
+    //   MOV reg2, [b_val]      ← user pre-load
+    //   <max body>             ← result in reg1
+    //   MOV reg2, 0            ← user pre-load
+    //   MOV reg3, 10           ← user pre-load
     //   <clamp body>           ← zero setup MOVs
     //
     //   Total translator-generated setup MOVs: 0  (vs 4 in Style A)
     //   The same register loads are now explicit pre-loads by the caller.
 
-    move dword [a_val] to eax                           // pre-load a → EAX (max.first default)
-    move dword [b_val] to ebx                           // pre-load b → EBX (max.second default)
-    call @math.max( eax, ebx )                          // ALL defaults → zero setup MOVs; max
-    move 0 to ebx                                       // pre-load lo=0 → EBX (clamp.lo default)
-    move 10 to ecx                                      // pre-load hi=10 → ECX (clamp.hi default)
-    call @math.clamp( eax, ebx, ecx )                   // ALL defaults → zero setup MOVs; clamp
-    move eax to dword [result2]
+    move dword [a_val] to reg1                           // pre-load a → reg1 (max.first default)
+    move dword [b_val] to reg2                           // pre-load b → reg2 (max.second default)
+    call @math.max( reg1, reg2 )                          // ALL defaults → zero setup MOVs; max
+    move 0 to reg2                                       // pre-load lo=0 → reg2 (clamp.lo default)
+    move 10 to reg3                                      // pre-load hi=10 → reg3 (clamp.hi default)
+    call @math.clamp( reg1, reg2, reg3 )                   // ALL defaults → zero setup MOVs; clamp
+    move reg1 to dword [result2]
 
     // ═════════════════════════════════════════════════════════════════════
     //  Formula 3: result3 = min(sign(a_val), sign(b_val))
     // ═════════════════════════════════════════════════════════════════════
     //
-    // sign has (val dword value default eax) → result in EAX
-    // min  has (val dword first default eax, val dword second default ebx)
+    // sign has (val dword value default reg1) → result in reg1
+    // min  has (val dword first default reg1, val dword second default reg2)
     //
-    // Style B: chain via default registers, storing intermediate in EBX.
+    // Style B: chain via default registers, storing intermediate in reg2.
 
-    call @math.sign( [a_val] )                          // MOV EAX,[a_val]; sign → EAX = sign(a)
-    move eax to ebx                                     // save sign(a) in EBX (min.second default)
-    call @math.sign( [b_val] )                          // MOV EAX,[b_val]; sign → EAX = sign(b)
-    call @math.min( eax, ebx )                          // ALL defaults → zero setup MOVs; min
-    move eax to dword [result3]
+    call @math.sign( [a_val] )                          // MOV reg1,[a_val]; sign → reg1 = sign(a)
+    move reg1 to reg2                                     // save sign(a) in reg2 (min.second default)
+    call @math.sign( [b_val] )                          // MOV reg1,[b_val]; sign → reg1 = sign(b)
+    call @math.min( reg1, reg2 )                          // ALL defaults → zero setup MOVs; min
+    move reg1 to dword [result3]
 
 exit:
-    move 1 to eax                  // sys_exit
-    move 0 to ebx                  // exit code 0
+    move 1 to reg1                  // sys_exit
+    move 0 to reg2                  // exit code 0
     interrupt 0x80

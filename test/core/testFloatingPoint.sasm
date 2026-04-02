@@ -65,6 +65,6 @@ _start:
     fstp qword [result_d]       // pop and store as double
 
     // ── Exit cleanly ────────────────────────────────────────────
-    move 1 to eax               // sys_exit
-    move 0 to ebx               // exit code 0
+    move 1 to reg1               // sys_exit
+    move 0 to reg2               // exit code 0
     interrupt 0x80

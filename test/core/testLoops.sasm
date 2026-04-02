@@ -2,11 +2,11 @@
 // Project : Test-projects
 //
 // Demonstrates every loop form supported by SASM:
-//   1. repeat cx times         — classic CX-counted loop (LOOP)
-//   2. repeat <var> times      — variable-counted loop (MOV CX, [var] + LOOP)
-//   3. repeat <literal> times  — literal-counted loop (MOV CX, imm + LOOP)
-//   4. repeat cx times while equal       — conditional count loop (LOOPE)
-//   5. repeat cx times while not equal   — conditional count loop (LOOPNE)
+//   1. repeat reg3.w times         — classic reg3.w-counted loop (LOOP)
+//   2. repeat <var> times      — variable-counted loop (MOV reg3.w, [var] + LOOP)
+//   3. repeat <literal> times  — literal-counted loop (MOV reg3.w, imm + LOOP)
+//   4. repeat reg3.w times while equal       — conditional count loop (LOOPE)
+//   5. repeat reg3.w times while not equal   — conditional count loop (LOOPNE)
 //   6. repeat { … } until <condition>    — bottom-tested loop
 //   7. while <condition> { … }           — top-tested loop
 //   8. repeat <var> times while equal    — variable conditional loop
@@ -26,15 +26,15 @@ var count as word = 10
 var limit as word = 5
 
 (* //---------------------------------------------------------------
-   1. repeat cx times — classic counted loop
-   Fill 'buffer' with 0xAA using cx as the iteration count.
+   1. repeat reg3.w times — classic counted loop
+   Fill 'buffer' with 0xAA using reg3.w as the iteration count.
    //--------------------------------------------------------------- *)
 proc fill_cx_counted {
-    move 0 to bx
-    move 10 to cx
-    repeat cx times {
-        move 0xAA to byte [buffer + bx]
-        increment bx
+    move 0 to reg2.w
+    move 10 to reg3.w
+    repeat reg3.w times {
+        move 0xAA to byte [buffer + reg2.w]
+        increment reg2.w
     }
     return
 }
@@ -45,10 +45,10 @@ proc fill_cx_counted {
    to control the number of iterations.
    //--------------------------------------------------------------- *)
 proc fill_var_counted {
-    move 0 to bx
+    move 0 to reg2.w
     repeat count times {
-        move 0xBB to byte [buffer + bx]
-        increment bx
+        move 0xBB to byte [buffer + reg2.w]
+        increment reg2.w
     }
     return
 }
@@ -58,43 +58,43 @@ proc fill_var_counted {
    Zero out the first 5 bytes of 'buffer' using a literal count.
    //--------------------------------------------------------------- *)
 proc clear_literal_counted {
-    move 0 to bx
+    move 0 to reg2.w
     repeat 5 times {
-        move 0 to byte [buffer + bx]
-        increment bx
+        move 0 to byte [buffer + reg2.w]
+        increment reg2.w
     }
     return
 }
 
 (* //---------------------------------------------------------------
-   4. repeat cx times while equal — conditional count loop (LOOPE)
+   4. repeat reg3.w times while equal — conditional count loop (LOOPE)
    Scan 'buffer' for the first non-0xBB byte, stopping early
-   if a mismatch is found or cx reaches zero.
+   if a mismatch is found or reg3.w reaches zero.
    //--------------------------------------------------------------- *)
 proc scan_loope {
-    move 0 to bx
-    move 10 to cx
-    repeat cx times while equal {
-        compare byte [buffer + bx] with 0xBB
-        increment bx
+    move 0 to reg2.w
+    move 10 to reg3.w
+    repeat reg3.w times while equal {
+        compare byte [buffer + reg2.w] with 0xBB
+        increment reg2.w
     }
-    // bx = number of consecutive 0xBB bytes before first mismatch
+    // reg2.w = number of consecutive 0xBB bytes before first mismatch
     return
 }
 
 (* //---------------------------------------------------------------
-   5. repeat cx times while not equal — conditional count loop (LOOPNE)
+   5. repeat reg3.w times while not equal — conditional count loop (LOOPNE)
    Scan 'buffer' for the first 0xBB byte, stopping early
-   when a match is found or cx reaches zero.
+   when a match is found or reg3.w reaches zero.
    //--------------------------------------------------------------- *)
 proc scan_loopne {
-    move 0 to bx
-    move 10 to cx
-    repeat cx times while not equal {
-        compare byte [buffer + bx] with 0xBB
-        increment bx
+    move 0 to reg2.w
+    move 10 to reg3.w
+    repeat reg3.w times while not equal {
+        compare byte [buffer + reg2.w] with 0xBB
+        increment reg2.w
     }
-    // bx = index of first 0xBB byte (or 10 if none found)
+    // reg2.w = index of first 0xBB byte (or 10 if none found)
     return
 }
 
@@ -104,13 +104,13 @@ proc scan_loopne {
    The body always executes at least once.
    //--------------------------------------------------------------- *)
 proc fill_repeat_until {
-    move 0 to bx
-    move 0 to al
+    move 0 to reg2.w
+    move 0 to reg1.b
     repeat {
-        move al to byte [buffer + bx]
-        increment bx
-        increment al
-        compare bx with 10
+        move reg1.b to byte [buffer + reg2.w]
+        increment reg2.w
+        increment reg1.b
+        compare reg2.w with 10
     } until equal
     // buffer[0..9] = 0,1,2,...,9
     return
@@ -125,10 +125,10 @@ proc fill_repeat_until {
 //
 // How "while not equal" works, step by step:
 //
-//   compare bx with 10       <- sets the CPU flags (Zero Flag, etc.)
+//   compare reg2.w with 10       <- sets the CPU flags (Zero Flag, etc.)
 //   while not equal {         <- label; continue body while ZF = 0
 //       ...                   <- loop body
-//       compare bx with 10   <- re-test at the bottom of the body
+//       compare reg2.w with 10   <- re-test at the bottom of the body
 //   }                         <- jump back to the while label
 //
 // The condition "not equal" maps to the Zero Flag (ZF):
@@ -141,36 +141,36 @@ proc fill_repeat_until {
 //   while greater      ->  loop while ZF = 0 and SF = OF
 //   (see the full condition table in syntax_sasm.md)
 //
-// This example sums buffer[0..9] into ax.
-// bx starts at 0; each iteration loads one byte, adds it to ax,
-// then increments bx and compares it against 10.
-// When bx reaches 10 the compare sets ZF = 1, so "not equal"
+// This example sums buffer[0..9] into reg1.w.
+// reg2.w starts at 0; each iteration loads one byte, adds it to reg1.w,
+// then increments reg2.w and compares it against 10.
+// When reg2.w reaches 10 the compare sets ZF = 1, so "not equal"
 // becomes false and the loop exits.
 //
 proc sum_while {
-    move 0 to ax                   // accumulator = 0
-    move 0 to bx                   // index = 0
-    compare bx with 10             // initial flag test (0 != 10 -> ZF = 0)
-    while not equal {              // loop while bx != 10
-        move byte [buffer + bx] to dl   // load one byte
-        move zero dl to dx              // zero-extend to word
-        ax = ax + dx                    // accumulate
-        increment bx                    // next index
-        compare bx with 10             // re-set flags for the while check
+    move 0 to reg1.w                   // accumulator = 0
+    move 0 to reg2.w                   // index = 0
+    compare reg2.w with 10             // initial flag test (0 != 10 -> ZF = 0)
+    while not equal {              // loop while reg2.w != 10
+        move byte [buffer + reg2.w] to reg4.b   // load one byte
+        move zero reg4.b to reg4.w              // zero-extend to word
+        reg1.w = reg1.w + reg4.w                    // accumulate
+        increment reg2.w                    // next index
+        compare reg2.w with 10             // re-set flags for the while check
     }
-    // ax = sum of buffer[0..9]
+    // reg1.w = sum of buffer[0..9]
     return
 }
 
 (* //---------------------------------------------------------------
    8. repeat <var> times while equal — variable conditional loop
-   Same as scan_loope but uses the variable 'count' instead of cx.
+   Same as scan_loope but uses the variable 'count' instead of reg3.w.
    //--------------------------------------------------------------- *)
 proc scan_var_loope {
-    move 0 to bx
+    move 0 to reg2.w
     repeat count times while equal {
-        compare byte [buffer + bx] with 0xBB
-        increment bx
+        compare byte [buffer + reg2.w] with 0xBB
+        increment reg2.w
     }
     return
 }
@@ -181,16 +181,16 @@ proc scan_var_loope {
    The compare instruction is emitted automatically.
    //--------------------------------------------------------------- *)
 proc sum_while_cstyle {
-    move 0 to ax
-    move 0 to bx
-    while (bx != 10) {
-        move byte [buffer + bx] to dl
-        move zero dl to dx
-        ax = ax + dx
-        increment bx
-        bx != 10                       // re-set flags for the while check
+    move 0 to reg1.w
+    move 0 to reg2.w
+    while (reg2.w != 10) {
+        move byte [buffer + reg2.w] to reg4.b
+        move zero reg4.b to reg4.w
+        reg1.w = reg1.w + reg4.w
+        increment reg2.w
+        reg2.w != 10                       // re-set flags for the while check
     }
-    // ax = sum of buffer[0..9]
+    // reg1.w = sum of buffer[0..9]
     return
 }
 
@@ -199,11 +199,11 @@ proc sum_while_cstyle {
    Uses the C-style parenthesized condition.
    //--------------------------------------------------------------- *)
 proc check_if_cstyle {
-    if (ax == 0) {
-        move 1 to bx
+    if (reg1.w == 0) {
+        move 1 to reg2.w
     }
-    if (cx != 5) {
-        move 2 to bx
+    if (reg3.w != 5) {
+        move 2 to reg2.w
     }
     return
 }
@@ -214,13 +214,13 @@ proc check_if_cstyle {
    condition for the until clause.
    //--------------------------------------------------------------- *)
 proc fill_repeat_until_cstyle {
-    move 0 to bx
-    move 0 to al
+    move 0 to reg2.w
+    move 0 to reg1.b
     repeat {
-        move al to byte [buffer + bx]
-        increment bx
-        increment al
-    } until (bx == 10)
+        move reg1.b to byte [buffer + reg2.w]
+        increment reg2.w
+        increment reg1.b
+    } until (reg2.w == 10)
     return
 }
 
@@ -231,17 +231,17 @@ proc fill_repeat_until_cstyle {
    All three just emit CMP to set flags.
    //--------------------------------------------------------------- *)
 proc test_short_compare {
-    comp bx with 10                // same as: compare bx with 10
+    comp reg2.w with 10                // same as: compare reg2.w with 10
     if equal {
-        move 1 to ax
+        move 1 to reg1.w
     }
-    cx == 5                        // standalone ==, sets flags
+    reg3.w == 5                        // standalone ==, sets flags
     if equal {
-        move 2 to ax
+        move 2 to reg1.w
     }
-    dx != 0                        // standalone !=, sets flags
+    reg4.w != 0                        // standalone !=, sets flags
     if not equal {
-        move 3 to ax
+        move 3 to reg1.w
     }
     return
 }
@@ -250,11 +250,11 @@ proc test_short_compare {
    _start — exercise each loop type in sequence
    //--------------------------------------------------------------- *)
 _start:
-    call fill_cx_counted           // 1. repeat cx times
+    call fill_cx_counted           // 1. repeat reg3.w times
     call fill_var_counted          // 2. repeat <var> times
     call clear_literal_counted     // 3. repeat <literal> times
-    call scan_loope                // 4. repeat cx times while equal
-    call scan_loopne               // 5. repeat cx times while not equal
+    call scan_loope                // 4. repeat reg3.w times while equal
+    call scan_loopne               // 5. repeat reg3.w times while not equal
     call fill_repeat_until         // 6. repeat { } until
     call sum_while                 // 7. while { }
     call scan_var_loope            // 8. repeat <var> times while equal
@@ -264,6 +264,6 @@ _start:
     call test_short_compare        // 12. comp / == / !=
 
     // Exit (Linux syscall: sys_exit)
-    move al to bl
-    move 1 to ax
+    move reg1.b to reg2.b
+    move 1 to reg1.w
     syscall 0x80

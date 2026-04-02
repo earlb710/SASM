@@ -231,11 +231,11 @@ class SasmTranslatorTest {
         String src = String.join("\n",
                 "#REF lib/math.sasm math",
                 "section .text",
-                "move 7 to eax",
+                "move 7 to reg1",
                 "call @math.square",
                 "call @math.sqrt_int",
-                "move 10 to eax",
-                "move 20 to ebx",
+                "move 10 to reg1",
+                "move 20 to reg2",
                 "call @math.max",
                 "call @math.min");
         String asm = t.translate(src);
@@ -604,13 +604,13 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "move (value) to eax",
-                "move eax to dword (result)");
+                "move (value) to reg1",
+                "move reg1 to dword (result)");
         String asm = t.translate(src);
-        assertTrue(asm.contains("MOV eax, [value]"),
-                "move (value) to eax → MOV eax, [value]");
-        assertTrue(asm.contains("MOV dword [result], eax"),
-                "move eax to dword (result) → MOV dword [result], eax");
+        assertTrue(asm.contains("MOV EAX, [value]"),
+                "move (value) to reg1 → MOV reg1, [value]");
+        assertTrue(asm.contains("MOV dword [result], EAX"),
+                "move reg1 to dword (result) → MOV dword [result], reg1");
     }
 
     /**
@@ -621,10 +621,10 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "add (count) to eax");
+                "add (count) to reg1");
         String asm = t.translate(src);
-        assertTrue(asm.contains("ADD eax, [count]"),
-                "add (count) to eax → ADD eax, [count]");
+        assertTrue(asm.contains("ADD EAX, [count]"),
+                "add (count) to EAX → ADD EAX, [count]");
     }
 
     /**
@@ -685,14 +685,14 @@ class SasmTranslatorTest {
         // if (ax == 0) should still use parentheses for condition parsing
         String src = String.join("\n",
                 "section .text",
-                "if (ax == 0) {",
-                "    move 1 to bx",
+                "if (reg1.w == 0) {",
+                "    move 1 to reg2.w",
                 "}");
         String asm = t.translate(src);
         // The if statement should produce a CMP + conditional JMP, not brackets
         assertTrue(asm.contains("CMP"),
-                "if (ax == 0) should produce a CMP instruction");
-        assertFalse(asm.contains("[ax == 0]"),
+                "if (reg1.w == 0) should produce a CMP instruction");
+        assertFalse(asm.contains("[reg1.w == 0]"),
                 "Control flow parentheses should not be converted to brackets");
     }
 
@@ -704,8 +704,8 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "proc my_func ( in eax as value, out eax as result ) {",
-                "    add eax to eax",
+                "proc my_func ( in reg1 as value, out reg1 as result ) {",
+                "    add reg1 to reg1",
                 "    return",
                 "}");
         String asm = t.translate(src);
@@ -724,12 +724,12 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "move [value] to eax",
-                "move eax to dword [result]");
+                "move [value] to reg1",
+                "move reg1 to dword [result]");
         String asm = t.translate(src);
-        assertTrue(asm.contains("MOV eax, [value]"),
+        assertTrue(asm.contains("MOV EAX, [value]"),
                 "Square bracket operands should still work");
-        assertTrue(asm.contains("MOV dword [result], eax"),
+        assertTrue(asm.contains("MOV dword [result], EAX"),
                 "Square bracket destination should still work");
     }
 
@@ -763,12 +763,12 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "ax = cx % bx");
+                "reg1.w = reg3.w % reg2.w");
         String asm = t.translate(src);
-        assertTrue(asm.contains("MOV AX, cx"), "should move dividend into AX");
-        assertTrue(asm.contains("XOR DX, DX"), "should zero-extend DX");
-        assertTrue(asm.contains("DIV bx"), "should emit unsigned DIV");
-        assertTrue(asm.contains("MOV ax, DX"), "should move remainder (DX) to dst");
+        assertTrue(asm.contains("MOV AX, CX"), "should move dividend into reg1.w");
+        assertTrue(asm.contains("XOR DX, DX"), "should zero-extend reg4.w");
+        assertTrue(asm.contains("DIV BX"), "should emit unsigned DIV");
+        assertTrue(asm.contains("MOV AX, DX"), "should move remainder (reg4.w) to dst");
     }
 
     /**
@@ -780,12 +780,12 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "eax = ecx % ebx");
+                "reg1 = reg3 % reg2");
         String asm = t.translate(src);
-        assertTrue(asm.contains("MOV EAX, ecx"), "should move dividend into EAX");
-        assertTrue(asm.contains("XOR EDX, EDX"), "should zero-extend EDX");
-        assertTrue(asm.contains("DIV ebx"), "should emit unsigned DIV");
-        assertTrue(asm.contains("MOV eax, EDX"), "should move remainder (EDX) to dst");
+        assertTrue(asm.contains("MOV EAX, ECX"), "should move dividend into reg1");
+        assertTrue(asm.contains("XOR EDX, EDX"), "should zero-extend reg4");
+        assertTrue(asm.contains("DIV EBX"), "should emit unsigned DIV");
+        assertTrue(asm.contains("MOV EAX, EDX"), "should move remainder (reg4) to dst");
     }
 
     /**
@@ -814,12 +814,12 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "ax = cx mod bx");
+                "reg1.w = reg3.w mod reg2.w");
         String asm = t.translate(src);
-        assertTrue(asm.contains("MOV AX, cx"), "should move dividend into AX");
-        assertTrue(asm.contains("XOR DX, DX"), "should zero-extend DX");
-        assertTrue(asm.contains("DIV bx"), "should emit unsigned DIV");
-        assertTrue(asm.contains("MOV ax, DX"), "should move remainder (DX) to dst");
+        assertTrue(asm.contains("MOV AX, CX"), "should move dividend into reg1.w");
+        assertTrue(asm.contains("XOR DX, DX"), "should zero-extend reg4.w");
+        assertTrue(asm.contains("DIV BX"), "should emit unsigned DIV");
+        assertTrue(asm.contains("MOV AX, DX"), "should move remainder (reg4.w) to dst");
     }
 
     /**
@@ -831,12 +831,12 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "ax = cx smod bx");
+                "reg1.w = reg3.w smod reg2.w");
         String asm = t.translate(src);
-        assertTrue(asm.contains("MOV AX, cx"), "should move dividend into AX");
-        assertTrue(asm.contains("CWD"), "should sign-extend AX -> DX:AX");
-        assertTrue(asm.contains("IDIV bx"), "should emit signed IDIV");
-        assertTrue(asm.contains("MOV ax, DX"), "should move remainder (DX) to dst");
+        assertTrue(asm.contains("MOV AX, CX"), "should move dividend into reg1.w");
+        assertTrue(asm.contains("CWD"), "should sign-extend reg1.w -> reg4.w:reg1.w");
+        assertTrue(asm.contains("IDIV BX"), "should emit signed IDIV");
+        assertTrue(asm.contains("MOV AX, DX"), "should move remainder (reg4.w) to dst");
     }
 
     /**
@@ -848,11 +848,11 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "dx = cx % bx");
+                "reg4.w = reg3.w % reg2.w");
         String asm = t.translate(src);
-        assertTrue(asm.contains("DIV bx"), "should emit DIV");
+        assertTrue(asm.contains("DIV BX"), "should emit DIV");
         // DX already holds the remainder, no need for MOV dx, DX
-        assertFalse(asm.contains("MOV dx, DX"),
+        assertFalse(asm.contains("MOV DX, DX"),
                 "should not emit redundant MOV when dst is remainder reg");
     }
 
@@ -990,16 +990,16 @@ class SasmTranslatorTest {
         String src = String.join("\n",
                 "section .text",
                 "inline proc double_eax {",
-                "    eax = eax + eax",
+                "    reg1 = reg1 + reg1",
                 "    return",
                 "}",
-                "move 5 to eax",
+                "move 5 to reg1",
                 "call double_eax");
         String asm = t.translate(src);
 
         // Body should be inlined — ADD emitted, no CALL instruction
-        assertTrue(asm.contains("ADD eax, eax"),
-                "Inline proc body should emit ADD eax, eax at call site");
+        assertTrue(asm.contains("ADD EAX, EAX"),
+                "Inline proc body should emit ADD reg1, reg1 at call site");
         assertFalse(asm.contains("CALL double_eax"),
                 "Inline proc call should NOT emit CALL instruction");
         assertFalse(asm.contains("RET"),
@@ -1015,8 +1015,8 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "inline proc add_to_eax ( in eax as value, in ebx as addend, out eax as result ) {",
-                "    eax = eax + ebx",
+                "inline proc add_to_eax ( in reg1 as value, in reg2 as addend, out reg1 as result ) {",
+                "    reg1 = reg1 + reg2",
                 "    return",
                 "}",
                 "call add_to_eax");
@@ -1026,8 +1026,8 @@ class SasmTranslatorTest {
         assertTrue(asm.contains("; inline proc add_to_eax"),
                 "Inline proc should emit parameter comment");
         // Body inlined — no CALL
-        assertTrue(asm.contains("ADD eax, ebx"),
-                "Inline body should emit ADD eax, ebx");
+        assertTrue(asm.contains("ADD EAX, EBX"),
+                "Inline body should emit ADD reg1, reg2");
         assertFalse(asm.contains("CALL add_to_eax"),
                 "Inline proc call should NOT emit CALL instruction");
     }
@@ -1095,7 +1095,7 @@ class SasmTranslatorTest {
         String src = String.join("\n",
                 "section .text",
                 "inline proc inc_eax {",
-                "    increment eax",
+                "    increment reg1",
                 "    return",
                 "}",
                 "call inc_eax",
@@ -1105,12 +1105,12 @@ class SasmTranslatorTest {
         // Count occurrences of INC eax — should appear twice
         int count = 0;
         int idx = 0;
-        while ((idx = asm.indexOf("INC eax", idx)) >= 0) {
+        while ((idx = asm.indexOf("INC EAX", idx)) >= 0) {
             count++;
             idx += 7;
         }
         assertEquals(2, count,
-                "Two calls to inline proc should produce two INC eax");
+                "Two calls to inline proc should produce two INC reg1");
     }
 
     // ── Bare variable name rejection in expression assignments ───────────
@@ -1125,7 +1125,7 @@ class SasmTranslatorTest {
         String src = String.join("\n",
                 "section .text",
                 "var result as word = 0",
-                "result = ax");
+                "result = reg1.w");
         t.translate(src);
         assertTrue(t.getErrors().stream()
                         .anyMatch(e -> e.contains("bare variable name 'result'")),
@@ -1142,7 +1142,7 @@ class SasmTranslatorTest {
         String src = String.join("\n",
                 "section .text",
                 "var value1 as word = 10",
-                "ax = value1 + 5");
+                "reg1.w = value1 + 5");
         t.translate(src);
         assertTrue(t.getErrors().stream()
                         .anyMatch(e -> e.contains("bare variable name 'value1'")),
@@ -1179,7 +1179,7 @@ class SasmTranslatorTest {
                 "var val1 as word = 5",
                 "var val2 as word = 10",
                 "var result as word = 0",
-                "result = [val1] * [val2] + ax");
+                "result = [val1] * [val2] + reg1.w");
         t.translate(src);
         assertTrue(t.getErrors().stream()
                         .anyMatch(e -> e.contains("bare variable name 'result'")),
@@ -1206,10 +1206,10 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "addc ebx to eax");
+                "addc reg2 to reg1");
         String asm = t.translate(src);
-        assertTrue(asm.contains("ADC eax, ebx"),
-                "addc ebx to eax should translate to ADC eax, ebx, got: " + asm);
+        assertTrue(asm.contains("ADC EAX, EBX"),
+                "addc EBX to EAX should translate to ADC EAX, EBX, got: " + asm);
     }
 
     /** {@code subb} is a short form for {@code subtract with borrow} → {@code SBB}. */
@@ -1218,10 +1218,10 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "subb ecx from eax");
+                "subb reg3 from reg1");
         String asm = t.translate(src);
-        assertTrue(asm.contains("SBB eax, ecx"),
-                "subb ecx from eax should translate to SBB eax, ecx, got: " + asm);
+        assertTrue(asm.contains("SBB EAX, ECX"),
+                "subb ECX from EAX should translate to SBB EAX, ECX, got: " + asm);
     }
 
     /**
@@ -1233,7 +1233,7 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "compare ax with bx",
+                "compare reg1.w with reg2.w",
                 "goto .done if !=");
         String asm = t.translate(src);
         assertTrue(asm.contains("JNE .done"),
@@ -1249,7 +1249,7 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "compare ax with bx",
+                "compare reg1.w with reg2.w",
                 "goto .done if >=");
         String asm = t.translate(src);
         assertTrue(asm.contains("JGE .done"),
@@ -1265,14 +1265,14 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "if ax != bx {",
-                "    increment ax",
+                "if reg1.w != reg2.w {",
+                "    increment reg1.w",
                 "}");
         String asm = t.translate(src);
-        assertTrue(asm.contains("CMP ax, bx"),
-                "if ax != bx should emit CMP ax, bx, got: " + asm);
+        assertTrue(asm.contains("CMP AX, BX"),
+                "if reg1.w != reg2.w should emit CMP reg1.w, reg2.w, got: " + asm);
         assertTrue(asm.contains("JE"),
-                "if ax != bx should emit JE (inverted), got: " + asm);
+                "if reg1.w != reg2.w should emit JE (inverted), got: " + asm);
     }
 
     // ── Single-char bitwise operator aliases ──────────────────────────
@@ -1283,10 +1283,10 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "ax = bx & 0xFF");
+                "reg1.w = reg2.w & 0xFF");
         String asm = t.translate(src);
-        assertTrue(asm.contains("AND ax, 0xFF"),
-                "ax = bx & 0xFF should emit AND, got: " + asm);
+        assertTrue(asm.contains("AND AX, 0xFF"),
+                "AX = BX & 0xFF should emit AND, got: " + asm);
     }
 
     /** {@code |} is a single-char alias for {@code ||} → {@code OR}. */
@@ -1295,10 +1295,10 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "ax = bx | 0x80");
+                "reg1.w = reg2.w | 0x80");
         String asm = t.translate(src);
-        assertTrue(asm.contains("OR ax, 0x80"),
-                "ax = bx | 0x80 should emit OR, got: " + asm);
+        assertTrue(asm.contains("OR AX, 0x80"),
+                "AX = BX | 0x80 should emit OR, got: " + asm);
     }
 
     /** {@code ^} is a single-char alias for {@code ^^} → {@code XOR}. */
@@ -1307,10 +1307,10 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "ax = bx ^ 0xFF");
+                "reg1.w = reg2.w ^ 0xFF");
         String asm = t.translate(src);
-        assertTrue(asm.contains("XOR ax, 0xFF"),
-                "ax = bx ^ 0xFF should emit XOR, got: " + asm);
+        assertTrue(asm.contains("XOR AX, 0xFF"),
+                "AX = BX ^ 0xFF should emit XOR, got: " + asm);
     }
 
     /**
@@ -1322,10 +1322,10 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "ax = ax && 0xFF");
+                "reg1.w = reg1.w && 0xFF");
         String asm = t.translate(src);
-        assertTrue(asm.contains("AND ax, 0xFF"),
-                "ax = ax && 0xFF should still emit AND, got: " + asm);
+        assertTrue(asm.contains("AND AX, 0xFF"),
+                "AX = AX && 0xFF should still emit AND, got: " + asm);
     }
 
     // ── Memory-to-memory expression operands ────────────────────────────
@@ -1348,11 +1348,11 @@ class SasmTranslatorTest {
         assertTrue(t.getErrors().isEmpty(),
                 "Should produce no errors, got: " + t.getErrors());
         assertTrue(asm.contains("MOV AX, [v1]"),
-                "Should load v1 into scratch AX, got: " + asm);
+                "Should load v1 into scratch reg1.w, got: " + asm);
         assertTrue(asm.contains("ADD AX, [v2]"),
-                "Should add v2 to scratch AX, got: " + asm);
+                "Should add v2 to scratch reg1.w, got: " + asm);
         assertTrue(asm.contains("MOV [result], AX"),
-                "Should store AX to result, got: " + asm);
+                "Should store reg1.w to result, got: " + asm);
         assertFalse(asm.contains("MOV [result], [v1]"),
                 "Should not emit illegal mem-to-mem MOV, got: " + asm);
     }
@@ -1374,11 +1374,11 @@ class SasmTranslatorTest {
         assertTrue(t.getErrors().isEmpty(),
                 "Should produce no errors, got: " + t.getErrors());
         assertTrue(asm.contains("MOV EAX, [v1]"),
-                "Should load into EAX for dword, got: " + asm);
+                "Should load into reg1 for dword, got: " + asm);
         assertTrue(asm.contains("ADD EAX, [v2]"),
-                "Should operate on EAX, got: " + asm);
+                "Should operate on reg1, got: " + asm);
         assertTrue(asm.contains("MOV [result], EAX"),
-                "Should store EAX to dword result, got: " + asm);
+                "Should store reg1 to dword result, got: " + asm);
     }
 
     /**
@@ -1397,9 +1397,9 @@ class SasmTranslatorTest {
         assertTrue(t.getErrors().isEmpty(),
                 "Should produce no errors, got: " + t.getErrors());
         assertTrue(asm.contains("MOV AX, [v1]"),
-                "Should load v1 into AX, got: " + asm);
+                "Should load v1 into reg1.w, got: " + asm);
         assertTrue(asm.contains("MOV [result], AX"),
-                "Should store AX to result, got: " + asm);
+                "Should store reg1.w to result, got: " + asm);
         assertFalse(asm.contains("MOV [result], [v1]"),
                 "Should not emit illegal mem-to-mem MOV, got: " + asm);
     }
@@ -1421,10 +1421,10 @@ class SasmTranslatorTest {
         String asm = t.translate(src);
         assertTrue(t.getErrors().isEmpty(),
                 "Should produce no errors, got: " + t.getErrors());
-        assertTrue(asm.contains("MOV AX, [v1]"), "Should load v1 into AX, got: " + asm);
-        assertTrue(asm.contains("ADD AX, [v2]"), "Should add v2 to AX, got: " + asm);
-        assertTrue(asm.contains("ADD AX, [v3]"), "Should add v3 to AX, got: " + asm);
-        assertTrue(asm.contains("MOV [result], AX"), "Should store AX to result, got: " + asm);
+        assertTrue(asm.contains("MOV AX, [v1]"), "Should load v1 into reg1.w, got: " + asm);
+        assertTrue(asm.contains("ADD AX, [v2]"), "Should add v2 to reg1.w, got: " + asm);
+        assertTrue(asm.contains("ADD AX, [v3]"), "Should add v3 to reg1.w, got: " + asm);
+        assertTrue(asm.contains("MOV [result], AX"), "Should store reg1.w to result, got: " + asm);
     }
 
     /**
@@ -1438,14 +1438,14 @@ class SasmTranslatorTest {
                 "section .text",
                 "var result as word = 0",
                 "var v2 as word = 20",
-                "[result] = bx + [v2]");
+                "[result] = reg2.w + [v2]");
         String asm = t.translate(src);
         assertTrue(t.getErrors().isEmpty(),
                 "Should produce no errors, got: " + t.getErrors());
         assertTrue(asm.contains("ADD AX, [v2]"),
-                "Should add mem operand to scratch AX, got: " + asm);
+                "Should add mem operand to scratch reg1.w, got: " + asm);
         assertTrue(asm.contains("MOV [result], AX"),
-                "Should store AX to result, got: " + asm);
+                "Should store reg1.w to result, got: " + asm);
         assertFalse(asm.contains("ADD [result], [v2]"),
                 "Should not emit illegal two-mem-operand ADD, got: " + asm);
     }
@@ -1464,8 +1464,8 @@ class SasmTranslatorTest {
         String src = String.join("\n",
                 "section .text",
                 "start:",
-                "    move 1 to eax",
-                "    move 0 to ebx",
+                "    move 1 to reg1",
+                "    move 0 to reg2",
                 "    interrupt 0x80");
         String asm = t.translate(src);
         assertTrue(asm.contains("global _start"),
@@ -1490,10 +1490,10 @@ class SasmTranslatorTest {
         String src = String.join("\n",
                 "section .text",
                 "start:",
-                "    move 1 to eax",
+                "    move 1 to reg1",
                 "    goto exit",
                 "exit:",
-                "    move 0 to ebx",
+                "    move 0 to reg2",
                 "    interrupt 0x80");
         String asm = t.translate(src);
         assertTrue(asm.contains("_exit:"),
@@ -1513,11 +1513,11 @@ class SasmTranslatorTest {
         String src = String.join("\n",
                 "section .text",
                 "start:",
-                "    move 42 to eax",
+                "    move 42 to reg1",
                 "    goto exit",
                 "exit:",
-                "    move eax to ebx",
-                "    move 1 to eax",
+                "    move reg1 to reg2",
+                "    move 1 to reg1",
                 "    interrupt 0x80");
         String asm = t.translate(src);
         assertTrue(t.getErrors().isEmpty(),
@@ -1542,19 +1542,19 @@ class SasmTranslatorTest {
         SasmTranslator t = new SasmTranslator();
         String src = String.join("\n",
                 "section .text",
-                "inline proc clamp_max ( in eax as v, in ebx as cap ) {",
-                "    compare eax with ebx",
+                "inline proc clamp_max ( in reg1 as v, in reg2 as cap ) {",
+                "    compare reg1 with reg2",
                 "    goto .done if less or equal",
-                "    move ebx to eax",
+                "    move reg2 to reg1",
                 ".done:",
                 "    return",
                 "}",
                 "start:",
-                "    move 5 to eax",
-                "    move 10 to ebx",
+                "    move 5 to reg1",
+                "    move 10 to reg2",
                 "    call clamp_max",
-                "    move 15 to eax",
-                "    move 12 to ebx",
+                "    move 15 to reg1",
+                "    move 12 to reg2",
                 "    call clamp_max");
         String asm = t.translate(src);
         assertTrue(t.getErrors().isEmpty(),
@@ -1672,8 +1672,8 @@ class SasmTranslatorTest {
         Files.createDirectories(libDir);
         String libContent = String.join("\n",
                 "// utils.sasm — test library",
-                "inline proc negate_eax ( in eax as value, out eax as result ) {",
-                "    negate eax",
+                "inline proc negate_eax ( in reg1 as value, out reg1 as result ) {",
+                "    negate reg1",
                 "    return",
                 "}");
         Files.writeString(libDir.resolve("utils.sasm"), libContent);
@@ -1684,13 +1684,13 @@ class SasmTranslatorTest {
         String src = String.join("\n",
                 "#REF lib/utils.sasm utils",
                 "section .text",
-                "move 5 to eax",
+                "move 5 to reg1",
                 "call @utils.negate_eax");
         String asm = t.translate(src);
 
         assertFalse(asm.contains("CALL utils_negate_eax"),
                 "Library inline proc call should NOT emit CALL instruction");
-        assertTrue(asm.contains("NEG eax"),
+        assertTrue(asm.contains("NEG EAX"),
                 "Library inline proc body should be expanded at call site");
     }
 
@@ -1704,7 +1704,7 @@ class SasmTranslatorTest {
         String src = String.join("\n",
                 "#REF lib/utils.sasm utils",
                 "section .text",
-                "move 5 to eax",
+                "move 5 to reg1",
                 "call @utils.negate_eax");
         String asm = t.translate(src);
 
@@ -1723,10 +1723,10 @@ class SasmTranslatorTest {
         Path libDir = tempDir.resolve("lib");
         Files.createDirectories(libDir);
         String libContent = String.join("\n",
-                "inline proc clamp_pos ( in eax as v, out eax as result ) {",
-                "    compare eax with 0",
+                "inline proc clamp_pos ( in reg1 as v, out reg1 as result ) {",
+                "    compare reg1 with 0",
                 "    goto .done if greater or equal",
-                "    move 0 to eax",
+                "    move 0 to reg1",
                 ".done:",
                 "    return",
                 "}");
@@ -1738,9 +1738,9 @@ class SasmTranslatorTest {
         String src = String.join("\n",
                 "#REF lib/util.sasm u",
                 "section .text",
-                "move -1 to eax",
+                "move -1 to reg1",
                 "call @u.clamp_pos",
-                "move -5 to eax",
+                "move -5 to reg1",
                 "call @u.clamp_pos");
         String asm = t.translate(src);
 
@@ -1765,8 +1765,8 @@ class SasmTranslatorTest {
         Path libDir = tempDir.resolve("lib");
         Files.createDirectories(libDir);
         Files.writeString(libDir.resolve("util.sasm"), String.join("\n",
-                "inline proc square ( in eax as value, out eax as result ) {",
-                "    multiply by eax",
+                "inline proc square ( in reg1 as value, out reg1 as result ) {",
+                "    multiply by reg1",
                 "    return",
                 "}"));
 
@@ -1776,11 +1776,11 @@ class SasmTranslatorTest {
         String src = String.join("\n",
                 "#REF lib/util.sasm util",
                 "section .text",
-                "call @util.square( eax = 7 )");
+                "call @util.square( reg1 = 7 )");
         String asm = t.translate(src);
 
-        assertTrue(asm.contains("MOV EAX, 7"), "Should emit MOV EAX, 7 for register param");
-        assertTrue(asm.contains("MUL eax"),    "Should expand inline square body");
+        assertTrue(asm.contains("MOV EAX, 7"), "Should emit MOV reg1, 7 for register param");
+        assertTrue(asm.contains("MUL EAX"),    "Should expand inline square body");
         assertFalse(asm.contains("CALL util_square"), "Inline proc should NOT emit CALL");
     }
 
@@ -1794,8 +1794,8 @@ class SasmTranslatorTest {
         Path libDir = tempDir.resolve("lib");
         Files.createDirectories(libDir);
         Files.writeString(libDir.resolve("util.sasm"), String.join("\n",
-                "proc slow_square ( in eax as value, out eax as result ) {",
-                "    multiply by eax",
+                "proc slow_square ( in reg1 as value, out reg1 as result ) {",
+                "    multiply by reg1",
                 "    return",
                 "}"));
 
@@ -1805,7 +1805,7 @@ class SasmTranslatorTest {
         String src = String.join("\n",
                 "#REF lib/util.sasm util",
                 "section .text",
-                "call @util.slow_square( eax = 9 )");
+                "call @util.slow_square( reg1 = 9 )");
         String asm = t.translate(src);
 
         assertTrue(asm.contains("MOV EAX, 9"),         "Should emit MOV EAX, 9");
@@ -1938,8 +1938,8 @@ class SasmTranslatorTest {
         Path libDir = tempDir.resolve("lib");
         Files.createDirectories(libDir);
         Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
-                "inline proc square ( in eax as [value], out eax as [result] ) {",
-                "    multiply by eax",
+                "inline proc square ( in reg1 as [value], out reg1 as [result] ) {",
+                "    multiply by reg1",
                 "    return",
                 "}"));
 
@@ -1952,7 +1952,7 @@ class SasmTranslatorTest {
                 "call @math.square( 7 )"));
 
         assertTrue(asm.contains("MOV EAX, 7"), "Literal arg should emit MOV EAX, 7");
-        assertTrue(asm.contains("MUL eax"),    "Square body should be expanded inline");
+        assertTrue(asm.contains("MUL EAX"),    "Square body should be expanded inline");
         assertFalse(asm.contains("CALL math_square"), "Inline proc must NOT emit CALL");
     }
 
@@ -1967,10 +1967,10 @@ class SasmTranslatorTest {
         Path libDir = tempDir.resolve("lib");
         Files.createDirectories(libDir);
         Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
-                "inline proc max ( in eax as [first], in ebx as [second], out eax as [result] ) {",
-                "    compare eax to ebx",
+                "inline proc max ( in reg1 as [first], in reg2 as [second], out reg1 as [result] ) {",
+                "    compare reg1 to reg2",
                 "    goto .done if >=",
-                "    move ebx to eax",
+                "    move reg2 to reg1",
                 ".done:",
                 "    return",
                 "}"));
@@ -1999,7 +1999,7 @@ class SasmTranslatorTest {
         Path libDir = tempDir.resolve("lib");
         Files.createDirectories(libDir);
         Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
-                "proc find_max ( in esi as array_ptr, in ecx as [count], out eax as [result] ) {",
+                "proc find_max ( in ptr1 as array_ptr, in reg3 as [count], out reg1 as [result] ) {",
                 "    return",
                 "}"));
 
@@ -2030,7 +2030,7 @@ class SasmTranslatorTest {
         Path libDir = tempDir.resolve("lib");
         Files.createDirectories(libDir);
         Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
-                "proc find_max ( in esi as array_ptr, in ecx as [count], out eax as [result] ) {",
+                "proc find_max ( in ptr1 as array_ptr, in reg3 as [count], out reg1 as [result] ) {",
                 "    return",
                 "}"));
 
@@ -2063,8 +2063,8 @@ class SasmTranslatorTest {
         // Mix of old "as name" and new "as [name]" syntax in the same definition.
         Files.writeString(libDir.resolve("util.sasm"), String.join("\n",
                 // first param: old style; second param: new bracket style
-                "inline proc add2 ( in eax as first, in ebx as [second], out eax as [result] ) {",
-                "    add ebx to eax",
+                "inline proc add2 ( in reg1 as first, in reg2 as [second], out reg1 as [result] ) {",
+                "    add reg2 to reg1",
                 "    return",
                 "}"));
 
@@ -2076,9 +2076,9 @@ class SasmTranslatorTest {
                 "section .text",
                 "call @util.add2( 3, 4 )"));
 
-        assertTrue(asm.contains("MOV EAX, 3"), "First positional -> EAX");
-        assertTrue(asm.contains("MOV EBX, 4"), "Second positional -> EBX");
-        assertTrue(asm.contains("ADD eax, ebx"), "add2 body should be inlined");
+        assertTrue(asm.contains("MOV EAX, 3"), "First positional -> reg1");
+        assertTrue(asm.contains("MOV EBX, 4"), "Second positional -> reg2");
+        assertTrue(asm.contains("ADD EAX, EBX"), "add2 body should be inlined");
     }
 
     // ── New val/addr proc parameter syntax ──────────────────────────────────
@@ -2095,7 +2095,7 @@ class SasmTranslatorTest {
         Files.createDirectories(libDir);
         Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
                 "inline proc square (val dword value) out val dword {",
-                "    multiply by eax",
+                "    multiply by reg1",
                 "    return",
                 "}"));
 
@@ -2107,8 +2107,8 @@ class SasmTranslatorTest {
                 "section .text",
                 "call @math.square( 7 )"));
 
-        assertTrue(asm.contains("MOV EAX, 7"),     "val dword first param → EAX");
-        assertTrue(asm.contains("MUL eax"),         "Inline body should expand");
+        assertTrue(asm.contains("MOV EAX, 7"),     "val dword first param → reg1");
+        assertTrue(asm.contains("MUL EAX"),         "Inline body should expand");
         assertFalse(asm.contains("CALL math_square"), "Inline must NOT emit CALL");
     }
 
@@ -2123,9 +2123,9 @@ class SasmTranslatorTest {
         Files.createDirectories(libDir);
         Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
                 "inline proc max (val dword first, val dword second) out val dword {",
-                "    compare eax to ebx",
+                "    compare reg1 to reg2",
                 "    goto .done if >=",
-                "    move ebx to eax",
+                "    move reg2 to reg1",
                 ".done:",
                 "    return",
                 "}"));
@@ -2138,8 +2138,8 @@ class SasmTranslatorTest {
                 "section .text",
                 "call @math.max( 10, 20 )"));
 
-        assertTrue(asm.contains("MOV EAX, 10"), "first val dword → EAX");
-        assertTrue(asm.contains("MOV EBX, 20"), "second val dword → EBX (val-only pool)");
+        assertTrue(asm.contains("MOV EAX, 10"), "first val dword → reg1");
+        assertTrue(asm.contains("MOV EBX, 20"), "second val dword → reg2 (val-only pool)");
     }
 
     /**
@@ -2163,9 +2163,9 @@ class SasmTranslatorTest {
                 "section .text",
                 "call @math.clamp( 5, 0, 10 )"));
 
-        assertTrue(asm.contains("MOV EAX, 5"),  "value → EAX");
-        assertTrue(asm.contains("MOV EBX, 0"),  "lo → EBX");
-        assertTrue(asm.contains("MOV ECX, 10"), "hi → ECX");
+        assertTrue(asm.contains("MOV EAX, 5"),  "value → reg1");
+        assertTrue(asm.contains("MOV EBX, 0"),  "lo → reg2");
+        assertTrue(asm.contains("MOV ECX, 10"), "hi → reg3");
     }
 
     /**
@@ -2191,8 +2191,8 @@ class SasmTranslatorTest {
                 "section .text",
                 "call @math.my_array_max( my_arr, 5 )"));
 
-        assertTrue(asm.contains("MOV ESI, my_arr"),       "addr → ESI");
-        assertTrue(asm.contains("MOV ECX, 5"),             "val after addr → ECX (not EAX)");
+        assertTrue(asm.contains("MOV ESI, my_arr"),       "addr → ptr1");
+        assertTrue(asm.contains("MOV ECX, 5"),             "val after addr → reg3 (not reg1)");
         assertTrue(asm.contains("CALL math_my_array_max"), "Regular proc emits CALL");
         assertFalse(asm.contains("MOV EAX, 5"),            "val after addr must NOT go to EAX");
     }
@@ -2271,8 +2271,8 @@ class SasmTranslatorTest {
                 "section .text",
                 "call @math.af_max( float_arr, 4 )"));
 
-        assertTrue(asm.contains("MOV ESI, float_arr"), "addr → ESI");
-        assertTrue(asm.contains("MOV ECX, 4"),          "val after addr → ECX");
+        assertTrue(asm.contains("MOV ESI, float_arr"), "addr → ptr1");
+        assertTrue(asm.contains("MOV ECX, 4"),          "val after addr → reg3");
         assertTrue(asm.contains("CALL math_af_max"),    "Regular proc emits CALL");
     }
 
@@ -2319,12 +2319,12 @@ class SasmTranslatorTest {
         Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
                 "inline proc abs_int (val dword value) out val dword {",
                 "    cdq",
-                "    xor eax, edx",
-                "    sub eax, edx",
+                "    xor reg1, reg4",
+                "    sub reg1, reg4",
                 "    return",
                 "}",
                 "inline proc sign (val dword value) out val dword {",
-                "    move 0 to eax",
+                "    move 0 to reg1",
                 "    return",
                 "}"));
         SasmTranslator t = new SasmTranslator();
@@ -2363,9 +2363,9 @@ class SasmTranslatorTest {
         String asm = t.translate(src);
         assertTrue(t.getErrors().isEmpty(),
                 "Should produce no errors, got: " + t.getErrors());
-        assertTrue(asm.contains("MOV EAX, -5"), "first val param → EAX");
-        assertTrue(asm.contains("MOV EBX, 0"),  "second val param → EBX");
-        assertTrue(asm.contains("MOV ECX, 10"), "third val param → ECX");
+        assertTrue(asm.contains("MOV EAX, -5"), "first val param → reg1");
+        assertTrue(asm.contains("MOV EBX, 0"),  "second val param → reg2");
+        assertTrue(asm.contains("MOV ECX, 10"), "third val param → reg3");
     }
 
     // ── FPU math functions (new-style val float parameter syntax) ────────
@@ -2393,7 +2393,7 @@ class SasmTranslatorTest {
                 "fstp dword [sig]",
                 "fstp dword [exp]",
                 "fld qword [dy]",
-                "fld qword [dx]",
+                "fld qword [reg4.w]",
                 "call @math.fmod",
                 "fstp qword [r2]",
                 "fld qword [dv]",
@@ -2524,7 +2524,7 @@ class SasmTranslatorTest {
                 "fld dword [rad]",
                 "call @math.rad_to_deg",
                 "fstp dword [r4]",
-                "fld qword [dx]",
+                "fld qword [reg4.w]",
                 "fld qword [dy]",
                 "call @math.hypot",
                 "fstp qword [r5]",
@@ -2566,7 +2566,7 @@ class SasmTranslatorTest {
                 "fld dword [hi]",
                 "call @math.clamp_float",
                 "fstp dword [r4]",
-                "fld qword [dx]",
+                "fld qword [reg4.w]",
                 "fld qword [dn]",
                 "call @math.ldexp",
                 "fstp qword [r5]",
@@ -2727,19 +2727,19 @@ class SasmTranslatorTest {
                 "var q_b   as qword = 50",
                 "var r_sign as dword = 0",
                 "section .text",
-                "lea esi, [q_val]",
+                "lea ptr1, [q_val]",
                 "call @math.sqrt_long",
-                "lea esi, [q_val]",
+                "lea ptr1, [q_val]",
                 "call @math.abs_long",
-                "lea esi, [q_val]",
-                "lea edi, [q_b]",
+                "lea ptr1, [q_val]",
+                "lea ptr2, [q_b]",
                 "call @math.max_long",
-                "lea esi, [q_val]",
-                "lea edi, [q_b]",
+                "lea ptr1, [q_val]",
+                "lea ptr2, [q_b]",
                 "call @math.min_long",
-                "lea esi, [q_val]",
+                "lea ptr1, [q_val]",
                 "call @math.sign_long",
-                "move eax to dword [r_sign]");
+                "move reg1 to dword [r_sign]");
         String asm = t.translate(src);
         assertTrue(t.getErrors().isEmpty(),
                 "Should produce no errors, got: " + t.getErrors());
@@ -2804,7 +2804,7 @@ class SasmTranslatorTest {
         Path libDir = tempDir.resolve("lib");
         Files.createDirectories(libDir);
         Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
-                "proc my_proc (addr arr default esi, val dword count default ecx) {",
+                "proc my_proc (addr arr default ptr1, val dword count default reg3) {",
                 "    return",
                 "}"));
 
@@ -2813,7 +2813,7 @@ class SasmTranslatorTest {
         String asm = t.translate(String.join("\n",
                 "#REF lib/math.sasm math",
                 "section .text",
-                "call @math.my_proc( esi, 5 )"));
+                "call @math.my_proc( ptr1, 5 )"));
 
         assertTrue(t.getErrors().isEmpty(),
                 "Should produce no errors, got: " + t.getErrors());
@@ -2838,7 +2838,7 @@ class SasmTranslatorTest {
         Path libDir = tempDir.resolve("lib");
         Files.createDirectories(libDir);
         Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
-                "proc my_proc (addr arr default esi, val dword count default ecx) {",
+                "proc my_proc (addr arr default ptr1, val dword count default reg3) {",
                 "    return",
                 "}"));
 
@@ -2869,7 +2869,7 @@ class SasmTranslatorTest {
         Path libDir = tempDir.resolve("lib");
         Files.createDirectories(libDir);
         Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
-                "proc my_proc (addr arr default esi, val dword count default ecx) {",
+                "proc my_proc (addr arr default ptr1, val dword count default reg3) {",
                 "    return",
                 "}"));
 
@@ -2878,7 +2878,7 @@ class SasmTranslatorTest {
         String asm = t.translate(String.join("\n",
                 "#REF lib/math.sasm math",
                 "section .text",
-                "call @math.my_proc( esi, ecx )"));
+                "call @math.my_proc( ptr1, reg3 )"));
 
         assertTrue(t.getErrors().isEmpty(),
                 "Should produce no errors, got: " + t.getErrors());
@@ -2901,20 +2901,20 @@ class SasmTranslatorTest {
         Path libDir = tempDir.resolve("lib");
         Files.createDirectories(libDir);
         Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
-                "proc my_proc (addr arr default esi) {",
+                "proc my_proc (addr arr default ptr1) {",
                 "    return",
                 "}"));
 
         SasmTranslator t = new SasmTranslator();
         t.setWorkingDirectory(tempDir.toFile());
 
-        for (String argForm : new String[]{"ESI", "esi", "Esi"}) {
+        for (String argForm : new String[]{"ptr1", "ptr1", "ptr1"}) {
             String asm = t.translate(String.join("\n",
                     "#REF lib/math.sasm math",
                     "section .text",
                     "call @math.my_proc( " + argForm + " )"));
             assertFalse(asm.contains("MOV ESI"),
-                    "MOV ESI should be suppressed for arg form '" + argForm + "'");
+                    "MOV ptr1 should be suppressed for arg form '" + argForm + "'");
         }
     }
 
@@ -2937,14 +2937,14 @@ class SasmTranslatorTest {
         String asm = t.translate(String.join("\n",
                 "#REF lib/math.sasm math",
                 "section .text",
-                "call @math.my_proc( esi, ecx )"));
+                "call @math.my_proc( ptr1, reg3 )"));
 
         assertTrue(t.getErrors().isEmpty(),
                 "Should produce no errors, got: " + t.getErrors());
         // No default annotation → MOV is always emitted even if arg == reg
-        assertTrue(asm.contains("MOV ESI, esi"),
+        assertTrue(asm.contains("MOV ESI, ESI"),
                 "Without default annotation MOV ESI should always be emitted");
-        assertTrue(asm.contains("MOV ECX, ecx"),
+        assertTrue(asm.contains("MOV ECX, ECX"),
                 "Without default annotation MOV ECX should always be emitted");
     }
 
@@ -2958,7 +2958,7 @@ class SasmTranslatorTest {
         Path libDir = tempDir.resolve("lib");
         Files.createDirectories(libDir);
         Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
-                "inline proc sum_arr (addr arr default esi, val dword count default ecx) {",
+                "inline proc sum_arr (addr arr default ptr1, val dword count default reg3) {",
                 "    return",
                 "}"));
 
@@ -2967,16 +2967,16 @@ class SasmTranslatorTest {
         String asm = t.translate(String.join("\n",
                 "#REF lib/math.sasm math",
                 "section .text",
-                "call @math.sum_arr( esi, 10 )"));
+                "call @math.sum_arr( ptr1, 10 )"));
 
         assertTrue(t.getErrors().isEmpty(),
                 "Should produce no errors, got: " + t.getErrors());
         // esi matches default → no MOV ESI
         assertFalse(asm.contains("MOV ESI"),
-                "MOV ESI should be suppressed for inline proc call with matching arg");
+                "MOV ptr1 should be suppressed for inline proc call with matching arg");
         // 10 != ecx → MOV ECX must be emitted
         assertTrue(asm.contains("MOV ECX, 10"),
-                "MOV ECX should still be emitted for non-matching arg");
+                "MOV reg3 should still be emitted for non-matching arg");
         // body is inlined — no CALL
         assertFalse(asm.contains("CALL math_sum_arr"),
                 "Inline proc should not emit CALL");
@@ -2993,7 +2993,7 @@ class SasmTranslatorTest {
         Path libDir = tempDir.resolve("lib");
         Files.createDirectories(libDir);
         Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
-                "proc mixed_proc (addr arr default esi, val dword count) {",
+                "proc mixed_proc (addr arr default ptr1, val dword count) {",
                 "    return",
                 "}"));
 
@@ -3002,40 +3002,40 @@ class SasmTranslatorTest {
         String asm = t.translate(String.join("\n",
                 "#REF lib/math.sasm math",
                 "section .text",
-                "call @math.mixed_proc( esi, [my_count] )"));
+                "call @math.mixed_proc( ptr1, [my_count] )"));
 
         assertTrue(t.getErrors().isEmpty(),
                 "Should produce no errors, got: " + t.getErrors());
         // esi matches default → no MOV ESI
         assertFalse(asm.contains("MOV ESI"),
-                "MOV ESI should be suppressed for matching arg");
+                "MOV ptr1 should be suppressed for matching arg");
         // [my_count] != ecx (pool, no annotation) → MOV ECX must be emitted
         assertTrue(asm.contains("MOV ECX, [my_count]"),
-                "MOV ECX should be emitted for non-annotated param");
+                "MOV reg3 should be emitted for non-annotated param");
     }
 
     // ── formula-chain / default-reg code-size tests ──────────────────────────
 
     /** Inline {@code clamp} definition used by the formula-chain tests. */
     private static final String CLAMP_DEF = String.join("\n",
-            "inline proc clamp (val dword value default eax, val dword lo default ebx, val dword hi default ecx) out val dword {",
-            "    compare eax with ebx",
+            "inline proc clamp (val dword value default reg1, val dword lo default reg2, val dword hi default reg3) out val dword {",
+            "    compare reg1 with reg2",
             "    goto .hi_check if greater or equal",
-            "    move ebx to eax",
+            "    move reg2 to reg1",
             ".hi_check:",
-            "    compare eax with ecx",
+            "    compare reg1 with reg3",
             "    goto .done if less or equal",
-            "    move ecx to eax",
+            "    move reg3 to reg1",
             ".done:",
             "    return",
             "}");
 
     /** Inline {@code abs_int} definition used by the formula-chain tests. */
     private static final String ABS_INT_DEF = String.join("\n",
-            "inline proc abs_int (val dword value default eax) out val dword {",
+            "inline proc abs_int (val dword value default reg1) out val dword {",
             "    cdq",
-            "    xor eax, edx",
-            "    sub eax, edx",
+            "    xor reg1, reg4",
+            "    sub reg1, reg4",
             "    return",
             "}");
 
@@ -3070,11 +3070,11 @@ class SasmTranslatorTest {
                 "Should produce no errors, got: " + t.getErrors());
         // Every argument differs from its default register → all three setup MOVs emitted
         assertTrue(asm.contains("MOV EAX, [x]"),
-                "setup MOV EAX should be emitted for value param");
+                "setup MOV reg1 should be emitted for value param");
         assertTrue(asm.contains("MOV EBX, [lo]"),
-                "setup MOV EBX should be emitted for lo param");
+                "setup MOV reg2 should be emitted for lo param");
         assertTrue(asm.contains("MOV ECX, [hi]"),
-                "setup MOV ECX should be emitted for hi param");
+                "setup MOV reg3 should be emitted for hi param");
     }
 
     /**
@@ -3100,17 +3100,19 @@ class SasmTranslatorTest {
         String asm = t.translate(String.join("\n",
                 "#REF lib/math.sasm math",
                 "section .text",
-                "call @math.clamp( eax, ebx, ecx )"));
+                "call @math.clamp( reg1, reg2, reg3 )"));
 
         assertTrue(t.getErrors().isEmpty(),
                 "Should produce no errors, got: " + t.getErrors());
-        // All args match defaults → no translator-generated setup MOVs (uppercase form)
-        assertFalse(asm.contains("MOV EAX,"),
-                "setup MOV EAX should be suppressed when arg is eax (default)");
-        assertFalse(asm.contains("MOV EBX,"),
-                "setup MOV EBX should be suppressed when arg is ebx (default)");
-        assertFalse(asm.contains("MOV ECX,"),
-                "setup MOV ECX should be suppressed when arg is ecx (default)");
+        // All args match defaults → no translator-generated setup MOVs.
+        // If suppression fails, the translator emits "MOV EAX, EAX" (self-move),
+        // since the resolved arg equals the resolved param register.
+        assertFalse(asm.contains("MOV EAX, EAX"),
+                "setup MOV EAX should be suppressed when arg is EAX (default)");
+        assertFalse(asm.contains("MOV EBX, EBX"),
+                "setup MOV EBX should be suppressed when arg is EBX (default)");
+        assertFalse(asm.contains("MOV ECX, ECX"),
+                "setup MOV ECX should be suppressed when arg is ECX (default)");
     }
 
     /**
@@ -3149,7 +3151,7 @@ class SasmTranslatorTest {
                 "#REF lib/math.sasm math",
                 "section .text",
                 "call @math.abs_int( [x] )",
-                "call @math.clamp( eax, [lo], [hi] )"));
+                "call @math.clamp( reg1, [lo], [hi] )"));
         assertTrue(tA.getErrors().isEmpty(),
                 "Style A should produce no errors, got: " + tA.getErrors());
 
@@ -3159,8 +3161,8 @@ class SasmTranslatorTest {
         String asmB = tB.translate(String.join("\n",
                 "#REF lib/math.sasm math",
                 "section .text",
-                "call @math.abs_int( eax )",
-                "call @math.clamp( eax, ebx, ecx )"));
+                "call @math.abs_int( reg1 )",
+                "call @math.clamp( reg1, reg2, reg3 )"));
         assertTrue(tB.getErrors().isEmpty(),
                 "Style B should produce no errors, got: " + tB.getErrors());
 
@@ -3269,10 +3271,10 @@ class SasmTranslatorTest {
         String asmMatch = t.translate(String.join("\n",
                 "#REF lib/str.sasm str",
                 "section .text",
-                "call @str.strlen( esi )"));
+                "call @str.strlen( ptr1 )"));
         assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
         assertFalse(asmMatch.contains("MOV ESI,"),
-                "strlen( esi ): ESI matches default → MOV ESI should be suppressed");
+                "strlen( ESI ): ESI matches default → MOV ESI should be suppressed");
 
         // Arg differs from default → MOV ESI must be emitted
         t = new SasmTranslator();
@@ -3283,7 +3285,7 @@ class SasmTranslatorTest {
                 "call @str.strlen( my_str )"));
         assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
         assertTrue(asmDiff.contains("MOV ESI, my_str"),
-                "strlen( my_str ): my_str ≠ esi → MOV ESI, my_str must be emitted");
+                "strlen( my_str ): my_str ≠ ESI → MOV ESI, my_str must be emitted");
     }
 
     /**
@@ -3304,13 +3306,13 @@ class SasmTranslatorTest {
         String asm = t.translate(String.join("\n",
                 "#REF lib/str.sasm str",
                 "section .text",
-                "call @str.strcmp( esi, edi )"));
+                "call @str.strcmp( ptr1, ptr2 )"));
 
         assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
         assertFalse(asm.contains("MOV ESI,"),
-                "strcmp( esi, edi ): ESI is default → no MOV ESI");
+                "strcmp( ESI, EDI ): ESI is default → no MOV ESI");
         assertFalse(asm.contains("MOV EDI,"),
-                "strcmp( esi, edi ): EDI is default → no MOV EDI");
+                "strcmp( ESI, EDI ): EDI is default → no MOV EDI");
         assertTrue(asm.contains("CALL str_strcmp"),
                 "CALL str_strcmp must be present");
     }
@@ -3337,9 +3339,9 @@ class SasmTranslatorTest {
 
         assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
         assertTrue(asm.contains("MOV EAX, [my_n]"),
-                "int_to_str([my_n], ...): [my_n] ≠ eax → MOV EAX, [my_n] must be emitted");
+                "int_to_str([my_n], ...): [my_n] ≠ EAX → MOV EAX, [my_n] must be emitted");
         assertTrue(asm.contains("MOV EDI, out_buf"),
-                "int_to_str(..., out_buf): out_buf ≠ edi → MOV EDI, out_buf must be emitted");
+                "int_to_str(..., out_buf): out_buf ≠ EDI → MOV EDI, out_buf must be emitted");
     }
 
     // ── mem library tests ────────────────────────────────────────────────────
@@ -3395,16 +3397,16 @@ class SasmTranslatorTest {
         String asm = t.translate(String.join("\n",
                 "#REF lib/mem.sasm mem",
                 "section .text",
-                "call @mem.memcpy( edi, esi, ecx )"));
+                "call @mem.memcpy( ptr2, ptr1, reg3 )"));
 
         assertTrue(t.getErrors().isEmpty(),
                 "Should produce no errors, got: " + t.getErrors());
         assertFalse(asm.contains("MOV EDI,"),
-                "memcpy( edi, ... ): EDI matches default → no setup MOV EDI");
+                "memcpy( EDI, ... ): EDI matches default → no setup MOV EDI");
         assertFalse(asm.contains("MOV ESI,"),
-                "memcpy( ..., esi, ... ): ESI matches default → no setup MOV ESI");
+                "memcpy( ..., ESI, ... ): ESI matches default → no setup MOV ESI");
         assertFalse(asm.contains("MOV ECX,"),
-                "memcpy( ..., ecx ): ECX matches default → no setup MOV ECX");
+                "memcpy( ..., ECX ): ECX matches default → no setup MOV ECX");
         assertTrue(asm.contains("rep movsb"),
                 "rep movsb must be in the inlined body");
     }
@@ -3430,11 +3432,11 @@ class SasmTranslatorTest {
         assertTrue(t.getErrors().isEmpty(),
                 "Should produce no errors, got: " + t.getErrors());
         assertTrue(asm.contains("MOV EDI, dst_buf"),
-                "dst_buf ≠ edi → MOV EDI, dst_buf must be emitted");
+                "dst_buf ≠ EDI → MOV EDI, dst_buf must be emitted");
         assertTrue(asm.contains("MOV ESI, src_buf"),
-                "src_buf ≠ esi → MOV ESI, src_buf must be emitted");
+                "src_buf ≠ ESI → MOV ESI, src_buf must be emitted");
         assertTrue(asm.contains("MOV ECX, 16"),
-                "16 ≠ ecx → MOV ECX, 16 must be emitted");
+                "16 ≠ ECX → MOV ECX, 16 must be emitted");
     }
 
     /**
@@ -3453,14 +3455,14 @@ class SasmTranslatorTest {
         String asm = t.translate(String.join("\n",
                 "#REF lib/mem.sasm mem",
                 "section .text",
-                "call @mem.bzero( edi, ecx )"));
+                "call @mem.bzero( ptr2, reg3 )"));
 
         assertTrue(t.getErrors().isEmpty(),
                 "Should produce no errors, got: " + t.getErrors());
         assertFalse(asm.contains("MOV EDI,"),
-                "bzero( edi, ... ): EDI matches default → no setup MOV EDI");
+                "bzero( EDI, ... ): EDI matches default → no setup MOV EDI");
         assertFalse(asm.contains("MOV ECX,"),
-                "bzero( ..., ecx ): ECX matches default → no setup MOV ECX");
+                "bzero( ..., ECX ): ECX matches default → no setup MOV ECX");
         assertTrue(asm.contains("rep stosb"),
                 "bzero body must contain rep stosb (via XOR EAX/rep stosb)");
     }
@@ -3485,12 +3487,12 @@ class SasmTranslatorTest {
         String asmMatch = t.translate(String.join("\n",
                 "#REF lib/str.sasm str",
                 "section .text",
-                "call @str.str_to_float( esi )"));
+                "call @str.str_to_float( ptr1 )"));
         assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
         assertTrue(asmMatch.contains("CALL str_str_to_float"),
                 "str_to_float must emit CALL str_str_to_float");
         assertFalse(asmMatch.contains("MOV ESI,"),
-                "str_to_float( esi ): ESI matches default → MOV ESI must be suppressed");
+                "str_to_float( ESI ): ESI matches default → MOV ESI must be suppressed");
 
         // arg differs from default → MOV ESI must be emitted
         t = new SasmTranslator();
@@ -3501,7 +3503,7 @@ class SasmTranslatorTest {
                 "call @str.str_to_float( my_numstr )"));
         assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
         assertTrue(asmDiff.contains("MOV ESI, my_numstr"),
-                "str_to_float( my_numstr ): my_numstr ≠ esi → MOV ESI, my_numstr must be emitted");
+                "str_to_float( my_numstr ): my_numstr ≠ ESI → MOV ESI, my_numstr must be emitted");
     }
 
     /**
@@ -3522,12 +3524,12 @@ class SasmTranslatorTest {
         String asmMatch = t.translate(String.join("\n",
                 "#REF lib/str.sasm str",
                 "section .text",
-                "call @str.float_to_str( edi )"));
+                "call @str.float_to_str( ptr2 )"));
         assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
         assertTrue(asmMatch.contains("CALL str_float_to_str"),
                 "float_to_str must emit CALL str_float_to_str");
         assertFalse(asmMatch.contains("MOV EDI,"),
-                "float_to_str( edi ): EDI matches default → MOV EDI must be suppressed");
+                "float_to_str( EDI ): EDI matches default → MOV EDI must be suppressed");
 
         // arg differs from default → MOV EDI must be emitted
         t = new SasmTranslator();
@@ -3538,7 +3540,7 @@ class SasmTranslatorTest {
                 "call @str.float_to_str( out_buf )"));
         assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
         assertTrue(asmDiff.contains("MOV EDI, out_buf"),
-                "float_to_str( out_buf ): out_buf ≠ edi → MOV EDI, out_buf must be emitted");
+                "float_to_str( out_buf ): out_buf ≠ EDI → MOV EDI, out_buf must be emitted");
     }
 
     // ── substr tests ─────────────────────────────────────────────────────────
@@ -3559,19 +3561,19 @@ class SasmTranslatorTest {
         String asm = t.translate(String.join("\n",
                 "#REF lib/str.sasm str",
                 "section .text",
-                "call @str.substr( esi, edi, ecx, edx )"));
+                "call @str.substr( ptr1, ptr2, reg3, reg4 )"));
 
         assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
         assertTrue(asm.contains("CALL str_substr"),
                 "substr must emit CALL str_substr");
         assertFalse(asm.contains("MOV ESI,"),
-                "substr( esi, ... ): ESI matches default → no MOV ESI");
+                "substr( ESI, ... ): ESI matches default → no MOV ESI");
         assertFalse(asm.contains("MOV EDI,"),
-                "substr( ..., edi, ... ): EDI matches default → no MOV EDI");
+                "substr( ..., EDI, ... ): EDI matches default → no MOV EDI");
         assertFalse(asm.contains("MOV ECX,"),
-                "substr( ..., ecx, ... ): ECX matches default → no MOV ECX");
+                "substr( ..., ECX, ... ): ECX matches default → no MOV ECX");
         assertFalse(asm.contains("MOV EDX,"),
-                "substr( ..., edx ): EDX matches default → no MOV EDX");
+                "substr( ..., EDX ): EDX matches default → no MOV EDX");
     }
 
     /**
@@ -3594,13 +3596,13 @@ class SasmTranslatorTest {
 
         assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
         assertTrue(asm.contains("MOV ESI, my_src"),
-                "my_src ≠ esi → MOV ESI, my_src must be emitted");
+                "my_src ≠ ESI → MOV ESI, my_src must be emitted");
         assertTrue(asm.contains("MOV EDI, my_dst"),
-                "my_dst ≠ edi → MOV EDI, my_dst must be emitted");
+                "my_dst ≠ EDI → MOV EDI, my_dst must be emitted");
         assertTrue(asm.contains("MOV ECX, 2"),
-                "2 ≠ ecx → MOV ECX, 2 must be emitted");
+                "2 ≠ ECX → MOV ECX, 2 must be emitted");
         assertTrue(asm.contains("MOV EDX, 5"),
-                "5 ≠ edx → MOV EDX, 5 must be emitted");
+                "5 ≠ EDX → MOV EDX, 5 must be emitted");
     }
 
     // ── trim tests ───────────────────────────────────────────────────────────
@@ -3623,12 +3625,12 @@ class SasmTranslatorTest {
         String asmMatch = t.translate(String.join("\n",
                 "#REF lib/str.sasm str",
                 "section .text",
-                "call @str.trim( esi )"));
+                "call @str.trim( ptr1 )"));
         assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
         assertTrue(asmMatch.contains("CALL str_trim"),
                 "trim must emit CALL str_trim");
         assertFalse(asmMatch.contains("MOV ESI,"),
-                "trim( esi ): ESI matches default → MOV ESI must be suppressed");
+                "trim( ESI ): ESI matches default → MOV ESI must be suppressed");
 
         // arg differs from default → MOV ESI must be emitted
         t = new SasmTranslator();
@@ -3639,7 +3641,7 @@ class SasmTranslatorTest {
                 "call @str.trim( raw_str )"));
         assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
         assertTrue(asmDiff.contains("MOV ESI, raw_str"),
-                "trim( raw_str ): raw_str ≠ esi → MOV ESI, raw_str must be emitted");
+                "trim( raw_str ): raw_str ≠ ESI → MOV ESI, raw_str must be emitted");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -3686,7 +3688,7 @@ class SasmTranslatorTest {
         assertEquals("ESI", a.resolveReg("ptr1"));
         assertEquals("EDI", a.resolveReg("ptr2"));
         assertEquals("EBP", a.resolveReg("bp"));
-        // Pass-through for raw register names
+        // Pass-through for raw x86 register names (physical names not in register map)
         assertEquals("eax", a.resolveReg("eax"));
     }
 
@@ -3743,11 +3745,11 @@ class SasmTranslatorTest {
                 "    MOV ptr1, msg");
         String asm = t.translate(src);
         assertTrue(asm.contains("MOV EAX, 42"),
-                "reg1 should resolve to EAX: " + asm);
+                "reg1 should resolve to reg1: " + asm);
         assertTrue(asm.contains("ADD EAX, EBX"),
-                "reg1/reg2 should resolve to EAX/EBX: " + asm);
+                "reg1/reg2 should resolve to reg1/reg2: " + asm);
         assertTrue(asm.contains("MOV ESI, msg"),
-                "ptr1 should resolve to ESI: " + asm);
+                "ptr1 should resolve to ptr1: " + asm);
     }
 
     @Test
@@ -3818,9 +3820,9 @@ class SasmTranslatorTest {
         assertTrue(t.getErrors().isEmpty(), "No errors: " + t.getErrors());
         // Both args should generate MOVs to EAX and EBX
         assertTrue(asm.contains("MOV EAX, [x]"),
-                "First arg → reg1 → EAX: " + asm);
+                "First arg → reg1 → reg1: " + asm);
         assertTrue(asm.contains("MOV EBX, [y]"),
-                "Second arg → reg2 → EBX: " + asm);
+                "Second arg → reg2 → reg2: " + asm);
     }
 
     @Test
@@ -3843,7 +3845,7 @@ class SasmTranslatorTest {
         String src = String.join("\n",
                 "#REF lib/mylib.sasm mylib",
                 "section .text",
-                "call @mylib.my_strlen( ESI )");
+                "call @mylib.my_strlen( ptr1 )");
         String asm = t.translate(src);
         assertTrue(t.getErrors().isEmpty(), "No errors: " + t.getErrors());
         assertFalse(asm.contains("MOV ESI, ESI"),

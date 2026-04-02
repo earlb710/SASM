@@ -31,29 +31,29 @@ global _start
 _start:
 
 // ── Test 1: proc with no params ─────────────────────────────
-move 7 to eax
+move 7 to reg1
 call double_bare
-move eax to dword [result_bare]
+move reg1 to dword [result_bare]
 
 // ── Test 2: proc with register params ───────────────────────
-move 5 to eax
+move 5 to reg1
 call double_reg
-move eax to dword [result_reg]
+move reg1 to dword [result_reg]
 
 // ── Test 3: proc with typed params (parameter overloading) ──
-move 3 to eax
+move 3 to reg1
 call double_typed
-move eax to dword [result_typed]
+move reg1 to dword [result_typed]
 
 // ── Test 4: proc with stack params ──────────────────────────
 push 4
 call double_stack
-esp = esp + 4
-move eax to dword [result_stack]
+sp = sp + 4
+move reg1 to dword [result_stack]
 
 // ── exit ─────────────────────────────────────────────────────
-move 1 to eax
-move 0 to ebx
+move 1 to reg1
+move 0 to reg2
 interrupt 0x80
 
 // ══════════════════════════════════════════════════════════════
@@ -62,28 +62,28 @@ interrupt 0x80
 
 // Style 1: No parameters — bare proc
 proc double_bare {
-    eax = eax + eax
+    reg1 = reg1 + reg1
     return
 }
 
 // Style 2: Register parameters
-proc double_reg ( in eax as value, out eax as result ) {
-    eax = eax + eax
+proc double_reg ( in reg1 as value, out reg1 as result ) {
+    reg1 = reg1 + reg1
     return
 }
 
 // Style 3: Typed parameters (parameter overloading)
 proc double_typed ( in dword value, out dword result ) {
-    eax = eax + eax
+    reg1 = reg1 + reg1
     return
 }
 
 // Style 4: Stack parameters
 proc double_stack uses stack ( value ) {
-    push ebp
-    move esp to ebp
-    move [ebp+8] to eax
-    eax = eax + eax
-    pop ebp
+    push bp
+    move sp to bp
+    move [bp+8] to reg1
+    reg1 = reg1 + reg1
+    pop bp
     return
 }

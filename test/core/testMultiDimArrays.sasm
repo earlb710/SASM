@@ -38,15 +38,15 @@ var counter as word
 var flag    as byte = 1
 
 (* //---------------------------------------------------------------
-   fill_matrix — fills 'matrix' (3*4 = 12 bytes) with the value in al.
+   fill_matrix — fills 'matrix' (3*4 = 12 bytes) with the value in reg1.b.
    Demonstrates accessing a multi-dimensional array as flat memory.
    //--------------------------------------------------------------- *)
 proc fill_matrix {
-    move 0 to bx                          // bx = byte index
-    move 12 to cx                         // cx = total element count (3*4)
-    repeat cx times {
-        move al to byte [matrix + bx]     // matrix[bx] = al
-        increment bx
+    move 0 to reg2.w                          // reg2.w = byte index
+    move 12 to reg3.w                         // reg3.w = total element count (3*4)
+    repeat reg3.w times {
+        move reg1.b to byte [matrix + reg2.w]     // matrix[reg2.w] = reg1.b
+        increment reg2.w
     }
     return
 }
@@ -56,14 +56,14 @@ proc fill_matrix {
    Fill the 3*4 matrix with 0x42, then read an element to verify.
    //--------------------------------------------------------------- *)
 _start:
-    move 0x42 to al                       // fill value
+    move 0x42 to reg1.b                       // fill value
     call fill_matrix                      // matrix[0..11] = 0x42
 
     // Read matrix[1][2] (row 1, col 2 = byte offset 1*4 + 2 = 6)
-    move 6 to bx
-    move byte [matrix + bx] to dl         // dl = 0x42
+    move 6 to reg2.w
+    move byte [matrix + reg2.w] to reg4.b         // reg4.b = 0x42
 
     // Exit
-    move dl to bl
-    move 1 to ax
+    move reg4.b to reg2.b
+    move 1 to reg1.w
     syscall 0x80

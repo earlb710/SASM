@@ -7,16 +7,16 @@
 //   substr, trim
 //
 // Call conventions:
-//   call @str.strlen( src )              // src ≠ esi → MOV ESI emitted
-//   call @str.strlen( esi )              // esi == default → MOV suppressed
-//   call @str.strcmp( esi, edi )         // both defaults → zero setup MOVs
-//   call @str.strcpy( edi, esi )         // both defaults → zero setup MOVs
-//   call @str.str_to_int( esi )          // default → zero setup MOVs for esi
-//   call @str.int_to_str( eax, edi )     // both defaults → zero setup MOVs
-//   call @str.str_to_float( esi )        // default → no MOV ESI
-//   call @str.float_to_str( edi )        // default → no MOV EDI
-//   call @str.substr( esi, edi, ecx, edx ) // all defaults → zero setup MOVs
-//   call @str.trim( esi )                // default → no MOV ESI
+//   call @str.strlen( src )              // src ≠ ptr1 → MOV ptr1 emitted
+//   call @str.strlen( ptr1 )              // ptr1 == default → MOV suppressed
+//   call @str.strcmp( ptr1, ptr2 )         // both defaults → zero setup MOVs
+//   call @str.strcpy( ptr2, ptr1 )         // both defaults → zero setup MOVs
+//   call @str.str_to_int( ptr1 )          // default → zero setup MOVs for ptr1
+//   call @str.int_to_str( reg1, ptr2 )     // both defaults → zero setup MOVs
+//   call @str.str_to_float( ptr1 )        // default → no MOV ptr1
+//   call @str.float_to_str( ptr2 )        // default → no MOV ptr2
+//   call @str.substr( ptr1, ptr2, reg3, reg4 ) // all defaults → zero setup MOVs
+//   call @str.trim( ptr1 )                // default → no MOV ptr1
 //
 // Target: 32-bit Linux ELF executable (uses int 0x80 for exit).
 //
@@ -69,42 +69,42 @@ start:
     //  strlen — measure string length
     // =========================================================
 
-    // With non-default arg (hello_str ≠ esi) → MOV ESI emitted
-    call @str.strlen( hello_str )          // MOV ESI, hello_str; strlen
-    move eax to dword [result_len]         // result_len = 5
+    // With non-default arg (hello_str ≠ ptr1) → MOV ptr1 emitted
+    call @str.strlen( hello_str )          // MOV ptr1, hello_str; strlen
+    move reg1 to dword [result_len]         // result_len = 5
 
-    // With default register arg (esi already loaded) → no MOV
-    move hello_str to esi
-    call @str.strlen( esi )                // ESI == default → NO MOV ESI; strlen
-    move eax to dword [result_len]         // result_len = 5
+    // With default register arg (ptr1 already loaded) → no MOV
+    move hello_str to ptr1
+    call @str.strlen( ptr1 )                // ptr1 == default → NO MOV ptr1; strlen
+    move reg1 to dword [result_len]         // result_len = 5
 
     // =========================================================
     //  strcmp — compare two strings
     // =========================================================
 
     // Equal strings
-    move hello_str to esi
-    move hello_str to edi
-    call @str.strcmp( esi, edi )           // both defaults → zero setup MOVs
-    move eax to dword [result_cmp]         // result_cmp = 0 (equal)
+    move hello_str to ptr1
+    move hello_str to ptr2
+    call @str.strcmp( ptr1, ptr2 )           // both defaults → zero setup MOVs
+    move reg1 to dword [result_cmp]         // result_cmp = 0 (equal)
 
     // str1 < str2 ("hello" < "world")
-    move hello_str to esi
-    move world_str to edi
-    call @str.strcmp( esi, edi )           // eax < 0 ("h" < "w")
+    move hello_str to ptr1
+    move world_str to ptr2
+    call @str.strcmp( ptr1, ptr2 )           // reg1 < 0 ("h" < "w")
 
     // str1 > str2 ("world" > "hello")
-    move world_str to esi
-    move hello_str to edi
-    call @str.strcmp( esi, edi )           // eax > 0 ("w" > "h")
+    move world_str to ptr1
+    move hello_str to ptr2
+    call @str.strcmp( ptr1, ptr2 )           // reg1 > 0 ("w" > "h")
 
     // =========================================================
     //  strcpy — copy string
     // =========================================================
 
-    move copy_buf to edi
-    move hello_str to esi
-    call @str.strcpy( edi, esi )           // both defaults → zero setup MOVs
+    move copy_buf to ptr2
+    move hello_str to ptr1
+    call @str.strcpy( ptr2, ptr1 )           // both defaults → zero setup MOVs
     // copy_buf now = "hello\0"
 
     // =========================================================
@@ -113,30 +113,30 @@ start:
 
     // cat_buf starts as "Hello"; append " world"
     // Note: space_str + world_str are separate; we append world_str directly
-    move cat_buf to edi
-    move world_str to esi
-    call @str.strcat( edi, esi )           // both defaults → zero setup MOVs
+    move cat_buf to ptr2
+    move world_str to ptr1
+    call @str.strcat( ptr2, ptr1 )           // both defaults → zero setup MOVs
     // cat_buf now = "Helloworld\0"
 
     // =========================================================
     //  to_upper — convert to uppercase in-place
     // =========================================================
 
-    // With non-default arg (upper_buf ≠ esi) → MOV ESI emitted
-    call @str.to_upper( upper_buf )        // MOV ESI, upper_buf; to_upper
+    // With non-default arg (upper_buf ≠ ptr1) → MOV ptr1 emitted
+    call @str.to_upper( upper_buf )        // MOV ptr1, upper_buf; to_upper
     // upper_buf now = "HELLO WORLD"
 
-    // With default register (esi already loaded) → no MOV
-    move lower_buf to esi
-    call @str.to_upper( esi )              // ESI == default → NO MOV; to_upper
+    // With default register (ptr1 already loaded) → no MOV
+    move lower_buf to ptr1
+    call @str.to_upper( ptr1 )              // ptr1 == default → NO MOV; to_upper
     // lower_buf now = "HELLO WORLD"
 
     // =========================================================
     //  to_lower — convert to lowercase in-place
     // =========================================================
 
-    move HELLO_str to esi
-    call @str.to_lower( esi )              // ESI == default → NO MOV; to_lower
+    move HELLO_str to ptr1
+    call @str.to_lower( ptr1 )              // ptr1 == default → NO MOV; to_lower
     // HELLO_str now = "hello"
 
     // =========================================================
@@ -144,116 +144,116 @@ start:
     // =========================================================
 
     // Parse "-123"
-    move num_str to esi
-    call @str.str_to_int( esi )            // ESI == default → NO MOV; str_to_int
-    // eax = -123
+    move num_str to ptr1
+    call @str.str_to_int( ptr1 )            // ptr1 == default → NO MOV; str_to_int
+    // reg1 = -123
 
     // Parse "0"
-    move zero_str to esi
-    call @str.str_to_int( esi )            // eax = 0
+    move zero_str to ptr1
+    call @str.str_to_int( ptr1 )            // reg1 = 0
 
-    // With non-default arg → MOV ESI emitted
-    call @str.str_to_int( num_str )        // MOV ESI, num_str; str_to_int → eax = -123
+    // With non-default arg → MOV ptr1 emitted
+    call @str.str_to_int( num_str )        // MOV ptr1, num_str; str_to_int → reg1 = -123
 
     // =========================================================
     //  int_to_str — convert integer to decimal string
     // =========================================================
 
     // Convert 42 → "42"
-    move 42 to eax
-    move int_buf to edi
-    call @str.int_to_str( eax, edi )       // both defaults → zero setup MOVs
-    // int_buf = "42\0", eax = 2
+    move 42 to reg1
+    move int_buf to ptr2
+    call @str.int_to_str( reg1, ptr2 )       // both defaults → zero setup MOVs
+    // int_buf = "42\0", reg1 = 2
 
     // Convert -7 → "-7"
-    move -7 to eax
-    move int_buf to edi
-    call @str.int_to_str( eax, edi )       // eax = 2 (length "-7")
+    move -7 to reg1
+    move int_buf to ptr2
+    call @str.int_to_str( reg1, ptr2 )       // reg1 = 2 (length "-7")
 
     // Convert 0 → "0"
-    move 0 to eax
-    move int_buf to edi
-    call @str.int_to_str( eax, edi )       // eax = 1
+    move 0 to reg1
+    move int_buf to ptr2
+    call @str.int_to_str( reg1, ptr2 )       // reg1 = 1
 
     // With non-default args → MOVs emitted
-    call @str.int_to_str( [result_len], int_buf )  // MOV EAX,[result_len]; MOV EDI,int_buf
+    call @str.int_to_str( [result_len], int_buf )  // MOV reg1,[result_len]; MOV ptr2,int_buf
 
     // =========================================================
     //  str_to_float — parse decimal string to float
     // =========================================================
 
-    // With default register arg (esi already loaded) → no MOV
-    move num_str to esi
-    call @str.str_to_float( esi )           // ESI == default → NO MOV; str_to_float
+    // With default register arg (ptr1 already loaded) → no MOV
+    move num_str to ptr1
+    call @str.str_to_float( ptr1 )           // ptr1 == default → NO MOV; str_to_float
     // ST(0) = -123.0
     fstp dword [flt_result]
 
-    // With non-default arg (num_str ≠ esi) → MOV ESI emitted
-    call @str.str_to_float( pi_str )        // MOV ESI, pi_str; str_to_float
+    // With non-default arg (num_str ≠ ptr1) → MOV ptr1 emitted
+    call @str.str_to_float( pi_str )        // MOV ptr1, pi_str; str_to_float
     // ST(0) ≈ 3.14
     fstp dword [flt_result]
 
     // Parse with decimal point and exponent
-    move sci_str to esi
-    call @str.str_to_float( esi )           // parse "2.5e3" → ST(0) = 2500.0
+    move sci_str to ptr1
+    call @str.str_to_float( ptr1 )           // parse "2.5e3" → ST(0) = 2500.0
     fstp dword [flt_result]
 
     // =========================================================
     //  float_to_str — convert float to decimal string
     // =========================================================
 
-    // With default register arg (edi already loaded) → no MOV
+    // With default register arg (ptr2 already loaded) → no MOV
     fld dword [flt_pi]
-    move float_buf to edi
-    call @str.float_to_str( edi )           // EDI == default → NO MOV; float_to_str
-    // float_buf = "3.141593", eax = 8
+    move float_buf to ptr2
+    call @str.float_to_str( ptr2 )           // ptr2 == default → NO MOV; float_to_str
+    // float_buf = "3.141593", reg1 = 8
 
-    // With non-default arg (out_buf ≠ edi) → MOV EDI emitted
+    // With non-default arg (out_buf ≠ ptr2) → MOV ptr2 emitted
     fld dword [flt_neg]
-    call @str.float_to_str( out_buf )       // MOV EDI, out_buf; float_to_str
-    // out_buf = "-0.5", eax = 4
+    call @str.float_to_str( out_buf )       // MOV ptr2, out_buf; float_to_str
+    // out_buf = "-0.5", reg1 = 4
 
     // Zero value
     fldz
-    move float_buf to edi
-    call @str.float_to_str( edi )           // float_buf = "0", eax = 1
+    move float_buf to ptr2
+    call @str.float_to_str( ptr2 )           // float_buf = "0", reg1 = 1
 
     // =========================================================
     //  substr — extract a substring
     // =========================================================
 
     // With all default registers → zero setup MOVs
-    move hello_str to esi
-    move copy_buf  to edi
-    move 1 to ecx          // start index
-    move 3 to edx          // length
-    call @str.substr( esi, edi, ecx, edx )  // all defaults → zero setup MOVs
-    // copy_buf = "ell\0", eax = 3
+    move hello_str to ptr1
+    move copy_buf  to ptr2
+    move 1 to reg3          // start index
+    move 3 to reg4          // length
+    call @str.substr( ptr1, ptr2, reg3, reg4 )  // all defaults → zero setup MOVs
+    // copy_buf = "ell\0", reg1 = 3
 
     // With non-default args → MOVs emitted for all four parameters
     call @str.substr( hello_str, copy_buf, 0, 5 )
-    // MOV ESI, hello_str; MOV EDI, copy_buf; MOV ECX, 0; MOV EDX, 5
+    // MOV ptr1, hello_str; MOV ptr2, copy_buf; MOV reg3, 0; MOV reg4, 5
 
     // Start past end → copies nothing
-    move hello_str to esi
-    move copy_buf  to edi
-    move 99 to ecx         // beyond end of "hello"
-    move 5  to edx
-    call @str.substr( esi, edi, ecx, edx )  // eax = 0, copy_buf = ""
+    move hello_str to ptr1
+    move copy_buf  to ptr2
+    move 99 to reg3         // beyond end of "hello"
+    move 5  to reg4
+    call @str.substr( ptr1, ptr2, reg3, reg4 )  // reg1 = 0, copy_buf = ""
 
     // =========================================================
     //  trim — strip leading and trailing whitespace
     // =========================================================
 
-    // With default register arg (esi already loaded) → no MOV
-    move padded_str to esi
-    call @str.trim( esi )                   // ESI == default → NO MOV; trim
-    // eax points to first non-space byte within padded_str buffer
+    // With default register arg (ptr1 already loaded) → no MOV
+    move padded_str to ptr1
+    call @str.trim( ptr1 )                   // ptr1 == default → NO MOV; trim
+    // reg1 points to first non-space byte within padded_str buffer
 
-    // With non-default arg → MOV ESI emitted
-    call @str.trim( other_str )             // MOV ESI, other_str; trim
+    // With non-default arg → MOV ptr1 emitted
+    call @str.trim( other_str )             // MOV ptr1, other_str; trim
 
 exit:
-    move 1 to eax                  // sys_exit
-    move 0 to ebx                  // exit code 0
+    move 1 to reg1                  // sys_exit
+    move 0 to reg2                  // exit code 0
     interrupt 0x80

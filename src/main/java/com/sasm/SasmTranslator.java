@@ -1899,7 +1899,9 @@ public class SasmTranslator {
                 Matcher m = inlineDecl.matcher(code);
                 if (m.find()) {
                     String pname  = m.group(1);
-                    String params = m.group(2).trim();
+                    // Resolve portable register names in params so that
+                    // "in reg1 as value" is treated the same as "in eax as value".
+                    String params = arch.resolvePortableRegisters(m.group(2).trim());
                     collectName = pname;
                     collectBody = new ArrayList<>();
                     braceDepth  = 0;
@@ -1918,7 +1920,9 @@ public class SasmTranslator {
                 m = regularDecl.matcher(code);
                 if (m.find() && !code.contains("inline")) {
                     String pname  = m.group(1);
-                    String params = m.group(2).trim();
+                    // Resolve portable register names in params so that
+                    // "in reg1 as value" is treated the same as "in eax as value".
+                    String params = arch.resolvePortableRegisters(m.group(2).trim());
                     // Store in-param register list for positional calling.
                     List<String> defRegs = new ArrayList<>();
                     List<String> inRegs = parseInParamRegs(params, defRegs);

@@ -35,44 +35,44 @@ global _start
 
 _start:
     // ── Step 1: prompt and read a single character ──────────────
-    move prompt_char_bytes to ecx
+    move prompt_char_bytes to reg3
     call @io.print_string
 
     call @kbd.read_char
-    // al = character typed
+    // reg1.b = character typed
 
     // Echo the character back
-    push eax                           // save character
-    move echo_prefix_bytes to ecx
+    push reg1                           // save character
+    move echo_prefix_bytes to reg3
     call @io.print_string
-    pop eax                            // restore character
+    pop reg1                            // restore character
     call @io.print_char                // print the character
-    move newline_bytes to ecx
+    move newline_bytes to reg3
     call @io.print_string
 
     // ── Step 2: prompt and read a line ──────────────────────────
-    move prompt_line_bytes to ecx
+    move prompt_line_bytes to reg3
     call @io.print_string
 
     push 80                            // max bytes
     push input_buf                     // buffer pointer
     call @kbd.read_line
-    esp = esp + 8                      // clean args
-    // eax = number of bytes read
+    sp = sp + 8                      // clean args
+    // reg1 = number of bytes read
 
     // Echo the line back
-    push eax                           // save byte count
-    move echo_prefix_bytes to ecx
+    push reg1                           // save byte count
+    move echo_prefix_bytes to reg3
     call @io.print_string
-    pop edx                            // edx = byte count
+    pop reg4                            // reg4 = byte count
 
     // sys_write(stdout, input_buf, byte_count)
-    move 4 to eax                      // sys_write
-    move 1 to ebx                      // fd = stdout
-    move input_buf to ecx              // buffer
+    move 4 to reg1                      // sys_write
+    move 1 to reg2                      // fd = stdout
+    move input_buf to reg3              // buffer
     interrupt 0x80
 
     // ── Exit ────────────────────────────────────────────────────
-    move 1 to eax                      // sys_exit
-    move 0 to ebx                      // exit code 0
+    move 1 to reg1                      // sys_exit
+    move 0 to reg2                      // exit code 0
     interrupt 0x80

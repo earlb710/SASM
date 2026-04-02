@@ -5,12 +5,12 @@
 // testMathFPU.sasm:
 //
 //   Integer routines (positional register-parameter form):
-//   @math.abs_int          — EAX = |EAX|
-//   @math.sign             — EAX = -1 / 0 / 1
-//   @math.clamp            — EAX = max(EBX, min(EAX, ECX))
-//   @math.leading_zeros    — EAX = count of leading 0-bits
-//   @math.trailing_zeros   — EAX = count of trailing 0-bits
-//   @math.is_power_of_two  — EAX = 1 if power of two, else 0
+//   @math.abs_int          — reg1 = |reg1|
+//   @math.sign             — reg1 = -1 / 0 / 1
+//   @math.clamp            — reg1 = max(reg2, min(reg1, reg3))
+//   @math.leading_zeros    — reg1 = count of leading 0-bits
+//   @math.trailing_zeros   — reg1 = count of trailing 0-bits
+//   @math.is_power_of_two  — reg1 = 1 if power of two, else 0
 //
 //   FPU routines (x87 stack-based):
 //   @math.fmod             — ST(0) = IEEE fmod(y, x);  pops x
@@ -159,66 +159,66 @@ start:
 
     // ═════════════════════════════════════════════════════════════
     //  Integer routines
-    //  Positional register calling: literal → EAX (first val param)
+    //  Positional register calling: literal → reg1 (first val param)
     // ═════════════════════════════════════════════════════════════
 
     // ── abs_int ──────────────────────────────────────────────────
-    call @math.abs_int( -5 )         // eax = |-5| = 5
-    move eax to dword [r_abs_neg]
+    call @math.abs_int( -5 )         // reg1 = |-5| = 5
+    move reg1 to dword [r_abs_neg]
 
-    call @math.abs_int( 7 )          // eax = |7| = 7
-    move eax to dword [r_abs_pos]
+    call @math.abs_int( 7 )          // reg1 = |7| = 7
+    move reg1 to dword [r_abs_pos]
 
     // ── sign ─────────────────────────────────────────────────────
-    call @math.sign( -3 )            // eax = -1
-    move eax to dword [r_sign_neg]
+    call @math.sign( -3 )            // reg1 = -1
+    move reg1 to dword [r_sign_neg]
 
-    call @math.sign( 0 )             // eax = 0
-    move eax to dword [r_sign_zero]
+    call @math.sign( 0 )             // reg1 = 0
+    move reg1 to dword [r_sign_zero]
 
-    call @math.sign( 4 )             // eax = 1
-    move eax to dword [r_sign_pos]
+    call @math.sign( 4 )             // reg1 = 1
+    move reg1 to dword [r_sign_pos]
 
     // ── clamp ────────────────────────────────────────────────────
-    // val dword params: value→EAX, lo→EBX, hi→ECX
-    call @math.clamp( -5, 0, 10 )   // eax = max(0, min(-5, 10)) = 0
-    move eax to dword [r_clamp_lo]
+    // val dword params: value→reg1, lo→reg2, hi→reg3
+    call @math.clamp( -5, 0, 10 )   // reg1 = max(0, min(-5, 10)) = 0
+    move reg1 to dword [r_clamp_lo]
 
-    call @math.clamp( 5, 0, 10 )    // eax = 5  (in range)
-    move eax to dword [r_clamp_mid]
+    call @math.clamp( 5, 0, 10 )    // reg1 = 5  (in range)
+    move reg1 to dword [r_clamp_mid]
 
-    call @math.clamp( 15, 0, 10 )   // eax = 10  (above hi)
-    move eax to dword [r_clamp_hi]
+    call @math.clamp( 15, 0, 10 )   // reg1 = 10  (above hi)
+    move reg1 to dword [r_clamp_hi]
 
     // ── leading_zeros ─────────────────────────────────────────────
     call @math.leading_zeros( 1 )        // 0x00000001 → 31 leading zeros
-    move eax to dword [r_lz_1]
+    move reg1 to dword [r_lz_1]
 
     call @math.leading_zeros( 0x80000000 ) // bit 31 set → 0 leading zeros
-    move eax to dword [r_lz_0x80000000]
+    move reg1 to dword [r_lz_0x80000000]
 
-    call @math.leading_zeros( 0 )        // eax = 32
-    move eax to dword [r_lz_zero]
+    call @math.leading_zeros( 0 )        // reg1 = 32
+    move reg1 to dword [r_lz_zero]
 
     // ── trailing_zeros ────────────────────────────────────────────
     call @math.trailing_zeros( 8 )       // 0b1000 → 3 trailing zeros
-    move eax to dword [r_tz_8]
+    move reg1 to dword [r_tz_8]
 
     call @math.trailing_zeros( 1 )       // 0b0001 → 0 trailing zeros
-    move eax to dword [r_tz_one]
+    move reg1 to dword [r_tz_one]
 
-    call @math.trailing_zeros( 0 )       // eax = 32
-    move eax to dword [r_tz_zero]
+    call @math.trailing_zeros( 0 )       // reg1 = 32
+    move reg1 to dword [r_tz_zero]
 
     // ── is_power_of_two ───────────────────────────────────────────
-    call @math.is_power_of_two( 8 )  // eax = 1
-    move eax to dword [r_pow2_8]
+    call @math.is_power_of_two( 8 )  // reg1 = 1
+    move reg1 to dword [r_pow2_8]
 
-    call @math.is_power_of_two( 6 )  // eax = 0
-    move eax to dword [r_pow2_6]
+    call @math.is_power_of_two( 6 )  // reg1 = 0
+    move reg1 to dword [r_pow2_6]
 
-    call @math.is_power_of_two( 0 )  // eax = 0  (zero is not a power of two)
-    move eax to dword [r_pow2_0]
+    call @math.is_power_of_two( 0 )  // reg1 = 0  (zero is not a power of two)
+    move reg1 to dword [r_pow2_0]
 
     // ═════════════════════════════════════════════════════════════
     //  fmod — IEEE 754 remainder
@@ -525,6 +525,6 @@ start:
 
 exit:
     // ── exit cleanly ────────────────────────────────────────────
-    move 1 to eax                  // sys_exit
-    move 0 to ebx                  // exit code 0
+    move 1 to reg1                  // sys_exit
+    move 0 to reg2                  // exit code 0
     interrupt 0x80

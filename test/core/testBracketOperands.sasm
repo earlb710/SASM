@@ -27,11 +27,11 @@ global _start
 _start:
 
 // ── move with parentheses ─────────────────────────────────
-move (value1) to eax                 // MOV eax, [value1]
-move eax to dword (result)           // MOV dword [result], eax
+move (value1) to reg1                 // MOV reg1, [value1]
+move reg1 to dword (result)           // MOV dword [result], reg1
 
 // ── add with parentheses ──────────────────────────────────
-eax = eax + (value2)                 // ADD eax, [value2]
+reg1 = reg1 + (value2)                 // ADD reg1, [value2]
 
 // ── compare with parentheses ──────────────────────────────
 compare (value1) with 10             // CMP [value1], 10
@@ -45,11 +45,11 @@ fld dword (fval)                     // fld dword [fval]
 fstp dword (fresult)                 // fstp dword [fresult]
 
 // ── mixed: square brackets still work ─────────────────────
-move [value1] to ebx                 // MOV ebx, [value1]
-ebx = ebx + [value2]                 // ADD ebx, [value2]
-move ebx to dword [result]           // MOV dword [result], ebx
+move [value1] to reg2                 // MOV reg2, [value1]
+reg2 = reg2 + [value2]                 // ADD reg2, [value2]
+move reg2 to dword [result]           // MOV dword [result], reg2
 
 // ── exit ──────────────────────────────────────────────────
-move 1 to eax
-move 0 to ebx
+move 1 to reg1
+move 0 to reg2
 interrupt 0x80

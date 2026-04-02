@@ -5,10 +5,10 @@
 //   memcpy, memset, memcmp, bzero
 //
 // Call conventions:
-//   call @mem.memcpy( edi, esi, ecx )  // all defaults → zero setup MOVs
-//   call @mem.memset( edi, eax, ecx )  // all defaults → zero setup MOVs
-//   call @mem.memcmp( esi, edi, ecx )  // all defaults → zero setup MOVs
-//   call @mem.bzero( edi, ecx )        // all defaults → zero setup MOVs
+//   call @mem.memcpy( ptr2, ptr1, reg3 )  // all defaults → zero setup MOVs
+//   call @mem.memset( ptr2, reg1, reg3 )  // all defaults → zero setup MOVs
+//   call @mem.memcmp( ptr1, ptr2, reg3 )  // all defaults → zero setup MOVs
+//   call @mem.bzero( ptr2, reg3 )        // all defaults → zero setup MOVs
 //
 //   call @mem.memcpy( dst, src, 16 )   // non-default args → MOVs emitted
 //
@@ -40,60 +40,60 @@ start:
     // =========================================================
 
     // Copy buf_a → buf_b using default-register args (zero setup MOVs)
-    move buf_b to edi
-    move buf_a to esi
-    move 16 to ecx
-    call @mem.memcpy( edi, esi, ecx )      // all defaults → zero setup MOVs
+    move buf_b to ptr2
+    move buf_a to ptr1
+    move 16 to reg3
+    call @mem.memcpy( ptr2, ptr1, reg3 )      // all defaults → zero setup MOVs
 
     // Copy with non-default args (MOVs emitted for all three)
-    call @mem.memcpy( buf_b, buf_a, 16 )   // MOV EDI, buf_b; MOV ESI, buf_a; MOV ECX, 16
+    call @mem.memcpy( buf_b, buf_a, 16 )   // MOV ptr2, buf_b; MOV ptr1, buf_a; MOV reg3, 16
 
     // =========================================================
     //  memset — fill a block of memory
     // =========================================================
 
     // Fill buf_b with 0xFF using default-register args
-    move buf_b to edi
-    move 0xFF to eax
-    move 16 to ecx
-    call @mem.memset( edi, eax, ecx )      // all defaults → zero setup MOVs
+    move buf_b to ptr2
+    move 0xFF to reg1
+    move 16 to reg3
+    call @mem.memset( ptr2, reg1, reg3 )      // all defaults → zero setup MOVs
 
     // Fill buf_b with 0 using non-default args
-    call @mem.memset( buf_b, 0, 16 )       // MOV EDI, buf_b; MOV EAX, 0; MOV ECX, 16
+    call @mem.memset( buf_b, 0, 16 )       // MOV ptr2, buf_b; MOV reg1, 0; MOV reg3, 16
 
     // =========================================================
     //  memcmp — compare two blocks of memory
     // =========================================================
 
     // Compare buf_a and buf_c (both equal to 1..16)
-    move buf_a to esi
-    move buf_c to edi
-    move 16 to ecx
-    call @mem.memcmp( esi, edi, ecx )      // all defaults → zero setup MOVs
-    move eax to dword [result_cmp]         // result_cmp = 0 (equal)
+    move buf_a to ptr1
+    move buf_c to ptr2
+    move 16 to reg3
+    call @mem.memcmp( ptr1, ptr2, reg3 )      // all defaults → zero setup MOVs
+    move reg1 to dword [result_cmp]         // result_cmp = 0 (equal)
 
     // Compare buf_a and buf_b (after memset buf_b was zeroed — all zeros vs 1..16)
-    move buf_a to esi
-    move buf_b to edi
-    move 16 to ecx
-    call @mem.memcmp( esi, edi, ecx )      // eax > 0 (buf_a[0]=1 > buf_b[0]=0)
+    move buf_a to ptr1
+    move buf_b to ptr2
+    move 16 to reg3
+    call @mem.memcmp( ptr1, ptr2, reg3 )      // reg1 > 0 (buf_a[0]=1 > buf_b[0]=0)
 
     // Compare with non-default args
-    call @mem.memcmp( buf_a, buf_c, 16 )   // MOV ESI, buf_a; MOV EDI, buf_c; MOV ECX, 16
+    call @mem.memcmp( buf_a, buf_c, 16 )   // MOV ptr1, buf_a; MOV ptr2, buf_c; MOV reg3, 16
 
     // =========================================================
     //  bzero — zero a block of memory
     // =========================================================
 
     // Zero buf_b using default-register args
-    move buf_b to edi
-    move 16 to ecx
-    call @mem.bzero( edi, ecx )            // both defaults → zero setup MOVs
+    move buf_b to ptr2
+    move 16 to reg3
+    call @mem.bzero( ptr2, reg3 )            // both defaults → zero setup MOVs
 
     // Zero buf_b with non-default args
-    call @mem.bzero( buf_b, 16 )           // MOV EDI, buf_b; MOV ECX, 16
+    call @mem.bzero( buf_b, 16 )           // MOV ptr2, buf_b; MOV reg3, 16
 
 exit:
-    move 1 to eax                  // sys_exit
-    move 0 to ebx                  // exit code 0
+    move 1 to reg1                  // sys_exit
+    move 0 to reg2                  // exit code 0
     interrupt 0x80
