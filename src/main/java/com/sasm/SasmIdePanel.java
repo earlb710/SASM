@@ -241,6 +241,9 @@ public class SasmIdePanel extends JPanel {
         // while we rebuild the model.
         variantChoice.removeActionListener(variantChoiceListener);
 
+        // Remember what was selected so we can try to restore it after clearing.
+        String previousSel = (String) variantChoice.getSelectedItem();
+
         variantChoice.removeAllItems();
 
         if (project != null) {
@@ -249,10 +252,20 @@ public class SasmIdePanel extends JPanel {
                 String name = ve.variantName != null ? ve.variantName : "(unnamed)";
                 variantChoice.addItem(name);
             }
-            // Select the project's default variant if set
-            if (project.defaultVariant != null && !project.defaultVariant.isEmpty()) {
+
+            // Restore selection priority:
+            //  1. whatever the user had selected before the refresh
+            //  2. the project's saved default variant
+            //  3. first item (fallback)
+            if (previousSel != null) {
+                variantChoice.setSelectedItem(previousSel);
+            }
+            if (variantChoice.getSelectedItem() == null
+                    && project.defaultVariant != null
+                    && !project.defaultVariant.isEmpty()) {
                 variantChoice.setSelectedItem(project.defaultVariant);
-            } else if (variantChoice.getItemCount() > 0) {
+            }
+            if (variantChoice.getSelectedItem() == null && variantChoice.getItemCount() > 0) {
                 variantChoice.setSelectedIndex(0);
             }
         }
@@ -1021,6 +1034,12 @@ public class SasmIdePanel extends JPanel {
         splitPane.repaint();
 
         if (asmVisible) {
+            // Ensure the variant dropdown is up-to-date whenever the pane is shown.
+            // This is a belt-and-suspenders call: refreshVariantChoice() is already
+            // called from refreshFileList(), but re-running it here guarantees the
+            // combo renders correctly even if the initial population happened off the
+            // EDT (e.g. a startup race condition).
+            refreshVariantChoice();
             // Refresh translation now that the pane is visible again
             lastAsmText = "";
             updateAsmOutput();

@@ -77,14 +77,20 @@ public class SasmMain {
             System.exit(1);
         }
 
-        mainFrame = buildMainFrame();
-        mainFrame.setVisible(true);
+        // All Swing construction and initial project load MUST run on the EDT.
+        // Doing it on the main thread is a threading violation that can cause
+        // combo-box model updates to never trigger a repaint, making the variant
+        // dropdown appear empty even when items have been added.
+        javax.swing.SwingUtilities.invokeLater(() -> {
+            mainFrame = buildMainFrame();
+            mainFrame.setVisible(true);
 
-        // Restore last project, if any.
-        ProjectFile last = loadLastProject();
-        if (last != null) {
-            applyLoadedProject(last);
-        }
+            // Restore last project, if any.
+            ProjectFile last = loadLastProject();
+            if (last != null) {
+                applyLoadedProject(last);
+            }
+        });
     }
 
     // ── main-frame construction ──────────────────────────────────────────────
