@@ -17,9 +17,9 @@ section .text
 // ── print_char ──────────────────────────────────────────────────
 // Writes the character in AL to stdout (Linux sys_write).
 //
-// Input:  AL = character to print
+// Input:  EAX = character to print (byte; AL sub-register used internally)
 // Clobbers: AX, BX, CX, DX
-proc print_char ( in al as char ) {
+proc print_char (val byte char) {
     // store char on stack
     push ax
     move sp to cx           // cx = pointer to char on stack

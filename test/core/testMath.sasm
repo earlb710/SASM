@@ -1,39 +1,20 @@
 // testMath.sasm
 // Project : Test-projects
 //
-// Demonstrates the math library's integer, float, and double routines,
-// including max, min, and array variants.
-// Verifies that the correct library functions are called when using
-// the overloaded float/double parameter signatures.
+// Demonstrates the math library's integer, float, and double routines
+// using the proc-parameter call form for all @math invocations.
 //
-// See also: testMathFPU.sasm — exercises the additional FPU functions
+// Positional by-value / by-pointer call convention:
+//   call @math.proc( [var] )   -- by value: pass the value stored at var
+//   call @math.proc( var )     -- by pointer: pass the address of var
+//   call @math.proc( 5 )       -- literal value (also by value)
+//   [dst] = @math.proc( [src] )  -- typed-parameter (FPU) style (always by value)
+//   [dst] = @math.f1( [a] ) + @math.f2( [b] ) -- FPU expression
+//
+// See also: testMathFPU.sasm -- exercises the additional FPU functions
 //   (abs_float, neg_float, round, floor, ceil, trunc, sincos, atan,
 //    atan2, ln, log2, log10, exp, pow, add_float, sub_float,
 //    mul_float, div_float).
-//
-// Usage:
-//     #REF lib/math.sasm math
-//
-// The library provides:
-//   Integer:
-//     @math.square       — unsigned integer square (EAX → EAX)
-//     @math.sqrt_int     — integer square root via x87 FPU (EAX → EAX)
-//     @math.max          — max of two signed integers (EAX, EBX → EAX)
-//     @math.min          — min of two signed integers (EAX, EBX → EAX)
-//     @math.max_array    — max of signed dword array (ESI, ECX → EAX)
-//     @math.min_array    — min of signed dword array (ESI, ECX → EAX)
-//   Float/Double (x87 FPU stack):
-//     @math.square_float      — float square (ST(0) → ST(0))
-//     @math.sqrt              — float/double square root (ST(0) → ST(0))
-//     @math.sin               — sine (ST(0) → ST(0), radians)
-//     @math.cos               — cosine (ST(0) → ST(0), radians)
-//     @math.tan               — tangent (ST(0) → ST(0), radians)
-//     @math.max_float         — max of two floats/doubles (ST(0), ST(1) → ST(0))
-//     @math.min_float         — min of two floats/doubles (ST(0), ST(1) → ST(0))
-//     @math.max_array_float   — max of float array (ESI, ECX → ST(0))
-//     @math.min_array_float   — min of float array (ESI, ECX → ST(0))
-//     @math.max_array_double  — max of double array (ESI, ECX → ST(0))
-//     @math.min_array_double  — min of double array (ESI, ECX → ST(0))
 //
 // Target: 32-bit Linux ELF executable (uses int 0x80 for exit).
 //
@@ -88,13 +69,16 @@ var val_9d        as double = __float64__(9.0)
 var result_sqd    as double
 var result_sqrtd  as double
 
-// Trig test values (π/2 ≈ 1.5707963…, 0.0, π/4 ≈ 0.7853982)
+// Trig test values (pi/2 = 1.5707963, 0.0, pi/4 = 0.7853982)
 var angle_half_pi as float = __float32__(1.5707963)
 var angle_zero    as float = __float32__(0.0)
 var angle_quarter as float = __float32__(0.7853982)
 var result_sinf   as float
 var result_cosf   as float
 var result_tanf   as float
+
+// Combined expression test: sin(pi/2) + cos(0) = 1.0 + 1.0 = 2.0
+var result_sincos as float
 
 // Double trig test values
 var angle_half_pi_d as double = __float64__(1.5707963267948966)
@@ -104,231 +88,193 @@ var result_sind     as double
 var result_cosd     as double
 var result_tand     as double
 
+
+var arr_count      as dword = 5
+
 section .text
 
 start:
 
-    // ═════════════════════════════════════════════════════════════
-    //  Integer tests — square / sqrt_int
-    // ═════════════════════════════════════════════════════════════
+    // =========================================================
+    //  Integer tests -- square / sqrt_int
+    //  Using positional by-value syntax: literal 7 = "by value"
+    // =========================================================
 
-    // ── square: 7² = 49 ─────────────────────────────────────────
-    move 7 to eax
-    call @math.square              // eax = 49, edx = 0
-    move eax to dword [result_sq]  // store result
+    // -- square: 7^2 = 49 -----------------------------------------
+    call @math.square( 7 )           // in eax=7 (by value, literal)
+    move eax to dword [result_sq]
 
-    // ── square: 256² = 65536 ────────────────────────────────────
-    move 256 to eax
-    call @math.square              // eax = 65536, edx = 0
+    // -- square: 256^2 = 65536 ------------------------------------
+    call @math.square( 256 )         // out eax = 65536
 
-    // ── sqrt_int: sqrt(49) = 7 ─────────────────────────────────
-    move 49 to eax
-    call @math.sqrt_int            // eax = 7
+    // -- sqrt_int: sqrt(49) = 7 -----------------------------------
+    call @math.sqrt_int( 49 )        // in eax=49 (by value, literal)
     move eax to dword [result_sqrt]
 
-    // ── sqrt_int: sqrt(100) = 10 ────────────────────────────────
-    move 100 to eax
-    call @math.sqrt_int            // eax = 10
+    // -- sqrt_int: sqrt(100) = 10 ---------------------------------
+    call @math.sqrt_int( 100 )       // out eax = 10
 
-    // ── sqrt_int: sqrt(2) ≈ 1 ──────────────────────────────────
-    move 2 to eax
-    call @math.sqrt_int            // eax = 1 (nearest integer)
+    // -- sqrt_int: sqrt(2) = 1 (nearest integer) ------------------
+    call @math.sqrt_int( 2 )         // out eax = 1
 
-    // ── chain: sqrt(square(5)) = 5 ─────────────────────────────
-    move 5 to eax
-    call @math.square              // eax = 25
-    call @math.sqrt_int            // eax = 5
+    // -- chain: sqrt(square(5)) = 5 -------------------------------
+    call @math.square( 5 )           // out eax = 25
+    call @math.sqrt_int              // eax = 25 from square; out eax = 5
 
-    // ═════════════════════════════════════════════════════════════
-    //  Integer tests — max / min (two values)
-    // ═════════════════════════════════════════════════════════════
+    // =========================================================
+    //  Integer tests -- max / min (two values)
+    //  Positional: first arg -> in eax, second arg -> in ebx
+    // =========================================================
 
-    // ── max(10, 20) = 20 ────────────────────────────────────────
-    move 10 to eax
-    move 20 to ebx
-    call @math.max                 // eax = 20
+    // -- max(10, 20) = 20 -----------------------------------------
+    call @math.max( 10, 20 )         // in eax=10, in ebx=20 (both by value, literals)
     move eax to dword [result_max]
 
-    // ── max(30, 5) = 30 ─────────────────────────────────────────
-    move 30 to eax
-    move 5 to ebx
-    call @math.max                 // eax = 30
+    // -- max(30, 5) = 30 ------------------------------------------
+    call @math.max( 30, 5 )          // out eax = 30
 
-    // ── min(10, 20) = 10 ────────────────────────────────────────
-    move 10 to eax
-    move 20 to ebx
-    call @math.min                 // eax = 10
+    // -- min(10, 20) = 10 -----------------------------------------
+    call @math.min( 10, 20 )         // in eax=10, in ebx=20
     move eax to dword [result_min]
 
-    // ── min(30, 5) = 5 ──────────────────────────────────────────
-    move 30 to eax
-    move 5 to ebx
-    call @math.min                 // eax = 5
+    // -- min(30, 5) = 5 -------------------------------------------
+    call @math.min( 30, 5 )          // out eax = 5
 
-    // ═════════════════════════════════════════════════════════════
-    //  Integer tests — max_array / min_array
-    // ═════════════════════════════════════════════════════════════
+    // =========================================================
+    //  Integer tests -- max_array / min_array
+    //  int_arr (no brackets) = by pointer: pass the array address
+    //  5 (no brackets) = by value: literal count
+    //  [arr_count] (brackets) = by value: load count from memory
+    // =========================================================
 
-    // ── max_array([5, 3, 9, 1, 7]) = 9 ─────────────────────────
-    move int_arr to esi
-    move 5 to ecx
-    call @math.max_array           // eax = 9
+    // -- max_array([5, 3, 9, 1, 7]) = 9 ---------------------------
+    call @math.max_array( int_arr, 5 )  // in esi=int_arr (ptr), in ecx=5 (val)
     move eax to dword [result_maxa]
 
-    // ── min_array([5, 3, 9, 1, 7]) = 1 ─────────────────────────
-    move int_arr to esi
-    move 5 to ecx
-    call @math.min_array           // eax = 1
+    // -- min_array([5, 3, 9, 1, 7]) = 1 ---------------------------
+    call @math.min_array( int_arr, 5 )  // in esi=int_arr (ptr), in ecx=5 (val)
     move eax to dword [result_mina]
 
-    // ═════════════════════════════════════════════════════════════
-    //  Float tests — square_float / sqrt
-    // ═════════════════════════════════════════════════════════════
+    // -- max_array with count loaded from variable (by-value [var]) --
+    call @math.max_array( int_arr, [arr_count] )  // ecx = [arr_count] = 5 (by value)
 
-    // ── square_float: 3.0² = 9.0 ───────────────────────────────
-    fld dword [val_f]              // ST(0) = 3.0
-    call @math.square_float        // ST(0) = 9.0
-    fstp dword [result_sqf]        // store result
+    // =========================================================
+    //  Float tests -- square_float / sqrt
+    //  FPU expression form: [dst] = @math.proc( [src] )
+    // =========================================================
 
-    // ── sqrt: √9.0 = 3.0 ───────────────────────────────────────
-    fld dword [val_9f]             // ST(0) = 9.0
-    call @math.sqrt                // ST(0) = 3.0
-    fstp dword [result_sqrtf]      // store result
+    // -- square_float: 3.0^2 = 9.0 --------------------------------
+    [result_sqf] = @math.square_float( [val_f] )
 
-    // ── chain: sqrt(square_float(3.0)) = 3.0 ───────────────────
-    fld dword [val_f]              // ST(0) = 3.0
-    call @math.square_float        // ST(0) = 9.0
-    call @math.sqrt                // ST(0) = 3.0
-    fstp dword [result_sqrtf]      // store result
+    // -- sqrt: sqrt(9.0) = 3.0 ------------------------------------
+    [result_sqrtf] = @math.sqrt( [val_9f] )
 
-    // ═════════════════════════════════════════════════════════════
-    //  Float tests — max_float / min_float (two values)
-    // ═════════════════════════════════════════════════════════════
+    // -- chain: sqrt(square_float(3.0)) = 3.0 ---------------------
+    [result_sqf] = @math.square_float( [val_f] )   // 9.0 in result_sqf
+    [result_sqrtf] = @math.sqrt( [result_sqf] )     // sqrt(result_sqf=9.0) = 3.0
 
-    // ── max_float(2.5, 7.0) = 7.0 ──────────────────────────────
-    fld dword [val_a]              // push 7.0
-    fld dword [val_b]              // push 2.5  (ST(0)=2.5, ST(1)=7.0)
-    call @math.max_float           // ST(0) = 7.0
-    fstp dword [result_maxf]       // store result
+    // =========================================================
+    //  Float tests -- max_float / min_float (two values)
+    //  [val_a] = by value: load float from val_a
+    //  [val_b] = by value: load float from val_b
+    // =========================================================
 
-    // ── min_float(2.5, 7.0) = 2.5 ──────────────────────────────
-    fld dword [val_a]              // push 7.0
-    fld dword [val_b]              // push 2.5  (ST(0)=2.5, ST(1)=7.0)
-    call @math.min_float           // ST(0) = 2.5
-    fstp dword [result_minf]       // store result
+    // -- max_float(7.0, 2.5) = 7.0 --------------------------------
+    [result_maxf] = @math.max_float( [val_a], [val_b] )
 
-    // ═════════════════════════════════════════════════════════════
-    //  Float tests — max_array_float / min_array_float
-    // ═════════════════════════════════════════════════════════════
+    // -- min_float(7.0, 2.5) = 2.5 --------------------------------
+    [result_minf] = @math.min_float( [val_a], [val_b] )
 
-    // ── max_array_float([1.5, 8.0, 3.25, 6.0]) = 8.0 ──────────
-    move float_arr to esi
-    move 4 to ecx
-    call @math.max_array_float     // ST(0) = 8.0
-    fstp dword [result_mxaf]       // store result
+    // =========================================================
+    //  Float tests -- max_array_float / min_array_float
+    //  float_arr (no brackets) = by pointer: pass array address
+    //  4 (no brackets) = by value: literal count
+    // =========================================================
 
-    // ── min_array_float([1.5, 8.0, 3.25, 6.0]) = 1.5 ──────────
-    move float_arr to esi
-    move 4 to ecx
-    call @math.min_array_float     // ST(0) = 1.5
-    fstp dword [result_mnaf]       // store result
+    // -- max_array_float([1.5, 8.0, 3.25, 6.0]) = 8.0 ------------
+    call @math.max_array_float( float_arr, 4 )   // esi=float_arr (ptr), ecx=4 (val)
+    fstp dword [result_mxaf]
 
-    // ═════════════════════════════════════════════════════════════
-    //  Double tests — max_float / min_float with double-precision
-    //  (max_float and min_float work with doubles since the x87
-    //   FPU uses 80-bit extended precision internally)
-    // ═════════════════════════════════════════════════════════════
+    // -- min_array_float([1.5, 8.0, 3.25, 6.0]) = 1.5 ------------
+    call @math.min_array_float( float_arr, 4 )   // esi=float_arr (ptr), ecx=4 (val)
+    fstp dword [result_mnaf]
 
-    // ── max_float with doubles: max(2.5, 7.0) = 7.0 ─────────────
-    fld qword [dval_a]             // push 7.0 (double)
-    fld qword [dval_b]             // push 2.5 (double)  (ST(0)=2.5, ST(1)=7.0)
-    call @math.max_float           // ST(0) = 7.0
-    fstp qword [result_maxd]       // store result as double
+    // =========================================================
+    //  Double tests -- max_float / min_float with doubles
+    //  [dval_a] / [dval_b] = by value (FPU, qword)
+    // =========================================================
 
-    // ── min_float with doubles: min(2.5, 7.0) = 2.5 ─────────────
-    fld qword [dval_a]             // push 7.0 (double)
-    fld qword [dval_b]             // push 2.5 (double)  (ST(0)=2.5, ST(1)=7.0)
-    call @math.min_float           // ST(0) = 2.5
-    fstp qword [result_mind]       // store result as double
+    // -- max_float with doubles: max(7.0, 2.5) = 7.0 -------------
+    [result_maxd] = @math.max_float( [dval_a], [dval_b] )
 
-    // ═════════════════════════════════════════════════════════════
-    //  Double tests — max_array_double / min_array_double
-    // ═════════════════════════════════════════════════════════════
+    // -- min_float with doubles: min(7.0, 2.5) = 2.5 -------------
+    [result_mind] = @math.min_float( [dval_a], [dval_b] )
 
-    // ── max_array_double([1.5, 8.0, 3.25, 6.0]) = 8.0 ──────────
-    move double_arr to esi
-    move 4 to ecx
-    call @math.max_array_double    // ST(0) = 8.0
-    fstp qword [result_mxad]       // store result as double
+    // =========================================================
+    //  Double tests -- max_array_double / min_array_double
+    //  double_arr (no brackets) = by pointer: pass array address
+    //  4 = by value: literal count
+    // =========================================================
 
-    // ── min_array_double([1.5, 8.0, 3.25, 6.0]) = 1.5 ──────────
-    move double_arr to esi
-    move 4 to ecx
-    call @math.min_array_double    // ST(0) = 1.5
-    fstp qword [result_mnad]       // store result as double
+    // -- max_array_double([1.5, 8.0, 3.25, 6.0]) = 8.0 ----------
+    call @math.max_array_double( double_arr, 4 )  // esi=double_arr (ptr), ecx=4 (val)
+    fstp qword [result_mxad]
 
-    // ═════════════════════════════════════════════════════════════
-    //  Trig tests — sin / cos / tan
-    // ═════════════════════════════════════════════════════════════
+    // -- min_array_double([1.5, 8.0, 3.25, 6.0]) = 1.5 ----------
+    call @math.min_array_double( double_arr, 4 )  // esi=double_arr (ptr), ecx=4 (val)
+    fstp qword [result_mnad]
 
-    // ── sin(π/2) ≈ 1.0 ────────────────────────────────────────
-    fld dword [angle_half_pi]
-    call @math.sin                 // ST(0) = sin(π/2) ≈ 1.0
-    fstp dword [result_sinf]
+    // =========================================================
+    //  Trig tests -- sin / cos / tan
+    //  [angle_*] = by value (FPU: fld dword [angle_*])
+    // =========================================================
 
-    // ── cos(0) = 1.0 ──────────────────────────────────────────
-    fld dword [angle_zero]
-    call @math.cos                 // ST(0) = cos(0) = 1.0
-    fstp dword [result_cosf]
+    // -- sin(pi/2) = 1.0 ------------------------------------------
+    [result_sinf] = @math.sin( [angle_half_pi] )
 
-    // ── tan(π/4) ≈ 1.0 ────────────────────────────────────────
-    fld dword [angle_quarter]
-    call @math.tan                 // ST(0) = tan(π/4) ≈ 1.0
-    fstp dword [result_tanf]
+    // -- cos(0) = 1.0 ---------------------------------------------
+    [result_cosf] = @math.cos( [angle_zero] )
 
-    // ═════════════════════════════════════════════════════════════
-    //  Double tests — sqrt / square_float with double-precision
-    //  (overloaded: the same FPU routines work with doubles since
-    //   the x87 uses 80-bit extended precision internally)
-    // ═════════════════════════════════════════════════════════════
+    // -- tan(pi/4) = 1.0 ------------------------------------------
+    [result_tanf] = @math.tan( [angle_quarter] )
 
-    // ── square_float with double: 3.0² = 9.0 ────────────────────
-    fld qword [val_d]              // ST(0) = 3.0 (double)
-    call @math.square_float        // ST(0) = 9.0
-    fstp qword [result_sqd]        // store result as double
+    // =========================================================
+    //  Combined FPU expression: sin + cos
+    //  sin(pi/2) + cos(0) = 1.0 + 1.0 = 2.0
+    // =========================================================
+    [result_sincos] = @math.sin( [angle_half_pi] ) + @math.cos( [angle_zero] )
 
-    // ── sqrt with double: √9.0 = 3.0 ─────────────────────────────
-    fld qword [val_9d]             // ST(0) = 9.0 (double)
-    call @math.sqrt                // ST(0) = 3.0
-    fstp qword [result_sqrtd]      // store result as double
+    // =========================================================
+    //  Double tests -- sqrt / square_float with double-precision
+    //  [val_d] / [val_9d] = by value (FPU, qword)
+    // =========================================================
 
-    // ── chain with doubles: sqrt(square_float(3.0)) = 3.0 ───────
-    fld qword [val_d]              // ST(0) = 3.0 (double)
-    call @math.square_float        // ST(0) = 9.0
-    call @math.sqrt                // ST(0) = 3.0
-    fstp qword [result_sqrtd]      // store result as double
+    // -- square_float with double: 3.0^2 = 9.0 -------------------
+    [result_sqd] = @math.square_float( [val_d] )
 
-    // ═════════════════════════════════════════════════════════════
-    //  Double trig tests — sin / cos / tan with double-precision
-    // ═════════════════════════════════════════════════════════════
+    // -- sqrt with double: sqrt(9.0) = 3.0 -----------------------
+    [result_sqrtd] = @math.sqrt( [val_9d] )
 
-    // ── sin with double: sin(π/2) ≈ 1.0 ────────────────────────
-    fld qword [angle_half_pi_d]
-    call @math.sin                 // ST(0) = sin(π/2) ≈ 1.0
-    fstp qword [result_sind]       // store result as double
+    // -- chain with doubles: sqrt(square_float(3.0)) = 3.0 -------
+    [result_sqd]   = @math.square_float( [val_d] )  // 9.0 in result_sqd
+    [result_sqrtd] = @math.sqrt( [result_sqd] )      // sqrt(result_sqd=9.0) = 3.0
 
-    // ── cos with double: cos(0) = 1.0 ──────────────────────────
-    fld qword [angle_zero_d]
-    call @math.cos                 // ST(0) = cos(0) = 1.0
-    fstp qword [result_cosd]       // store result as double
+    // =========================================================
+    //  Double trig tests -- sin / cos / tan with double-precision
+    //  [angle_*_d] = by value (FPU, qword)
+    // =========================================================
 
-    // ── tan with double: tan(π/4) ≈ 1.0 ────────────────────────
-    fld qword [angle_quarter_d]
-    call @math.tan                 // ST(0) = tan(π/4) ≈ 1.0
-    fstp qword [result_tand]       // store result as double
+    // -- sin with double: sin(pi/2) = 1.0 -------------------------
+    [result_sind] = @math.sin( [angle_half_pi_d] )
+
+    // -- cos with double: cos(0) = 1.0 ----------------------------
+    [result_cosd] = @math.cos( [angle_zero_d] )
+
+    // -- tan with double: tan(pi/4) = 1.0 -------------------------
+    [result_tand] = @math.tan( [angle_quarter_d] )
 
 exit:
-    // ── exit cleanly ────────────────────────────────────────────
+    // -- exit cleanly ---------------------------------------------
     move 1 to eax                  // sys_exit
     move 0 to ebx                  // exit code 0
     interrupt 0x80

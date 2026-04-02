@@ -1,6 +1,11 @@
 package com.sasm;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -1650,5 +1655,1912 @@ class SasmTranslatorTest {
         String asm = t.translate(src);
         assertTrue(asm.contains("CALL math_sqrt"),
                 "Bare '@math.sqrt' with comment should emit CALL math_sqrt");
+    }
+
+    // ── Library inline proc expansion (setWorkingDirectory) ─────────────────
+
+    /**
+     * When a working directory is set, {@code call @alias.procName} targeting
+     * a library {@code inline proc} should expand the body inline rather than
+     * emitting a {@code CALL} instruction.
+     */
+    @Test
+    void libInlineProc_expandedWhenWorkingDirectorySet(@TempDir Path tempDir)
+            throws IOException {
+        // Create a minimal library file: lib/utils.sasm
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        String libContent = String.join("\n",
+                "// utils.sasm — test library",
+                "inline proc negate_eax ( in eax as value, out eax as result ) {",
+                "    negate eax",
+                "    return",
+                "}");
+        Files.writeString(libDir.resolve("utils.sasm"), libContent);
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String src = String.join("\n",
+                "#REF lib/utils.sasm utils",
+                "section .text",
+                "move 5 to eax",
+                "call @utils.negate_eax");
+        String asm = t.translate(src);
+
+        assertFalse(asm.contains("CALL utils_negate_eax"),
+                "Library inline proc call should NOT emit CALL instruction");
+        assertTrue(asm.contains("NEG eax"),
+                "Library inline proc body should be expanded at call site");
+    }
+
+    /**
+     * Without a working directory, {@code call @alias.procName} falls back
+     * to emitting a {@code CALL} instruction (no file I/O possible).
+     */
+    @Test
+    void libInlineProc_fallsBackToCallWhenNoWorkingDirectory() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/utils.sasm utils",
+                "section .text",
+                "move 5 to eax",
+                "call @utils.negate_eax");
+        String asm = t.translate(src);
+
+        assertTrue(asm.contains("CALL utils_negate_eax"),
+                "Without working directory, library proc call should emit CALL");
+    }
+
+    /**
+     * A library inline proc with local labels should have those labels
+     * mangled with a unique suffix on each expansion, just like local
+     * inline procs.
+     */
+    @Test
+    void libInlineProc_labelMangledAcrossMultipleExpansions(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        String libContent = String.join("\n",
+                "inline proc clamp_pos ( in eax as v, out eax as result ) {",
+                "    compare eax with 0",
+                "    goto .done if greater or equal",
+                "    move 0 to eax",
+                ".done:",
+                "    return",
+                "}");
+        Files.writeString(libDir.resolve("util.sasm"), libContent);
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String src = String.join("\n",
+                "#REF lib/util.sasm u",
+                "section .text",
+                "move -1 to eax",
+                "call @u.clamp_pos",
+                "move -5 to eax",
+                "call @u.clamp_pos");
+        String asm = t.translate(src);
+
+        // First expansion: .done_1, second expansion: .done_2
+        assertTrue(asm.contains(".done_1"),
+                "First expansion should mangle label to .done_1");
+        assertTrue(asm.contains(".done_2"),
+                "Second expansion should mangle label to .done_2");
+        assertFalse(asm.contains("CALL u_clamp_pos"),
+                "Library inline proc should not produce CALL");
+    }
+
+    // ── Parameterised proc call syntax: call proc( args ) ───────────────────
+
+    /**
+     * {@code call @alias.inlineProc( eax = N )} (register-param style)
+     * should emit a MOV for the register assignment then expand the inline body.
+     */
+    @Test
+    void paramCall_registerParam_inlineProc(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("util.sasm"), String.join("\n",
+                "inline proc square ( in eax as value, out eax as result ) {",
+                "    multiply by eax",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String src = String.join("\n",
+                "#REF lib/util.sasm util",
+                "section .text",
+                "call @util.square( eax = 7 )");
+        String asm = t.translate(src);
+
+        assertTrue(asm.contains("MOV EAX, 7"), "Should emit MOV EAX, 7 for register param");
+        assertTrue(asm.contains("MUL eax"),    "Should expand inline square body");
+        assertFalse(asm.contains("CALL util_square"), "Inline proc should NOT emit CALL");
+    }
+
+    /**
+     * {@code call @alias.regularProc( eax = N )} (register-param style for a
+     * regular non-inline proc) should emit MOV setup then a CALL instruction.
+     */
+    @Test
+    void paramCall_registerParam_regularProc(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("util.sasm"), String.join("\n",
+                "proc slow_square ( in eax as value, out eax as result ) {",
+                "    multiply by eax",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String src = String.join("\n",
+                "#REF lib/util.sasm util",
+                "section .text",
+                "call @util.slow_square( eax = 9 )");
+        String asm = t.translate(src);
+
+        assertTrue(asm.contains("MOV EAX, 9"),         "Should emit MOV EAX, 9");
+        assertTrue(asm.contains("CALL util_slow_square"), "Regular proc should emit CALL");
+    }
+
+    /**
+     * {@code [dst] = @alias.fpuProc( [arg] )} should load the argument onto
+     * the x87 FPU stack, expand the inline proc body, then store the result.
+     */
+    @Test
+    void paramExpr_singleFpuProcCall(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("util.sasm"), String.join("\n",
+                "inline proc my_sin ( in float angle, out float result ) {",
+                "    fsin",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String src = String.join("\n",
+                "#REF lib/util.sasm util",
+                "section .data",
+                "var my_angle as float = __float32__(1.5707963)",
+                "var my_result as float",
+                "section .text",
+                "[my_result] = @util.my_sin( [my_angle] )");
+        String asm = t.translate(src);
+
+        assertTrue(asm.contains("fld dword [my_angle]"),  "Should emit fld dword for float arg");
+        assertTrue(asm.contains("fsin"),                   "Should expand inline sin body");
+        assertTrue(asm.contains("fstp dword [my_result]"), "Should emit fstp to store result");
+        assertFalse(asm.contains("CALL util_my_sin"),      "Inline proc should NOT emit CALL");
+    }
+
+    /**
+     * {@code [dst] = @alias.sinProc( [a] ) + @alias.cosProc( [b] )} should
+     * generate the correct FPU sequence: load+compute first, load+compute
+     * second, FADDP, fstp.
+     */
+    @Test
+    void paramExpr_fpuProcCallCombinedWithPlus(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("trig.sasm"), String.join("\n",
+                "inline proc my_sin ( in float angle, out float result ) {",
+                "    fsin",
+                "    return",
+                "}",
+                "inline proc my_cos ( in float angle, out float result ) {",
+                "    fcos",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String src = String.join("\n",
+                "#REF lib/trig.sasm tr",
+                "section .data",
+                "var angle1 as float = __float32__(1.5707963)",
+                "var angle2 as float = __float32__(0.0)",
+                "var result as float",
+                "section .text",
+                "[result] = @tr.my_sin( [angle1] ) + @tr.my_cos( [angle2] )");
+        String asm = t.translate(src);
+
+        // Both proc bodies should be inlined.
+        assertTrue(asm.contains("fsin"),  "Should expand my_sin body");
+        assertTrue(asm.contains("fcos"),  "Should expand my_cos body");
+        // FADDP must appear after both computations (not between them).
+        int sinPos    = asm.indexOf("fsin");
+        int cosPos    = asm.indexOf("fcos");
+        int addPos    = asm.indexOf("FADDP");
+        int fstpPos   = asm.indexOf("fstp dword [result]");
+        assertTrue(sinPos  < cosPos,  "fsin should precede fcos");
+        assertTrue(cosPos  < addPos,  "fcos should precede FADDP");
+        assertTrue(addPos  < fstpPos, "FADDP should precede fstp");
+        assertFalse(asm.contains("CALL tr_my_sin"), "Should not emit CALL for inline sin");
+        assertFalse(asm.contains("CALL tr_my_cos"), "Should not emit CALL for inline cos");
+    }
+
+    /**
+     * {@code [dst] = @alias.fpuProc( [arg] )} with a {@code double} variable
+     * should emit {@code fld qword} / {@code fstp qword} instead of dword.
+     */
+    @Test
+    void paramExpr_fpuProcCall_doubleVar(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("util.sasm"), String.join("\n",
+                "inline proc my_sqrt ( in float value, out float result ) {",
+                "    fsqrt",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String src = String.join("\n",
+                "#REF lib/util.sasm util",
+                "section .data",
+                "var val_d  as double = __float64__(9.0)",
+                "var res_d  as double",
+                "section .text",
+                "[res_d] = @util.my_sqrt( [val_d] )");
+        String asm = t.translate(src);
+
+        assertTrue(asm.contains("fld qword [val_d]"),  "Double arg should use fld qword");
+        assertTrue(asm.contains("fsqrt"),               "Should expand sqrt body");
+        assertTrue(asm.contains("fstp qword [res_d]"),  "Double dst should use fstp qword");
+    }
+
+    // ── Positional by-value / by-pointer parameter calls ────────────────────
+
+    /**
+     * Positional call to an inline proc with a bare literal value:
+     * {@code call @alias.proc( 7 )} should emit {@code MOV EAX, 7} and
+     * expand the inline body (no {@code CALL}).
+     */
+    @Test
+    void paramCall_positional_literal(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "inline proc square ( in eax as [value], out eax as [result] ) {",
+                "    multiply by eax",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.square( 7 )"));
+
+        assertTrue(asm.contains("MOV EAX, 7"), "Literal arg should emit MOV EAX, 7");
+        assertTrue(asm.contains("MUL eax"),    "Square body should be expanded inline");
+        assertFalse(asm.contains("CALL math_square"), "Inline proc must NOT emit CALL");
+    }
+
+    /**
+     * Positional call with two literal args:
+     * {@code call @alias.proc( 10, 20 )} should emit {@code MOV EAX, 10}
+     * and {@code MOV EBX, 20}, then expand the inline body.
+     */
+    @Test
+    void paramCall_positional_twoLiterals(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "inline proc max ( in eax as [first], in ebx as [second], out eax as [result] ) {",
+                "    compare eax to ebx",
+                "    goto .done if >=",
+                "    move ebx to eax",
+                ".done:",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.max( 10, 20 )"));
+
+        assertTrue(asm.contains("MOV EAX, 10"), "First positional arg -> MOV EAX, 10");
+        assertTrue(asm.contains("MOV EBX, 20"), "Second positional arg -> MOV EBX, 20");
+        assertFalse(asm.contains("CALL math_max"), "Inline proc must NOT emit CALL");
+    }
+
+    /**
+     * Positional call with a <em>by-pointer</em> label arg (no brackets):
+     * {@code call @alias.proc( arr_label, 5 )} should emit
+     * {@code MOV ESI, arr_label} (pass address) and {@code MOV ECX, 5}.
+     */
+    @Test
+    void paramCall_positional_byPointer_label(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc find_max ( in esi as array_ptr, in ecx as [count], out eax as [result] ) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.find_max( my_array, 5 )"));
+
+        assertTrue(asm.contains("MOV ESI, my_array"), "Label arg -> MOV ESI, my_array (by pointer)");
+        assertTrue(asm.contains("MOV ECX, 5"),        "Count arg -> MOV ECX, 5 (by value)");
+        assertTrue(asm.contains("CALL math_find_max"), "Regular proc must emit CALL");
+        // Must NOT dereference the label.
+        assertFalse(asm.contains("MOV ESI, [my_array]"), "Label must NOT be dereferenced");
+    }
+
+    /**
+     * Positional call with a <em>by-value</em> variable arg (brackets):
+     * {@code call @alias.proc( arr_ptr, [count_var] )} should emit
+     * {@code MOV ESI, arr_ptr} (by pointer) and {@code MOV ECX, [count_var]}
+     * (by value — dereference the count variable).
+     */
+    @Test
+    void paramCall_positional_byValue_varDeref(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc find_max ( in esi as array_ptr, in ecx as [count], out eax as [result] ) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .data",
+                "var count_var as dword = 5",
+                "section .text",
+                "call @math.find_max( my_array, [count_var] )"));
+
+        assertTrue(asm.contains("MOV ESI, my_array"),      "Label -> by pointer");
+        assertTrue(asm.contains("MOV ECX, [count_var]"),   "Bracketed var -> by value (deref)");
+        // Must NOT dereference the label.
+        assertFalse(asm.contains("MOV ESI, [my_array]"),   "Label must NOT be dereferenced");
+    }
+
+    /**
+     * The new {@code [name]} bracket notation in a proc definition should be
+     * parsed identically to the old {@code as name} form: both store the same
+     * register in {@code procInParams}, so positional calls work for both.
+     */
+    @Test
+    void paramCall_bracketNotationInDefinitionParsed(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        // Mix of old "as name" and new "as [name]" syntax in the same definition.
+        Files.writeString(libDir.resolve("util.sasm"), String.join("\n",
+                // first param: old style; second param: new bracket style
+                "inline proc add2 ( in eax as first, in ebx as [second], out eax as [result] ) {",
+                "    add ebx to eax",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/util.sasm util",
+                "section .text",
+                "call @util.add2( 3, 4 )"));
+
+        assertTrue(asm.contains("MOV EAX, 3"), "First positional -> EAX");
+        assertTrue(asm.contains("MOV EBX, 4"), "Second positional -> EBX");
+        assertTrue(asm.contains("ADD eax, ebx"), "add2 body should be inlined");
+    }
+
+    // ── New val/addr proc parameter syntax ──────────────────────────────────
+
+    /**
+     * New-style definition {@code inline proc name (val dword n) out val dword}:
+     * single val param → register from val pool starting at eax.
+     * Positional call {@code call @a.name( 7 )} should emit {@code MOV EAX, 7}.
+     */
+    @Test
+    void newStyle_valDword_singleParam(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "inline proc square (val dword value) out val dword {",
+                "    multiply by eax",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.square( 7 )"));
+
+        assertTrue(asm.contains("MOV EAX, 7"),     "val dword first param → EAX");
+        assertTrue(asm.contains("MUL eax"),         "Inline body should expand");
+        assertFalse(asm.contains("CALL math_square"), "Inline must NOT emit CALL");
+    }
+
+    /**
+     * Two {@code val dword} params (no addr) → val pool starts at eax:
+     * first → eax, second → ebx.
+     */
+    @Test
+    void newStyle_valDword_twoParams(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "inline proc max (val dword first, val dword second) out val dword {",
+                "    compare eax to ebx",
+                "    goto .done if >=",
+                "    move ebx to eax",
+                ".done:",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.max( 10, 20 )"));
+
+        assertTrue(asm.contains("MOV EAX, 10"), "first val dword → EAX");
+        assertTrue(asm.contains("MOV EBX, 20"), "second val dword → EBX (val-only pool)");
+    }
+
+    /**
+     * Three {@code val dword} params → eax, ebx, ecx.
+     */
+    @Test
+    void newStyle_valDword_threeParams(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "inline proc clamp (val dword value, val dword lo, val dword hi) out val dword {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.clamp( 5, 0, 10 )"));
+
+        assertTrue(asm.contains("MOV EAX, 5"),  "value → EAX");
+        assertTrue(asm.contains("MOV EBX, 0"),  "lo → EBX");
+        assertTrue(asm.contains("MOV ECX, 10"), "hi → ECX");
+    }
+
+    /**
+     * {@code addr} param first, then {@code val dword} → val pool starts at
+     * ecx (x86 idiom: ESI=source pointer, ECX=count).
+     * This is the canonical {@code proc max_array (addr array_ptr, val dword count)} pattern.
+     */
+    @Test
+    void newStyle_addrThenVal_ecxPool(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc my_array_max (addr array_ptr, val dword count) out val dword {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.my_array_max( my_arr, 5 )"));
+
+        assertTrue(asm.contains("MOV ESI, my_arr"),       "addr → ESI");
+        assertTrue(asm.contains("MOV ECX, 5"),             "val after addr → ECX (not EAX)");
+        assertTrue(asm.contains("CALL math_my_array_max"), "Regular proc emits CALL");
+        assertFalse(asm.contains("MOV EAX, 5"),            "val after addr must NOT go to EAX");
+    }
+
+    /**
+     * FPU proc defined with {@code val float} — the NASM comment should contain
+     * the new-style signature when declared locally, and positional FPU call
+     * with {@code [var]} should still produce the {@code fld} / {@code fstp} sequence.
+     */
+    @Test
+    void newStyle_valFloat_fpuCallUnchanged(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "inline proc my_sin (val float angle) out val float {",
+                "    fsin",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .data",
+                "var angle as float = __float32__(1.5707963)",
+                "var result as float",
+                "section .text",
+                "[result] = @math.my_sin( [angle] )"));
+
+        // FPU path still works with new-style declaration.
+        assertTrue(asm.contains("fld dword [angle]"),    "Should fld the float arg");
+        assertTrue(asm.contains("fsin"),                  "Should expand fsin body");
+        assertTrue(asm.contains("fstp dword [result]"),   "Should fstp the result");
+        assertFalse(asm.contains("CALL math_my_sin"),     "Inline must NOT emit CALL");
+
+        // Local inline proc declaration emits the new-style NASM comment.
+        SasmTranslator t2 = new SasmTranslator();
+        String localSrc = String.join("\n",
+                "section .data",
+                "var angle as float = __float32__(1.5707963)",
+                "var result as float",
+                "section .text",
+                "inline proc my_sin (val float angle) out val float {",
+                "    fsin",
+                "    return",
+                "}",
+                "[result] = my_sin[ [angle] ]");
+        String localAsm = t2.translate(localSrc);
+        assertTrue(localAsm.contains("(val float angle) out val float"),
+                "Local proc NASM comment should use new-style signature");
+    }
+
+    /**
+     * New-style regular proc with no {@code out} clause (e.g. array-float procs
+     * that return in FPU ST(0) without an explicit {@code out val}):
+     * {@code proc max_array_float (addr array_ptr, val dword count)} — the
+     * NASM comment should omit the out clause.
+     */
+    @Test
+    void newStyle_noOutClause(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc af_max (addr array_ptr, val dword count) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.af_max( float_arr, 4 )"));
+
+        assertTrue(asm.contains("MOV ESI, float_arr"), "addr → ESI");
+        assertTrue(asm.contains("MOV ECX, 4"),          "val after addr → ECX");
+        assertTrue(asm.contains("CALL math_af_max"),    "Regular proc emits CALL");
+    }
+
+    // ── Integer math functions (new-style val dword parameter syntax) ────
+
+    /**
+     * Verifies that the six integer utility functions
+     * ({@code abs_int}, {@code sign}, {@code clamp},
+     * {@code leading_zeros}, {@code trailing_zeros}, {@code is_power_of_two})
+     * all resolve to the correct CALL labels.
+     */
+    @Test
+    void integerUtilityFunctions_resolveToCorrectLabels() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.abs_int",
+                "call @math.sign",
+                "call @math.clamp",
+                "call @math.leading_zeros",
+                "call @math.trailing_zeros",
+                "call @math.is_power_of_two");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("CALL math_abs_int"),          "abs_int → CALL math_abs_int");
+        assertTrue(asm.contains("CALL math_sign"),             "sign → CALL math_sign");
+        assertTrue(asm.contains("CALL math_clamp"),            "clamp → CALL math_clamp");
+        assertTrue(asm.contains("CALL math_leading_zeros"),    "leading_zeros → CALL math_leading_zeros");
+        assertTrue(asm.contains("CALL math_trailing_zeros"),   "trailing_zeros → CALL math_trailing_zeros");
+        assertTrue(asm.contains("CALL math_is_power_of_two"),  "is_power_of_two → CALL math_is_power_of_two");
+    }
+
+    /**
+     * Verifies that calling {@code @math.abs_int} and {@code @math.sign}
+     * with positional literal arguments generates the correct MOV + CALL sequence.
+     */
+    @Test
+    void integerFunctions_positionalLiterals_resolveCorrectly(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "inline proc abs_int (val dword value) out val dword {",
+                "    cdq",
+                "    xor eax, edx",
+                "    sub eax, edx",
+                "    return",
+                "}",
+                "inline proc sign (val dword value) out val dword {",
+                "    move 0 to eax",
+                "    return",
+                "}"));
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.abs_int( -5 )",
+                "call @math.sign( 4 )");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("MOV EAX, -5"),  "abs_int: literal -5 → MOV EAX");
+        assertTrue(asm.contains("MOV EAX, 4"),   "sign: literal 4 → MOV EAX");
+    }
+
+    /**
+     * Verifies that {@code @math.clamp} with three positional literals
+     * maps them to EAX (value), EBX (lo), ECX (hi).
+     */
+    @Test
+    void clamp_threePositionalLiterals_correctRegisters(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "inline proc clamp (val dword value, val dword lo, val dword hi) out val dword {",
+                "    return",
+                "}"));
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.clamp( -5, 0, 10 )");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("MOV EAX, -5"), "first val param → EAX");
+        assertTrue(asm.contains("MOV EBX, 0"),  "second val param → EBX");
+        assertTrue(asm.contains("MOV ECX, 10"), "third val param → ECX");
+    }
+
+    // ── FPU math functions (new-style val float parameter syntax) ────────
+
+    /**
+     * Verifies that {@code fmod}, {@code modf}, and {@code frexp} resolve
+     * to the correct labels for both float and double usage.
+     */
+    @Test
+    void fmodModfFrexp_resolveToCorrectLabels() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "fld dword [y]",
+                "fld dword [x]",
+                "call @math.fmod",
+                "fstp dword [r1]",
+                "fld dword [v]",
+                "call @math.modf",
+                "fstp dword [frac]",
+                "fstp dword [int_p]",
+                "fld dword [v]",
+                "call @math.frexp",
+                "fstp dword [sig]",
+                "fstp dword [exp]",
+                "fld qword [dy]",
+                "fld qword [dx]",
+                "call @math.fmod",
+                "fstp qword [r2]",
+                "fld qword [dv]",
+                "call @math.modf",
+                "fstp qword [dfrac]",
+                "fstp qword [dint]",
+                "fld qword [dv]",
+                "call @math.frexp",
+                "fstp qword [dsig]",
+                "fstp qword [dexp]");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("CALL math_fmod"),  "fmod → CALL math_fmod");
+        assertTrue(asm.contains("CALL math_modf"),  "modf → CALL math_modf");
+        assertTrue(asm.contains("CALL math_frexp"), "frexp → CALL math_frexp");
+    }
+
+    /**
+     * Verifies that {@code log1p} and {@code expm1} resolve to the correct
+     * labels for both float and double usage.
+     */
+    @Test
+    void log1pExpm1_resolveToCorrectLabels() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "fld dword [v]",
+                "call @math.log1p",
+                "fstp dword [r1]",
+                "fld dword [v]",
+                "call @math.expm1",
+                "fstp dword [r2]",
+                "fld qword [dv]",
+                "call @math.log1p",
+                "fstp qword [r3]",
+                "fld qword [dv]",
+                "call @math.expm1",
+                "fstp qword [r4]");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("CALL math_log1p"),  "log1p → CALL math_log1p");
+        assertTrue(asm.contains("CALL math_expm1"),  "expm1 → CALL math_expm1");
+    }
+
+    /**
+     * Verifies that {@code asin} and {@code acos} resolve to the correct
+     * labels for both float and double usage.
+     */
+    @Test
+    void asinAcos_resolveToCorrectLabels() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "fld dword [v]",
+                "call @math.asin",
+                "fstp dword [r1]",
+                "fld dword [v]",
+                "call @math.acos",
+                "fstp dword [r2]",
+                "fld qword [dv]",
+                "call @math.asin",
+                "fstp qword [r3]",
+                "fld qword [dv]",
+                "call @math.acos",
+                "fstp qword [r4]");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("CALL math_asin"), "asin → CALL math_asin");
+        assertTrue(asm.contains("CALL math_acos"), "acos → CALL math_acos");
+    }
+
+    /**
+     * Verifies that {@code sinh}, {@code cosh}, and {@code tanh} resolve
+     * to the correct labels for both float and double usage.
+     */
+    @Test
+    void sinhCoshTanh_resolveToCorrectLabels() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "fld dword [v]",
+                "call @math.sinh",
+                "fstp dword [r1]",
+                "fld dword [v]",
+                "call @math.cosh",
+                "fstp dword [r2]",
+                "fld dword [v]",
+                "call @math.tanh",
+                "fstp dword [r3]",
+                "fld qword [dv]",
+                "call @math.sinh",
+                "fstp qword [r4]",
+                "fld qword [dv]",
+                "call @math.cosh",
+                "fstp qword [r5]",
+                "fld qword [dv]",
+                "call @math.tanh",
+                "fstp qword [r6]");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("CALL math_sinh"), "sinh → CALL math_sinh");
+        assertTrue(asm.contains("CALL math_cosh"), "cosh → CALL math_cosh");
+        assertTrue(asm.contains("CALL math_tanh"), "tanh → CALL math_tanh");
+    }
+
+    /**
+     * Verifies that {@code hypot}, {@code fract}, {@code deg_to_rad},
+     * and {@code rad_to_deg} resolve to the correct labels for both float
+     * and double usage.
+     */
+    @Test
+    void hypotFractDegRadConversion_resolveToCorrectLabels() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "fld dword [x]",
+                "fld dword [y]",
+                "call @math.hypot",
+                "fstp dword [r1]",
+                "fld dword [v]",
+                "call @math.fract",
+                "fstp dword [r2]",
+                "fld dword [deg]",
+                "call @math.deg_to_rad",
+                "fstp dword [r3]",
+                "fld dword [rad]",
+                "call @math.rad_to_deg",
+                "fstp dword [r4]",
+                "fld qword [dx]",
+                "fld qword [dy]",
+                "call @math.hypot",
+                "fstp qword [r5]",
+                "fld qword [dv]",
+                "call @math.fract",
+                "fstp qword [r6]");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("CALL math_hypot"),      "hypot → CALL math_hypot");
+        assertTrue(asm.contains("CALL math_fract"),      "fract → CALL math_fract");
+        assertTrue(asm.contains("CALL math_deg_to_rad"), "deg_to_rad → CALL math_deg_to_rad");
+        assertTrue(asm.contains("CALL math_rad_to_deg"), "rad_to_deg → CALL math_rad_to_deg");
+    }
+
+    /**
+     * Verifies that {@code ldexp}, {@code log_b}, {@code lerp}, and
+     * {@code clamp_float} resolve to the correct labels for both float
+     * and double usage.
+     */
+    @Test
+    void ldexpLogBLerpClampFloat_resolveToCorrectLabels() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "fld dword [x]",
+                "fld dword [n]",
+                "call @math.ldexp",
+                "fstp dword [r1]",
+                "fld dword [v]",
+                "call @math.log_b",
+                "fstp dword [r2]",
+                "fld dword [a]",
+                "fld dword [b]",
+                "fld dword [t]",
+                "call @math.lerp",
+                "fstp dword [r3]",
+                "fld dword [xv]",
+                "fld dword [lo]",
+                "fld dword [hi]",
+                "call @math.clamp_float",
+                "fstp dword [r4]",
+                "fld qword [dx]",
+                "fld qword [dn]",
+                "call @math.ldexp",
+                "fstp qword [r5]",
+                "fld qword [dv]",
+                "call @math.log_b",
+                "fstp qword [r6]",
+                "fld qword [da]",
+                "fld qword [db]",
+                "fld qword [dt]",
+                "call @math.lerp",
+                "fstp qword [r7]",
+                "fld qword [dxv]",
+                "fld qword [dlo]",
+                "fld qword [dhi]",
+                "call @math.clamp_float",
+                "fstp qword [r8]");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("CALL math_ldexp"),       "ldexp → CALL math_ldexp");
+        assertTrue(asm.contains("CALL math_log_b"),       "log_b → CALL math_log_b");
+        assertTrue(asm.contains("CALL math_lerp"),        "lerp → CALL math_lerp");
+        assertTrue(asm.contains("CALL math_clamp_float"), "clamp_float → CALL math_clamp_float");
+    }
+
+    /**
+     * Verifies that all 24 previously-untested math functions resolve
+     * correctly when called in a single translation unit.
+     */
+    @Test
+    void allNewMathFunctions_resolveCorrectly() {
+        SasmTranslator t = new SasmTranslator();
+        String src = String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                // integer functions
+                "call @math.abs_int",
+                "call @math.sign",
+                "call @math.clamp",
+                "call @math.leading_zeros",
+                "call @math.trailing_zeros",
+                "call @math.is_power_of_two",
+                // FPU single-input functions
+                "fld dword [v]",
+                "call @math.fmod",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.modf",
+                "fstp dword [r]",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.frexp",
+                "fstp dword [r]",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.log1p",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.expm1",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.asin",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.acos",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.sinh",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.cosh",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.tanh",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.fract",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.deg_to_rad",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.rad_to_deg",
+                "fstp dword [r]",
+                "fld dword [v]",
+                "call @math.log_b",
+                "fstp dword [r]",
+                // FPU two-input functions
+                "fld dword [x]",
+                "fld dword [y]",
+                "call @math.hypot",
+                "fstp dword [r]",
+                "fld dword [x]",
+                "fld dword [n]",
+                "call @math.ldexp",
+                "fstp dword [r]",
+                // FPU three-input functions
+                "fld dword [a]",
+                "fld dword [b]",
+                "fld dword [t]",
+                "call @math.lerp",
+                "fstp dword [r]",
+                "fld dword [x]",
+                "fld dword [lo]",
+                "fld dword [hi]",
+                "call @math.clamp_float",
+                "fstp dword [r]");
+        String asm = t.translate(src);
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        String[] expectedCalls = {
+                "CALL math_abs_int",
+                "CALL math_sign",
+                "CALL math_clamp",
+                "CALL math_leading_zeros",
+                "CALL math_trailing_zeros",
+                "CALL math_is_power_of_two",
+                "CALL math_fmod",
+                "CALL math_modf",
+                "CALL math_frexp",
+                "CALL math_log1p",
+                "CALL math_expm1",
+                "CALL math_asin",
+                "CALL math_acos",
+                "CALL math_sinh",
+                "CALL math_cosh",
+                "CALL math_tanh",
+                "CALL math_hypot",
+                "CALL math_fract",
+                "CALL math_deg_to_rad",
+                "CALL math_rad_to_deg",
+                "CALL math_ldexp",
+                "CALL math_log_b",
+                "CALL math_lerp",
+                "CALL math_clamp_float"
+        };
+        for (String expected : expectedCalls) {
+            assertTrue(asm.contains(expected),
+                    expected + " should be present in output");
+        }
+    }
+
+    // ── default <reg> parameter annotation ──────────────────────────────────
+
+    /**
+     * Verifies the core optimization: when a positional call argument is
+     * exactly the {@code default} register declared for that parameter, no
+     * {@code MOV} instruction is emitted for it.
+     *
+     * <p>Scenario: {@code addr ptr default esi} and call passes {@code esi}
+     * → no {@code MOV ESI, esi}; but the second param (no match) still gets
+     * its {@code MOV}.</p>
+     */
+    @Test
+    void defaultReg_matchingArg_noMOVEmitted(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc my_proc (addr arr default esi, val dword count default ecx) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.my_proc( esi, 5 )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // esi is already the default register for arr → no MOV ESI emitted
+        assertFalse(asm.contains("MOV ESI"),
+                "MOV ESI should be suppressed when arg is already the default register");
+        // 5 != ecx → MOV ECX, 5 must be emitted
+        assertTrue(asm.contains("MOV ECX, 5"),
+                "MOV ECX should still be emitted when arg is not the default register");
+        // the CALL must still be present
+        assertTrue(asm.contains("CALL math_my_proc"),
+                "CALL should still be emitted");
+    }
+
+    /**
+     * Verifies that when the call argument does NOT match the {@code default}
+     * register, the {@code MOV} is still generated as normal.
+     */
+    @Test
+    void defaultReg_nonMatchingArg_MOVStillEmitted(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc my_proc (addr arr default esi, val dword count default ecx) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.my_proc( my_arr, [my_count] )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // my_arr != esi → MOV must be emitted
+        assertTrue(asm.contains("MOV ESI, my_arr"),
+                "MOV ESI should be emitted when arg differs from default register");
+        // [my_count] != ecx → MOV must be emitted
+        assertTrue(asm.contains("MOV ECX, [my_count]"),
+                "MOV ECX should be emitted when arg differs from default register");
+    }
+
+    /**
+     * Verifies that both args matching their respective defaults suppresses
+     * all MOV instructions, leaving only the {@code CALL}.
+     */
+    @Test
+    void defaultReg_bothArgsMatchDefault_onlyCallEmitted(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc my_proc (addr arr default esi, val dword count default ecx) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.my_proc( esi, ecx )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertFalse(asm.contains("MOV ESI"),
+                "MOV ESI should be suppressed");
+        assertFalse(asm.contains("MOV ECX"),
+                "MOV ECX should be suppressed");
+        assertTrue(asm.contains("CALL math_my_proc"),
+                "CALL should still be present");
+    }
+
+    /**
+     * Verifies that the case of the register name in the call argument is
+     * irrelevant: {@code ESI} (upper), {@code esi} (lower), {@code Esi}
+     * (mixed) all match a {@code default esi} annotation.
+     */
+    @Test
+    void defaultReg_caseInsensitiveMatch(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc my_proc (addr arr default esi) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        for (String argForm : new String[]{"ESI", "esi", "Esi"}) {
+            String asm = t.translate(String.join("\n",
+                    "#REF lib/math.sasm math",
+                    "section .text",
+                    "call @math.my_proc( " + argForm + " )"));
+            assertFalse(asm.contains("MOV ESI"),
+                    "MOV ESI should be suppressed for arg form '" + argForm + "'");
+        }
+    }
+
+    /**
+     * Verifies that without {@code default <reg>} annotations, behaviour is
+     * unchanged (all MOV instructions are emitted as before).
+     */
+    @Test
+    void defaultReg_noAnnotation_normalBehaviourPreserved(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc my_proc (addr arr, val dword count) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.my_proc( esi, ecx )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // No default annotation → MOV is always emitted even if arg == reg
+        assertTrue(asm.contains("MOV ESI, esi"),
+                "Without default annotation MOV ESI should always be emitted");
+        assertTrue(asm.contains("MOV ECX, ecx"),
+                "Without default annotation MOV ECX should always be emitted");
+    }
+
+    /**
+     * Verifies that the {@code default <reg>} optimization also works for
+     * inline procs (body is expanded at call site, no CALL instruction).
+     */
+    @Test
+    void defaultReg_inlineProc_matchingArgSkipsMOV(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "inline proc sum_arr (addr arr default esi, val dword count default ecx) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.sum_arr( esi, 10 )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // esi matches default → no MOV ESI
+        assertFalse(asm.contains("MOV ESI"),
+                "MOV ESI should be suppressed for inline proc call with matching arg");
+        // 10 != ecx → MOV ECX must be emitted
+        assertTrue(asm.contains("MOV ECX, 10"),
+                "MOV ECX should still be emitted for non-matching arg");
+        // body is inlined — no CALL
+        assertFalse(asm.contains("CALL math_sum_arr"),
+                "Inline proc should not emit CALL");
+    }
+
+    /**
+     * Verifies that a mixed signature (first param with {@code default},
+     * second without) behaves correctly: matching arg skips its MOV, the
+     * other emits as normal.
+     */
+    @Test
+    void defaultReg_mixedAnnotation_partialOptimization(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), String.join("\n",
+                "proc mixed_proc (addr arr default esi, val dword count) {",
+                "    return",
+                "}"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.mixed_proc( esi, [my_count] )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // esi matches default → no MOV ESI
+        assertFalse(asm.contains("MOV ESI"),
+                "MOV ESI should be suppressed for matching arg");
+        // [my_count] != ecx (pool, no annotation) → MOV ECX must be emitted
+        assertTrue(asm.contains("MOV ECX, [my_count]"),
+                "MOV ECX should be emitted for non-annotated param");
+    }
+
+    // ── formula-chain / default-reg code-size tests ──────────────────────────
+
+    /** Inline {@code clamp} definition used by the formula-chain tests. */
+    private static final String CLAMP_DEF = String.join("\n",
+            "inline proc clamp (val dword value default eax, val dword lo default ebx, val dword hi default ecx) out val dword {",
+            "    compare eax with ebx",
+            "    goto .hi_check if greater or equal",
+            "    move ebx to eax",
+            ".hi_check:",
+            "    compare eax with ecx",
+            "    goto .done if less or equal",
+            "    move ecx to eax",
+            ".done:",
+            "    return",
+            "}");
+
+    /** Inline {@code abs_int} definition used by the formula-chain tests. */
+    private static final String ABS_INT_DEF = String.join("\n",
+            "inline proc abs_int (val dword value default eax) out val dword {",
+            "    cdq",
+            "    xor eax, edx",
+            "    sub eax, edx",
+            "    return",
+            "}");
+
+    /**
+     * Formula chain — Style A (memory args): calling {@code @math.clamp} with
+     * all three parameters supplied as memory references causes the translator
+     * to emit a dedicated setup {@code MOV} for every parameter.
+     *
+     * <p>Expected output for {@code call @math.clamp( [x], [lo], [hi] )}:
+     * <pre>
+     *   MOV EAX, [x]     ← value param (eax default, but [x] ≠ eax)
+     *   MOV EBX, [lo]    ← lo param    ([lo] ≠ ebx default)
+     *   MOV ECX, [hi]    ← hi param    ([hi] ≠ ecx default)
+     *   &lt;clamp inline body&gt;
+     * </pre>
+     */
+    @Test
+    void mathFormulaChain_memoryArgs_generatesSetupMOVsForEachParam(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), CLAMP_DEF);
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.clamp( [x], [lo], [hi] )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // Every argument differs from its default register → all three setup MOVs emitted
+        assertTrue(asm.contains("MOV EAX, [x]"),
+                "setup MOV EAX should be emitted for value param");
+        assertTrue(asm.contains("MOV EBX, [lo]"),
+                "setup MOV EBX should be emitted for lo param");
+        assertTrue(asm.contains("MOV ECX, [hi]"),
+                "setup MOV ECX should be emitted for hi param");
+    }
+
+    /**
+     * Formula chain — Style B (default-register args): when all three
+     * arguments to {@code @math.clamp} are already the declared default
+     * registers, the translator suppresses every setup {@code MOV}, leaving
+     * only the inlined function body.
+     *
+     * <p>Expected output for {@code call @math.clamp( eax, ebx, ecx )}:
+     * <pre>
+     *   &lt;clamp inline body only — no setup MOVs&gt;
+     * </pre>
+     */
+    @Test
+    void mathFormulaChain_defaultRegisterArgs_suppressesAllSetupMOVs(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"), CLAMP_DEF);
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.clamp( eax, ebx, ecx )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // All args match defaults → no translator-generated setup MOVs (uppercase form)
+        assertFalse(asm.contains("MOV EAX,"),
+                "setup MOV EAX should be suppressed when arg is eax (default)");
+        assertFalse(asm.contains("MOV EBX,"),
+                "setup MOV EBX should be suppressed when arg is ebx (default)");
+        assertFalse(asm.contains("MOV ECX,"),
+                "setup MOV ECX should be suppressed when arg is ecx (default)");
+    }
+
+    /**
+     * Formula chain — code-size comparison: chains {@code abs_int} into
+     * {@code clamp} using both call styles and counts {@code MOV} instructions
+     * in the output to confirm that the default-register style eliminates
+     * exactly three setup {@code MOV} instructions.
+     *
+     * <p><b>Style A</b> — memory args:
+     * <pre>
+     *   call @math.abs_int( [x] )              // MOV EAX,[x]; abs_int body
+     *   call @math.clamp( eax, [lo], [hi] )    // EAX=default (skip);
+     *                                          // MOV EBX,[lo]; MOV ECX,[hi]; clamp body
+     *   Total setup MOVs: 3
+     * </pre>
+     *
+     * <p><b>Style B</b> — default-register args:
+     * <pre>
+     *   call @math.abs_int( eax )              // EAX=default → 0 setup MOVs; abs_int body
+     *   call @math.clamp( eax, ebx, ecx )      // ALL defaults → 0 setup MOVs; clamp body
+     *   Total setup MOVs: 0  (3 fewer than Style A)
+     * </pre>
+     */
+    @Test
+    void mathFormulaChain_defaultRegsYieldFewerMOVInstructions(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.writeString(libDir.resolve("math.sasm"),
+                ABS_INT_DEF + "\n" + CLAMP_DEF);
+
+        // Style A: abs_int with memory arg, clamp with two memory args
+        SasmTranslator tA = new SasmTranslator();
+        tA.setWorkingDirectory(tempDir.toFile());
+        String asmA = tA.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.abs_int( [x] )",
+                "call @math.clamp( eax, [lo], [hi] )"));
+        assertTrue(tA.getErrors().isEmpty(),
+                "Style A should produce no errors, got: " + tA.getErrors());
+
+        // Style B: all args already in default registers
+        SasmTranslator tB = new SasmTranslator();
+        tB.setWorkingDirectory(tempDir.toFile());
+        String asmB = tB.translate(String.join("\n",
+                "#REF lib/math.sasm math",
+                "section .text",
+                "call @math.abs_int( eax )",
+                "call @math.clamp( eax, ebx, ecx )"));
+        assertTrue(tB.getErrors().isEmpty(),
+                "Style B should produce no errors, got: " + tB.getErrors());
+
+        // Count all "MOV " occurrences (setup + inline body) in each output
+        int movCountA = asmA.split("MOV ", -1).length - 1;
+        int movCountB = asmB.split("MOV ", -1).length - 1;
+
+        // Style B should have exactly 3 fewer MOV instructions (the 3 suppressed setup MOVs)
+        assertEquals(3, movCountA - movCountB,
+                "Default-register style should eliminate exactly 3 setup MOVs: "
+                + "Style A=" + movCountA + ", Style B=" + movCountB);
+        assertTrue(movCountB < movCountA,
+                "Default-register style should generate fewer MOV instructions total");
+    }
+
+    // ── str library tests ────────────────────────────────────────────────────
+
+    /**
+     * Verifies that all eight str-library functions resolve to the correct
+     * CALL labels (or inline expansion for {@code strlen} and {@code strcpy}).
+     */
+    @Test
+    void strLibrary_allFunctions_resolveCorrectly(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/str.sasm"), libDir.resolve("str.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.strlen",
+                "call @str.strcmp",
+                "call @str.strcpy",
+                "call @str.strcat",
+                "call @str.to_upper",
+                "call @str.to_lower",
+                "call @str.str_to_int",
+                "call @str.int_to_str"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // inline procs expand in-place (no CALL); regular procs emit CALL
+        assertFalse(asm.contains("CALL str_strlen"),   "strlen is inline → no CALL str_strlen");
+        assertFalse(asm.contains("CALL str_strcpy"),   "strcpy is inline → no CALL str_strcpy");
+        assertTrue(asm.contains("CALL str_strcmp"),    "strcmp → CALL str_strcmp");
+        assertTrue(asm.contains("CALL str_strcat"),    "strcat → CALL str_strcat");
+        assertTrue(asm.contains("CALL str_to_upper"),  "to_upper → CALL str_to_upper");
+        assertTrue(asm.contains("CALL str_to_lower"),  "to_lower → CALL str_to_lower");
+        assertTrue(asm.contains("CALL str_str_to_int"), "str_to_int → CALL str_str_to_int");
+        assertTrue(asm.contains("CALL str_int_to_str"), "int_to_str → CALL str_int_to_str");
+    }
+
+    /**
+     * Verifies that {@code strlen} and {@code strcpy} are inlined (no CALL emitted)
+     * and that their bodies contain the expected loop labels.
+     */
+    @Test
+    void strLibrary_inlineProcs_expandedInPlace(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/str.sasm"), libDir.resolve("str.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.strlen",
+                "call @str.strcpy"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // inline procs must NOT emit a CALL
+        assertFalse(asm.contains("CALL str_strlen"),
+                "strlen is inline → must not emit CALL str_strlen");
+        assertFalse(asm.contains("CALL str_strcpy"),
+                "strcpy is inline → must not emit CALL str_strcpy");
+        // inline body labels must be present (with _N suffix from expansion counter)
+        assertTrue(asm.contains(".strlen_loop"),
+                "strlen inline body must contain .strlen_loop label");
+        assertTrue(asm.contains(".strcpy_loop"),
+                "strcpy inline body must contain .strcpy_loop label");
+    }
+
+    /**
+     * Verifies that {@code strlen}'s default register (ESI) suppresses the
+     * setup MOV when the call argument is already {@code esi}.
+     */
+    @Test
+    void strLibrary_strlen_defaultRegSuppressesMOV(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(
+                Path.of("test/lib/str.sasm"),
+                libDir.resolve("str.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+
+        // Arg matches default ESI → no MOV ESI
+        String asmMatch = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.strlen( esi )"));
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertFalse(asmMatch.contains("MOV ESI,"),
+                "strlen( esi ): ESI matches default → MOV ESI should be suppressed");
+
+        // Arg differs from default → MOV ESI must be emitted
+        t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asmDiff = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.strlen( my_str )"));
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asmDiff.contains("MOV ESI, my_str"),
+                "strlen( my_str ): my_str ≠ esi → MOV ESI, my_str must be emitted");
+    }
+
+    /**
+     * Verifies that {@code strcmp} with both default-register arguments
+     * ({@code esi} and {@code edi}) generates zero setup MOVs.
+     */
+    @Test
+    void strLibrary_strcmp_bothDefaultArgs_zeroSetupMOVs(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(
+                Path.of("test/lib/str.sasm"),
+                libDir.resolve("str.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.strcmp( esi, edi )"));
+
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertFalse(asm.contains("MOV ESI,"),
+                "strcmp( esi, edi ): ESI is default → no MOV ESI");
+        assertFalse(asm.contains("MOV EDI,"),
+                "strcmp( esi, edi ): EDI is default → no MOV EDI");
+        assertTrue(asm.contains("CALL str_strcmp"),
+                "CALL str_strcmp must be present");
+    }
+
+    /**
+     * Verifies that {@code int_to_str} with non-default arguments generates
+     * the expected setup MOVs (EAX for the integer value, EDI for the buffer).
+     */
+    @Test
+    void strLibrary_intToStr_nonDefaultArgs_emitsSetupMOVs(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(
+                Path.of("test/lib/str.sasm"),
+                libDir.resolve("str.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.int_to_str( [my_n], out_buf )"));
+
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asm.contains("MOV EAX, [my_n]"),
+                "int_to_str([my_n], ...): [my_n] ≠ eax → MOV EAX, [my_n] must be emitted");
+        assertTrue(asm.contains("MOV EDI, out_buf"),
+                "int_to_str(..., out_buf): out_buf ≠ edi → MOV EDI, out_buf must be emitted");
+    }
+
+    // ── mem library tests ────────────────────────────────────────────────────
+
+    /**
+     * Verifies that all four mem-library functions resolve correctly and
+     * that all four are inlined (no CALL emitted, since they are all
+     * {@code inline proc}).
+     */
+    @Test
+    void memLibrary_allFunctions_inlinedAndNoErrors(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/mem.sasm"), libDir.resolve("mem.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/mem.sasm mem",
+                "section .text",
+                "call @mem.memcpy",
+                "call @mem.memset",
+                "call @mem.memcmp",
+                "call @mem.bzero"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        // All four are inline procs → no CALL emitted
+        assertFalse(asm.contains("CALL mem_memcpy"),  "memcpy is inline → no CALL");
+        assertFalse(asm.contains("CALL mem_memset"),  "memset is inline → no CALL");
+        assertFalse(asm.contains("CALL mem_memcmp"),  "memcmp is inline → no CALL");
+        assertFalse(asm.contains("CALL mem_bzero"),   "bzero is inline → no CALL");
+        // Verify key inline instructions are present
+        assertTrue(asm.contains("rep movsb"),  "memcpy body must contain rep movsb");
+        assertTrue(asm.contains("rep stosb"),  "memset body must contain rep stosb");
+        assertTrue(asm.contains("repe cmpsb"), "memcmp body must contain repe cmpsb");
+    }
+
+    /**
+     * Verifies that {@code memcpy} with all three default-register arguments
+     * ({@code edi}, {@code esi}, {@code ecx}) emits zero setup MOVs.
+     */
+    @Test
+    void memLibrary_memcpy_allDefaultArgs_zeroSetupMOVs(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/mem.sasm"), libDir.resolve("mem.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/mem.sasm mem",
+                "section .text",
+                "call @mem.memcpy( edi, esi, ecx )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertFalse(asm.contains("MOV EDI,"),
+                "memcpy( edi, ... ): EDI matches default → no setup MOV EDI");
+        assertFalse(asm.contains("MOV ESI,"),
+                "memcpy( ..., esi, ... ): ESI matches default → no setup MOV ESI");
+        assertFalse(asm.contains("MOV ECX,"),
+                "memcpy( ..., ecx ): ECX matches default → no setup MOV ECX");
+        assertTrue(asm.contains("rep movsb"),
+                "rep movsb must be in the inlined body");
+    }
+
+    /**
+     * Verifies that {@code memcpy} with non-default arguments generates
+     * the three expected setup MOVs.
+     */
+    @Test
+    void memLibrary_memcpy_nonDefaultArgs_emitsAllSetupMOVs(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/mem.sasm"), libDir.resolve("mem.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/mem.sasm mem",
+                "section .text",
+                "call @mem.memcpy( dst_buf, src_buf, 16 )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertTrue(asm.contains("MOV EDI, dst_buf"),
+                "dst_buf ≠ edi → MOV EDI, dst_buf must be emitted");
+        assertTrue(asm.contains("MOV ESI, src_buf"),
+                "src_buf ≠ esi → MOV ESI, src_buf must be emitted");
+        assertTrue(asm.contains("MOV ECX, 16"),
+                "16 ≠ ecx → MOV ECX, 16 must be emitted");
+    }
+
+    /**
+     * Verifies that {@code bzero} with both default-register arguments
+     * ({@code edi} and {@code ecx}) suppresses both setup MOVs.
+     */
+    @Test
+    void memLibrary_bzero_allDefaultArgs_zeroSetupMOVs(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/mem.sasm"), libDir.resolve("mem.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/mem.sasm mem",
+                "section .text",
+                "call @mem.bzero( edi, ecx )"));
+
+        assertTrue(t.getErrors().isEmpty(),
+                "Should produce no errors, got: " + t.getErrors());
+        assertFalse(asm.contains("MOV EDI,"),
+                "bzero( edi, ... ): EDI matches default → no setup MOV EDI");
+        assertFalse(asm.contains("MOV ECX,"),
+                "bzero( ..., ecx ): ECX matches default → no setup MOV ECX");
+        assertTrue(asm.contains("rep stosb"),
+                "bzero body must contain rep stosb (via XOR EAX/rep stosb)");
+    }
+
+    // ── str_to_float / float_to_str tests ───────────────────────────────────
+
+    /**
+     * Verifies that {@code str_to_float} resolves to {@code CALL str_str_to_float}
+     * and that its default register (ESI) suppresses a setup MOV when the argument
+     * matches, but emits one when it does not.
+     */
+    @Test
+    void strLibrary_strToFloat_resolvesToCallAndDefaultRegSuppressesMOV(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/str.sasm"), libDir.resolve("str.sasm"));
+
+        // arg matches default ESI → no MOV ESI
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asmMatch = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.str_to_float( esi )"));
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asmMatch.contains("CALL str_str_to_float"),
+                "str_to_float must emit CALL str_str_to_float");
+        assertFalse(asmMatch.contains("MOV ESI,"),
+                "str_to_float( esi ): ESI matches default → MOV ESI must be suppressed");
+
+        // arg differs from default → MOV ESI must be emitted
+        t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asmDiff = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.str_to_float( my_numstr )"));
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asmDiff.contains("MOV ESI, my_numstr"),
+                "str_to_float( my_numstr ): my_numstr ≠ esi → MOV ESI, my_numstr must be emitted");
+    }
+
+    /**
+     * Verifies that {@code float_to_str} resolves to {@code CALL str_float_to_str}
+     * and that its default buffer register (EDI) suppresses a setup MOV when the
+     * argument matches, but emits one when it does not.
+     */
+    @Test
+    void strLibrary_floatToStr_resolvesToCallAndDefaultRegSuppressesMOV(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/str.sasm"), libDir.resolve("str.sasm"));
+
+        // arg matches default EDI → no MOV EDI
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asmMatch = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.float_to_str( edi )"));
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asmMatch.contains("CALL str_float_to_str"),
+                "float_to_str must emit CALL str_float_to_str");
+        assertFalse(asmMatch.contains("MOV EDI,"),
+                "float_to_str( edi ): EDI matches default → MOV EDI must be suppressed");
+
+        // arg differs from default → MOV EDI must be emitted
+        t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asmDiff = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.float_to_str( out_buf )"));
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asmDiff.contains("MOV EDI, out_buf"),
+                "float_to_str( out_buf ): out_buf ≠ edi → MOV EDI, out_buf must be emitted");
+    }
+
+    // ── substr tests ─────────────────────────────────────────────────────────
+
+    /**
+     * Verifies that {@code substr} with all four default-register arguments
+     * ({@code esi}, {@code edi}, {@code ecx}, {@code edx}) emits zero setup MOVs.
+     */
+    @Test
+    void strLibrary_substr_allDefaultArgs_zeroSetupMOVs(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/str.sasm"), libDir.resolve("str.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.substr( esi, edi, ecx, edx )"));
+
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asm.contains("CALL str_substr"),
+                "substr must emit CALL str_substr");
+        assertFalse(asm.contains("MOV ESI,"),
+                "substr( esi, ... ): ESI matches default → no MOV ESI");
+        assertFalse(asm.contains("MOV EDI,"),
+                "substr( ..., edi, ... ): EDI matches default → no MOV EDI");
+        assertFalse(asm.contains("MOV ECX,"),
+                "substr( ..., ecx, ... ): ECX matches default → no MOV ECX");
+        assertFalse(asm.contains("MOV EDX,"),
+                "substr( ..., edx ): EDX matches default → no MOV EDX");
+    }
+
+    /**
+     * Verifies that {@code substr} with non-default arguments emits all four
+     * expected setup MOVs.
+     */
+    @Test
+    void strLibrary_substr_nonDefaultArgs_emitsAllSetupMOVs(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/str.sasm"), libDir.resolve("str.sasm"));
+
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asm = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.substr( my_src, my_dst, 2, 5 )"));
+
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asm.contains("MOV ESI, my_src"),
+                "my_src ≠ esi → MOV ESI, my_src must be emitted");
+        assertTrue(asm.contains("MOV EDI, my_dst"),
+                "my_dst ≠ edi → MOV EDI, my_dst must be emitted");
+        assertTrue(asm.contains("MOV ECX, 2"),
+                "2 ≠ ecx → MOV ECX, 2 must be emitted");
+        assertTrue(asm.contains("MOV EDX, 5"),
+                "5 ≠ edx → MOV EDX, 5 must be emitted");
+    }
+
+    // ── trim tests ───────────────────────────────────────────────────────────
+
+    /**
+     * Verifies that {@code trim} resolves to {@code CALL str_trim} and that its
+     * default register (ESI) suppresses the setup MOV when the argument matches,
+     * but emits one when it does not.
+     */
+    @Test
+    void strLibrary_trim_resolvesToCallAndDefaultRegSuppressesMOV(@TempDir Path tempDir)
+            throws IOException {
+        Path libDir = tempDir.resolve("lib");
+        Files.createDirectories(libDir);
+        Files.copy(Path.of("test/lib/str.sasm"), libDir.resolve("str.sasm"));
+
+        // arg matches default ESI → no MOV ESI
+        SasmTranslator t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asmMatch = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.trim( esi )"));
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asmMatch.contains("CALL str_trim"),
+                "trim must emit CALL str_trim");
+        assertFalse(asmMatch.contains("MOV ESI,"),
+                "trim( esi ): ESI matches default → MOV ESI must be suppressed");
+
+        // arg differs from default → MOV ESI must be emitted
+        t = new SasmTranslator();
+        t.setWorkingDirectory(tempDir.toFile());
+        String asmDiff = t.translate(String.join("\n",
+                "#REF lib/str.sasm str",
+                "section .text",
+                "call @str.trim( raw_str )"));
+        assertTrue(t.getErrors().isEmpty(), "Should be error-free: " + t.getErrors());
+        assertTrue(asmDiff.contains("MOV ESI, raw_str"),
+                "trim( raw_str ): raw_str ≠ esi → MOV ESI, raw_str must be emitted");
     }
 }

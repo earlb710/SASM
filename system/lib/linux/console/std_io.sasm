@@ -17,13 +17,13 @@ section .text
 // ── print_char ──────────────────────────────────────────────────
 // Writes the character in AL to stdout (Linux sys_write).
 //
-// Input:  AL = character to print
+// Input:  EAX = character to print (byte; AL sub-register used internally)
 // Clobbers: AX, BX, CX, DX
 //
 // Example:
-//   move 'A' to al
+//   move 'A' to eax
 //   call @io.print_char
-proc print_char ( in al as char ) {
+proc print_char (val byte char) {
     // store char on stack
     push ax
     move sp to cx           // cx = pointer to char on stack
@@ -39,7 +39,7 @@ proc print_char ( in al as char ) {
 // Writes a null-terminated string to stdout (Linux sys_write).
 //
 // Input:
-//   ECX = pointer to null-terminated string
+//   ESI = pointer to null-terminated string
 //
 // Output:
 //   EAX = number of bytes written (or negative on error)
@@ -47,20 +47,20 @@ proc print_char ( in al as char ) {
 // Clobbers: EAX, EBX, ECX, EDX
 //
 // Example:
-//   move msg to ecx
+//   move msg to esi
 //   call @io.print_string
-proc print_string ( in ecx as str_ptr, out eax as bytes_written ) {
-    push ecx                // save start pointer
+proc print_string (addr str_ptr) out val dword {
+    push esi                // save start pointer
 
     // count string length
-    move ecx to edx         // edx = scan pointer
+    move esi to edx         // edx = scan pointer
 .ps_len:
     compare byte [edx], 0
     jump if equal .ps_done
     increment edx
     jump .ps_len
 .ps_done:
-    subtract ecx from edx   // edx = length
+    subtract esi from edx   // edx = length
 
     // sys_write(stdout, buf, len)
     move 4 to eax            // sys_write

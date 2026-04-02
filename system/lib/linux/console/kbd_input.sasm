@@ -28,7 +28,7 @@ section .text
 // Example:
 //   call @kbd.read_char
 //   // al = character typed by user
-proc read_char ( out al as char ) {
+proc read_char () out val byte {
     push ebp
     move esp to ebp
     subtract 4 from esp       // local: [ebp-4] = char buffer

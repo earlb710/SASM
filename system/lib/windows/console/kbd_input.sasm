@@ -40,7 +40,7 @@ extern _ReadFile@20
 // Example:
 //   call @kbd.read_char
 //   // al = character typed by user
-proc read_char ( out al as char ) {
+proc read_char () out val byte {
     push ebp
     move esp to ebp
     subtract 8 from esp       // locals: [ebp-4]=char, [ebp-8]=bytes_read

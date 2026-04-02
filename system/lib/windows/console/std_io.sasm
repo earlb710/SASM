@@ -29,13 +29,13 @@ extern _WriteFile@20
 // ── print_char ──────────────────────────────────────────────────
 // Writes the character in AL to console stdout (Win32 WriteFile).
 //
-// Input:  AL = character to print
+// Input:  EAX = character to print (byte; AL sub-register used internally)
 // Clobbers: EAX, ECX, EDX
 //
 // Example:
-//   move 'A' to al
+//   move 'A' to eax
 //   call @io.print_char
-proc print_char ( in al as char ) {
+proc print_char (val byte char) {
     push ebp
     move esp to ebp
     subtract 8 from esp       // locals: [ebp-4]=char, [ebp-8]=written
