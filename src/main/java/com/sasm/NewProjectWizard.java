@@ -340,10 +340,9 @@ public class NewProjectWizard extends JDialog {
                 ? ve.variantName : "variant-" + pendingVariants.size();
         defaultVariantChoice.addItem(displayName);
 
-        // Auto-select the newly added variant if it's the first one
-        if (pendingVariants.size() == 1) {
-            defaultVariantChoice.setSelectedItem(displayName);
-        }
+        // Always select the newly added variant as the default
+        defaultVariantChoice.setSelectedItem(displayName);
+        refreshOkButton();
     }
 
     /**
@@ -391,8 +390,11 @@ public class NewProjectWizard extends JDialog {
     private void refreshOkButton() {
         String name = nameField.getText().trim();
         boolean nameOk = !name.isEmpty() && name.matches(PROJECT_NAME_PATTERN);
+        String selectedVariant = (String) defaultVariantChoice.getSelectedItem();
+        boolean variantOk = selectedVariant != null && !selectedVariant.isEmpty();
         boolean ready = nameOk
-                     && !dirField.getText().trim().isEmpty();
+                     && !dirField.getText().trim().isEmpty()
+                     && variantOk;
         okBtn.setEnabled(ready);
     }
 

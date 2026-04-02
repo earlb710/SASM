@@ -139,7 +139,7 @@ public class SasmMain {
 
         fileMenu.addSeparator();
 
-        propertiesItem = new JMenuItem("Properties");
+        propertiesItem = new JMenuItem("Project Properties");
         propertiesItem.setEnabled(false); // enabled when a dir (core/variant) is selected
         fileMenu.add(propertiesItem);
 
