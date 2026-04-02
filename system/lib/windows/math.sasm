@@ -3,6 +3,8 @@
 //
 // Platform-independent math routines using integer and x87 FPU
 // instructions.  Does not depend on any operating system calls.
+// Long (64-bit) integer routines use pure 32-bit integer ops
+// except sqrt_long which requires the FPU.
 //
 // Usage:
 //     #REF lib/math.sasm math
@@ -23,10 +25,10 @@
 //
 // Long (64-bit) integer routines (pointer-based, qword in memory):
 //     call @math.sqrt_long       // [ESI] = integer √[ESI]  (qword at ESI, via FPU)
-//     call @math.abs_long        // [ESI] = |[ESI]|          (qword at ESI, via FABS)
-//     call @math.max_long        // [ESI] = max([ESI],[EDI]) (signed qword compare)
-//     call @math.min_long        // [ESI] = min([ESI],[EDI]) (signed qword compare)
-//     call @math.sign_long       // EAX = sign([ESI]): -1, 0, or 1  (qword at ESI)
+//     call @math.abs_long        // [ESI] = |[ESI]|          (qword at ESI, pure integer)
+//     call @math.max_long        // [ESI] = max([ESI],[EDI]) (signed qword, pure integer)
+//     call @math.min_long        // [ESI] = min([ESI],[EDI]) (signed qword, pure integer)
+//     call @math.sign_long       // EAX = sign([ESI]): -1, 0, or 1  (qword, pure integer)
 //
 // Float/double routines (x87 FPU stack):
 //     call @math.square_float    // ST(0) = ST(0) * ST(0)
@@ -375,6 +377,7 @@ inline proc is_power_of_two (val dword value default eax) out val dword {
 
 // ═══════════════════════════════════════════════════════════════
 //  Long (64-bit) integer routines — pointer-based, qword in memory
+//  All use pure 32-bit integer ops except sqrt_long (FPU required).
 // ═══════════════════════════════════════════════════════════════
 
 // ── sqrt_long ────────────────────────────────────────────────────
@@ -397,106 +400,116 @@ inline proc sqrt_long (addr value_ptr default esi) {
 }
 
 // ── abs_long ─────────────────────────────────────────────────────
-// Absolute value of a signed 64-bit integer (via x87 FABS).
-// The qword at [ESI] is loaded onto the FPU stack, made positive,
-// and stored back.
+// Absolute value of a signed 64-bit integer (pure integer, no FPU).
+// Tests the sign bit of the high dword; if negative, negates the
+// full 64-bit value via two's complement (NOT + ADD 1 with carry).
 //
 // Input:  ESI = pointer to qword (signed 64-bit integer)
 // Output: [ESI] = |value| (qword)
-// Clobbers: FPU stack (one push/pop cycle)
+// Clobbers: EAX
 //
 // Example:
 //   lea esi, [my_qword]
 //   call @math.abs_long           // [my_qword] = |[my_qword]|
 inline proc abs_long (addr value_ptr default esi) {
-    fild qword [esi]               // push 64-bit integer onto FPU stack
-    fabs                            // ST(0) = |ST(0)|
-    fistp qword [esi]              // pop and store as 64-bit integer
+    mov eax, [esi+4]              // high dword (sign in bit 31)
+    test eax, eax
+    jns .abs_long_done             // already non-negative → done
+    not dword [esi]                // negate 64-bit: NOT low
+    not dword [esi+4]              //                NOT high
+    add dword [esi], 1             //                ADD 1 to low
+    adc dword [esi+4], 0           //                carry into high
+.abs_long_done:
     return
 }
 
 // ── max_long ─────────────────────────────────────────────────────
-// Returns the larger of two signed 64-bit integers.
-// Both values are loaded via the FPU for a correct signed 64-bit
-// comparison.  The result is stored back to the first operand.
+// Returns the larger of two signed 64-bit integers (pure integer).
+// Compares high dwords (signed), then low dwords (unsigned) if equal.
+// The result is stored back to the first operand.
 //
 // Input:  ESI = pointer to first qword (also receives the result)
 //         EDI = pointer to second qword
 // Output: [ESI] = max([ESI], [EDI])  (signed comparison)
-// Clobbers: AX (FPU status word), FPU stack (two push/pop cycles)
+// Clobbers: EAX
 //
 // Example:
 //   lea esi, [val_a]
 //   lea edi, [val_b]
 //   call @math.max_long           // [val_a] = max(val_a, val_b)
 proc max_long (addr first_ptr default esi, addr second_ptr default edi) {
-    fild qword [edi]               // ST(0) = second
-    fild qword [esi]               // ST(0) = first, ST(1) = second
-    fcom st1                        // compare first with second
-    fstsw ax
-    sahf
-    jae .max_long_keep              // first >= second → keep first on top
-    fxch st1                        // swap: bring second (the larger) to top
+    mov eax, [esi+4]              // first high dword
+    cmp eax, [edi+4]              // compare high dwords (signed)
+    jg .max_long_keep              // first > second → keep first
+    jl .max_long_copy              // first < second → copy second
+    mov eax, [esi]                 // high dwords equal → compare low
+    cmp eax, [edi]                 // compare low dwords (unsigned)
+    jae .max_long_keep             // first >= second → keep first
+.max_long_copy:
+    mov eax, [edi]                 // copy second low to first
+    mov [esi], eax
+    mov eax, [edi+4]               // copy second high to first
+    mov [esi+4], eax
 .max_long_keep:
-    fistp qword [esi]              // store max to [esi]
-    fstp st0                        // discard remaining value
     return
 }
 
 // ── min_long ─────────────────────────────────────────────────────
-// Returns the smaller of two signed 64-bit integers.
-// Both values are loaded via the FPU for a correct signed 64-bit
-// comparison.  The result is stored back to the first operand.
+// Returns the smaller of two signed 64-bit integers (pure integer).
+// Compares high dwords (signed), then low dwords (unsigned) if equal.
+// The result is stored back to the first operand.
 //
 // Input:  ESI = pointer to first qword (also receives the result)
 //         EDI = pointer to second qword
 // Output: [ESI] = min([ESI], [EDI])  (signed comparison)
-// Clobbers: AX (FPU status word), FPU stack (two push/pop cycles)
+// Clobbers: EAX
 //
 // Example:
 //   lea esi, [val_a]
 //   lea edi, [val_b]
 //   call @math.min_long           // [val_a] = min(val_a, val_b)
 proc min_long (addr first_ptr default esi, addr second_ptr default edi) {
-    fild qword [edi]               // ST(0) = second
-    fild qword [esi]               // ST(0) = first, ST(1) = second
-    fcom st1                        // compare first with second
-    fstsw ax
-    sahf
-    jbe .min_long_keep              // first <= second → keep first on top
-    fxch st1                        // swap: bring second (the smaller) to top
+    mov eax, [esi+4]              // first high dword
+    cmp eax, [edi+4]              // compare high dwords (signed)
+    jl .min_long_keep              // first < second → keep first
+    jg .min_long_copy              // first > second → copy second
+    mov eax, [esi]                 // high dwords equal → compare low
+    cmp eax, [edi]                 // compare low dwords (unsigned)
+    jbe .min_long_keep             // first <= second → keep first
+.min_long_copy:
+    mov eax, [edi]                 // copy second low to first
+    mov [esi], eax
+    mov eax, [edi+4]               // copy second high to first
+    mov [esi+4], eax
 .min_long_keep:
-    fistp qword [esi]              // store min to [esi]
-    fstp st0                        // discard remaining value
     return
 }
 
 // ── sign_long ────────────────────────────────────────────────────
 // Returns the sign of a signed 64-bit integer: -1, 0, or +1.
-// The value is loaded via the FPU and tested against zero.
+// Tests high dword sign bit; if zero, checks low dword.
+// Pure integer — no FPU required.
 //
 // Input:  ESI = pointer to qword (signed 64-bit integer)
 // Output: EAX = -1 (negative), 0 (zero), or 1 (positive)
-// Clobbers: AX (FPU status word), FPU stack (one push/pop cycle)
+// Clobbers: EAX
 //
 // Example:
 //   lea esi, [my_qword]
 //   call @math.sign_long          // eax = -1, 0, or 1
 inline proc sign_long (addr value_ptr default esi) out val dword {
-    fild qword [esi]               // push 64-bit integer onto FPU stack
-    ftst                            // compare ST(0) with 0.0
-    fstsw ax
-    fstp st0                        // clean FPU stack
-    sahf
-    jb .sign_long_neg               // CF=1 → value < 0
-    je .sign_long_zero              // ZF=1 → value = 0
-    move 1 to eax                  // value > 0
+    mov eax, [esi+4]              // high dword (signed)
+    test eax, eax
+    js .sign_long_neg              // bit 31 set → negative
+    jnz .sign_long_pos             // high > 0 → positive
+    mov eax, [esi]                 // high == 0, check low dword
+    test eax, eax
+    jz .sign_long_done             // both zero → eax = 0
+.sign_long_pos:
+    move 1 to eax                  // positive
     goto .sign_long_done
 .sign_long_neg:
-    move -1 to eax
-    goto .sign_long_done
-.sign_long_zero:
-    xor eax, eax
+    move -1 to eax                 // negative
 .sign_long_done:
     return
 }

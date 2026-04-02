@@ -4,10 +4,10 @@
 // Exercises the 5 long (64-bit) integer math-library routines:
 //
 //   @math.sqrt_long   — [ESI] = integer √[ESI]          (qword via FPU)
-//   @math.abs_long    — [ESI] = |[ESI]|                  (qword via FABS)
-//   @math.max_long    — [ESI] = max([ESI],[EDI])         (signed qword)
-//   @math.min_long    — [ESI] = min([ESI],[EDI])         (signed qword)
-//   @math.sign_long   — EAX  = sign([ESI]): -1, 0, or 1 (qword)
+//   @math.abs_long    — [ESI] = |[ESI]|                  (qword, pure integer)
+//   @math.max_long    — [ESI] = max([ESI],[EDI])         (signed qword, pure integer)
+//   @math.min_long    — [ESI] = min([ESI],[EDI])         (signed qword, pure integer)
+//   @math.sign_long   — EAX  = sign([ESI]): -1, 0, or 1 (qword, pure integer)
 //
 // These routines use pointer-based calling conventions: ESI (and EDI
 // for two-operand functions) point to qword values in memory.  Results
@@ -20,7 +20,7 @@
 //   ld -m elf_i386 testMathLong.o -o testMathLong
 //
 // NOTE: This file tests SASM-to-NASM translation only.
-//       Running the executable requires Linux with x87 FPU support.
+//       Only sqrt_long requires x87 FPU support; all others are pure integer.
 
 #REF lib/math.sasm math
 
