@@ -26,7 +26,7 @@ section .text
 //
 // in  EAX = value to double
 // out EAX = value * 2
-inline proc double_val ( in eax as value, out eax as result ) {
+inline proc double_val (val dword value) out val dword {
     eax = eax + eax
     return
 }
@@ -37,7 +37,7 @@ inline proc double_val ( in eax as value, out eax as result ) {
 // in  EAX = value to square (unsigned)
 // out EAX = value * value (low 32 bits)
 // clobbers EDX
-inline proc square_val ( in eax as value, out eax as result ) {
+inline proc square_val (val dword value) out val dword {
     multiply by eax
     return
 }
@@ -48,7 +48,7 @@ inline proc square_val ( in eax as value, out eax as result ) {
 // in  EAX = first operand
 // in  EBX = second operand
 // out EAX = first + second
-inline proc add_regs ( in eax as first, in ebx as second, out eax as result ) {
+inline proc add_regs (val dword first, val dword second) out val dword {
     eax = eax + ebx
     return
 }
@@ -56,7 +56,7 @@ inline proc add_regs ( in eax as first, in ebx as second, out eax as result ) {
 // ── regular proc for comparison ──────────────────────────────
 // A regular (non-inline) proc that doubles EAX.  Generates a
 // CALL/RET pair.
-proc double_regular ( in eax as value, out eax as result ) {
+proc double_regular (val dword value) out val dword {
     eax = eax + eax
     return
 }
