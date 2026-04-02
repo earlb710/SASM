@@ -1,0 +1,6 @@
+{
+  "processor": "aarch64",
+  "description": "AArch64 (ARM 64-bit) instruction set architecture, introduced with ARMv8-A. AArch64 provides 31 general-purpose 64-bit registers (X0–X30), a zero register (XZR/WZR), a dedicated stack pointer (SP), a link register (X30/LR), and a program counter (PC) that is not directly accessible as a general-purpose register. The architecture supports fixed-width 32-bit instruction encoding, advanced SIMD (NEON) with 32 128-bit vector registers (V0–V31), and optional SVE/SVE2 scalable vector extensions. Widely deployed in modern servers (AWS Graviton, Ampere Altra), Apple Silicon (M1–M4), and single-board computers (Raspberry Pi 3/4/5). AArch64 eliminates the conditional execution of most instructions found in AArch32, replacing it with conditional select and conditional compare instructions.",
+  "source_reference": "doc/instruction_aarch64.md",
+  "instructions": []
+}
