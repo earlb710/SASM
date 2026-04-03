@@ -331,10 +331,31 @@ public class SasmIdePanel extends JPanel {
 
     /** Called when the user picks a different variant from the dropdown. */
     private void onVariantSelected() {
+        // Save the source-line at the top of the editor viewport BEFORE any
+        // text changes so we can restore scroll afterwards (same pattern used
+        // by toggleAsmPane which works correctly).
+        int savedTopLine = topVisibleSourceLine();
         rebuildTranslatorForSelectedVariant();
         if (asmVisible) {
             updateAsmOutput();
         }
+        // updateAsmOutput() already queues one invokeLater for scroll
+        // restoration, but a single pass is not always enough — Swing may
+        // still have pending layout work from the setText() calls inside
+        // applyPerLinePadding / applyHighlights.  A second invokeLater
+        // runs after those are fully committed, making the position stick.
+        SwingUtilities.invokeLater(() -> {
+            scrollEditorToSourceLine(savedTopLine);
+            // Re-sync the ASM pane to the restored editor scroll position
+            if (asmVisible) {
+                JScrollBar asmVsb = asmScroll.getVerticalScrollBar();
+                int editorY = editorScroll.getVerticalScrollBar().getValue();
+                int maxY = Math.max(0,
+                        asmVsb.getMaximum() - asmVsb.getVisibleAmount());
+                asmScroll.getViewport().setViewPosition(
+                        new Point(0, Math.min(editorY, maxY)));
+            }
+        });
     }
 
     /**
