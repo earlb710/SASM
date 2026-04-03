@@ -1179,17 +1179,30 @@ public class SasmIdePanel extends JPanel {
             // setText-induced scroll reset doesn't fight with the user's
             // scroll position in the editor.
             syncingScroll = true;
+            // Preserve the ASM pane's scroll position across setText()
+            // so that switching variants doesn't jump back to line 1.
+            int savedAsmScrollY = asmScroll.getVerticalScrollBar().getValue();
+            int savedAsmCaret   = Math.min(asmOutput.getCaretPosition(),
+                                           asm.length());
             asmOutput.setText(asm);
-            asmOutput.setCaretPosition(0);
+            // Restore caret: clamp to new text length in case the new
+            // translation is shorter than before.
+            int restoredCaret = Math.min(savedAsmCaret, asm.length());
+            asmOutput.setCaretPosition(restoredCaret);
             syncingScroll = false;
             // Insert per-line padding into the editor so that each source
             // line occupies the same number of rows as its ASM translation.
             applyPerLinePadding(translator.getLastLineMap());
             // Update ASM gutter with source-line-relative numbering
             asmLineNumbers.setSourceLineMap(translator.getLastLineMap());
-            // After text change, synchronise asm scroll to editor position
+            // After text change, synchronise asm scroll to editor position.
+            // Clamp to the maximum scrollable value so we don't overshoot
+            // when the new translation is shorter.
+            JScrollBar asmVsb = asmScroll.getVerticalScrollBar();
+            int targetY = Math.min(editorScroll.getVerticalScrollBar().getValue(),
+                                   asmVsb.getMaximum() - asmVsb.getVisibleAmount());
             asmScroll.getViewport().setViewPosition(
-                    new Point(0, editorScroll.getVerticalScrollBar().getValue()));
+                    new Point(0, Math.max(0, targetY)));
         } catch (Exception ex) {
             String errMsg = "; Translation error: " + ex.getMessage();
             if (errMsg.equals(lastAsmText)) return;
