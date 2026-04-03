@@ -456,8 +456,22 @@ public class SasmIdePanel extends JPanel {
     }
 
     /**
+     * Updates the file-list entry for the currently open file to reflect the
+     * current dirty state: appends " *" to the name when there are unsaved
+     * changes, removes it once the file is saved.
+     */
+    private void updateDirtyIndicator() {
+        if (currentFile == null) return;
+        for (int i = 0; i < fileIndex.size(); i++) {
+            if (currentFile.equals(fileIndex.get(i))) {
+                fileListModel.set(i, "   " + currentFile.getName() + (dirty ? " *" : ""));
+                return;
+            }
+        }
+    }
+
+    /**
      * Creates a new {@code .sasm} file in the project's {@code core/}
-     * directory, seeds it with a starter template, and opens it in the editor.
      *
      * @param baseName file name without extension (validated before calling)
      * @throws IOException              if the file cannot be written
@@ -479,6 +493,7 @@ public class SasmIdePanel extends JPanel {
             Files.writeString(currentFile.toPath(),
                               getSourceText(), StandardCharsets.UTF_8);
             dirty = false;
+            updateDirtyIndicator();  // remove * from file list when saved
         } catch (IOException ignored) {
             // Non-fatal — content remains in the editor.
         }
@@ -847,7 +862,10 @@ public class SasmIdePanel extends JPanel {
             private void onTextChange() {
                 // Skip when we are inserting/removing padding lines
                 if (updatingPadding) return;
-                dirty = true;
+                if (!dirty) {
+                    dirty = true;
+                    updateDirtyIndicator();  // show * on first unsaved change
+                }
                 // Only start translation timer when the asm pane is visible
                 if (asmVisible) {
                     translateTimer.restart();
@@ -1023,6 +1041,10 @@ public class SasmIdePanel extends JPanel {
      * is completely skipped, giving the editor maximum performance.
      */
     private void toggleAsmPane() {
+        // Capture editor position before any layout or text changes so we can
+        // restore it after the split-pane revalidation settles.
+        int savedScroll = editorScroll.getVerticalScrollBar().getValue();
+
         asmVisible = !asmVisible;
         asmPane.setVisible(asmVisible);
 
@@ -1057,6 +1079,15 @@ public class SasmIdePanel extends JPanel {
             // Remove any padding lines from the editor
             removePaddingLines();
         }
+
+        // After all layout and text changes have been committed, restore the
+        // editor's vertical scroll position.  The revalidate() call above queues
+        // a layout pass on the EDT; invokeLater ensures we run after it.
+        SwingUtilities.invokeLater(() -> {
+            JScrollBar vsb = editorScroll.getVerticalScrollBar();
+            int maxScroll = Math.max(0, vsb.getMaximum() - vsb.getVisibleAmount());
+            vsb.setValue(Math.min(savedScroll, maxScroll));
+        });
     }
 
     /** Translates the current editor content and updates the assembler pane. */
