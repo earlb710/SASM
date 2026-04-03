@@ -1041,9 +1041,11 @@ public class SasmIdePanel extends JPanel {
      * is completely skipped, giving the editor maximum performance.
      */
     private void toggleAsmPane() {
-        // Capture editor position before any layout or text changes so we can
-        // restore it after the split-pane revalidation settles.
-        int savedScroll = editorScroll.getVerticalScrollBar().getValue();
+        // Save the source-line number at the top of the editor viewport before
+        // any layout or text changes.  Raw scroll pixels are NOT used because
+        // adding/removing padding lines shifts the pixel offset of each source
+        // line — restoring pixels would land on the wrong source line.
+        int savedTopLine = topVisibleSourceLine();
 
         asmVisible = !asmVisible;
         asmPane.setVisible(asmVisible);
@@ -1080,14 +1082,64 @@ public class SasmIdePanel extends JPanel {
             removePaddingLines();
         }
 
-        // After all layout and text changes have been committed, restore the
-        // editor's vertical scroll position.  The revalidate() call above queues
-        // a layout pass on the EDT; invokeLater ensures we run after it.
-        SwingUtilities.invokeLater(() -> {
-            JScrollBar vsb = editorScroll.getVerticalScrollBar();
-            int maxScroll = Math.max(0, vsb.getMaximum() - vsb.getVisibleAmount());
-            vsb.setValue(Math.min(savedScroll, maxScroll));
-        });
+        // After all layout and text changes have been committed, scroll the
+        // editor so the same source line that was at the top is still at the
+        // top.  The revalidate() call above queues a layout pass on the EDT;
+        // invokeLater ensures we run after it (and after applyPerLinePadding).
+        SwingUtilities.invokeLater(() -> scrollEditorToSourceLine(savedTopLine));
+    }
+
+    /**
+     * Returns the 0-based source line number currently visible at the top of
+     * the editor viewport.  Padding lines are not counted.
+     */
+    @SuppressWarnings("deprecation")
+    private int topVisibleSourceLine() {
+        int vpY = editorScroll.getViewport().getViewPosition().y;
+        int offset = editor.viewToModel(new java.awt.Point(0, vpY));
+        int paddedLine = editor.getDocument().getDefaultRootElement()
+                .getElementIndex(offset);
+        // Count how many non-padding lines precede paddedLine
+        int srcLine = 0;
+        for (int i = 0; i < paddedLine; i++) {
+            if (!paddingLines.contains(i)) {
+                srcLine++;
+            }
+        }
+        return srcLine;
+    }
+
+    /**
+     * Scrolls the editor so that the given 0-based source line number is at
+     * the top of the visible area, regardless of how many padding lines exist.
+     */
+    @SuppressWarnings("deprecation")
+    private void scrollEditorToSourceLine(int srcLine) {
+        // Walk padded lines to find the padded-line index for srcLine
+        int srcCount = 0;
+        int totalLines = editor.getDocument().getDefaultRootElement().getElementCount();
+        int targetPaddedLine = Math.max(0, totalLines - 1);
+        for (int i = 0; i < totalLines; i++) {
+            if (!paddingLines.contains(i)) {
+                if (srcCount == srcLine) {
+                    targetPaddedLine = i;
+                    break;
+                }
+                srcCount++;
+            }
+        }
+        try {
+            int startOffset = editor.getDocument().getDefaultRootElement()
+                    .getElement(targetPaddedLine).getStartOffset();
+            java.awt.Rectangle r = editor.modelToView(startOffset);
+            if (r != null) {
+                JScrollBar vsb = editorScroll.getVerticalScrollBar();
+                int maxScroll = Math.max(0, vsb.getMaximum() - vsb.getVisibleAmount());
+                vsb.setValue(Math.min(r.y, maxScroll));
+            }
+        } catch (BadLocationException ignored) {
+            // Non-fatal — scroll position stays wherever it landed
+        }
     }
 
     /** Translates the current editor content and updates the assembler pane. */
