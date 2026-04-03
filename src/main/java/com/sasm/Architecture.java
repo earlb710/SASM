@@ -248,7 +248,7 @@ public enum Architecture {
         }
 
         return leading + "MOV " + scratch + ", " + op2 + "\n"
-                + leading + before.stripLeading() + ", " + scratch;
+                + leading + before + ", " + scratch;
     }
 
     /**

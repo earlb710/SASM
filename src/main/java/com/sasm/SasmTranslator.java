@@ -2502,9 +2502,11 @@ public class SasmTranslator {
         if (s.endsWith("]")) {
             int bracket = s.indexOf('[');
             if (bracket > 0) {
-                String prefix = s.substring(0, bracket).trim().toLowerCase();
-                return prefix.equals("byte") || prefix.equals("word")
-                        || prefix.equals("dword") || prefix.equals("qword");
+                String prefix = s.substring(0, bracket).trim();
+                return prefix.equalsIgnoreCase("byte")
+                        || prefix.equalsIgnoreCase("word")
+                        || prefix.equalsIgnoreCase("dword")
+                        || prefix.equalsIgnoreCase("qword");
             }
         }
         return false;
