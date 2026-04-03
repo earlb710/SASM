@@ -1180,22 +1180,29 @@ public class SasmIdePanel extends JPanel {
             // translated output hasn't changed (e.g. typing in a comment).
             if (asm.equals(lastAsmText)) return;
             lastAsmText = asm;
-            // Suppress scroll sync while replacing output text so the
-            // setText-induced scroll reset doesn't fight with the user's
-            // scroll position in the editor.
+            // Remember which source line is currently at the top of the
+            // editor viewport so we can restore scroll after text changes.
+            int savedTopLine = topVisibleSourceLine();
+            // Suppress scroll sync for the ENTIRE update cycle.
+            // applyPerLinePadding() calls editor.setText() which temporarily
+            // resets the editor scroll bar to 0; without this guard the
+            // adjustment listener would sync the ASM pane to position 0.
             syncingScroll = true;
             asmOutput.setText(asm);
-            syncingScroll = false;
             // Insert per-line padding into the editor so that each source
             // line occupies the same number of rows as its ASM translation.
             applyPerLinePadding(translator.getLastLineMap());
             // Update ASM gutter with source-line-relative numbering
             asmLineNumbers.setSourceLineMap(translator.getLastLineMap());
-            // Defer viewport sync until after Swing's layout pass so
-            // the ASM pane's preferred size is up-to-date and the
-            // position actually sticks (synchronous setViewPosition
-            // can be overwritten by the pending revalidation).
+            syncingScroll = false;
+            // Defer viewport restoration until after Swing completes the
+            // layout pass triggered by setText().  Synchronous setValue()
+            // is overwritten by the pending revalidation, so invokeLater
+            // is the only reliable way to make the position stick.
             SwingUtilities.invokeLater(() -> {
+                // Restore editor so the same source line is at the top
+                scrollEditorToSourceLine(savedTopLine);
+                // Sync ASM pane to the (now-restored) editor scroll position
                 JScrollBar asmVsb = asmScroll.getVerticalScrollBar();
                 int editorY = editorScroll.getVerticalScrollBar().getValue();
                 int maxY = Math.max(0, asmVsb.getMaximum() - asmVsb.getVisibleAmount());
@@ -1284,12 +1291,6 @@ public class SasmIdePanel extends JPanel {
         // Convert caret to source-relative position (strip padding offsets)
         int srcCaret = caretToSourceOffset(caretPos);
 
-        // Preserve scroll position: editor.setText() resets the DefaultCaret,
-        // which calls scrollRectToVisible() and can move the viewport.
-        // We restore it synchronously after setCaretPosition() so the view
-        // stays anchored at the user's current scroll position.
-        int savedScrollY = editorScroll.getVerticalScrollBar().getValue();
-
         paddingLines = newPadding;
         editorLineNumbers.setPaddingLines(paddingLines);
 
@@ -1307,11 +1308,10 @@ public class SasmIdePanel extends JPanel {
         // listener was suppressed during setText, so we call it explicitly).
         applyHighlights();
 
-        // Restore scroll position after setText/setCaretPosition (both may have
-        // changed the vertical scroll bar via scrollRectToVisible).
-        JScrollBar vsb = editorScroll.getVerticalScrollBar();
-        int maxScroll = Math.max(0, vsb.getMaximum() - vsb.getVisibleAmount());
-        vsb.setValue(Math.min(savedScrollY, maxScroll));
+        // NOTE: scroll position restoration is handled by the caller
+        // (updateAsmOutput) via a deferred invokeLater, which is the only
+        // reliable approach — synchronous setValue() here would be
+        // overwritten by Swing's pending revalidation/layout pass.
 
         editorLineNumbers.revalidate();
         editorLineNumbers.repaint();
