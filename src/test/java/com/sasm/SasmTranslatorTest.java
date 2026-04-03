@@ -3851,4 +3851,252 @@ class SasmTranslatorTest {
         assertFalse(asm.contains("MOV ESI, ESI"),
                 "MOV ESI, ESI should be suppressed when arg matches default: " + asm);
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Extended portable registers (reg5–reg8)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // ── Resolution on all architectures ──────────────────────────────────────
+
+    @Test
+    void resolvePortableRegisters_reg5to8_x86_32() {
+        Architecture a = Architecture.X86_32;
+        assertEquals("    MOV dword [EBP-4], 42",
+                a.resolvePortableRegisters("    MOV reg5, 42"));
+        assertEquals("    MOV dword [EBP-8], EAX",
+                a.resolvePortableRegisters("    MOV reg6, EAX"));
+        assertEquals("    ADD dword [EBP-12], 1",
+                a.resolvePortableRegisters("    ADD reg7, 1"));
+        assertEquals("    MOV EAX, dword [EBP-16]",
+                a.resolvePortableRegisters("    MOV EAX, reg8"));
+    }
+
+    @Test
+    void resolvePortableRegisters_reg5to8_subRegs_x86_32() {
+        Architecture a = Architecture.X86_32;
+        assertEquals("    MOV byte [EBP-4], 5",
+                a.resolvePortableRegisters("    MOV reg5.b, 5"));
+        assertEquals("    MOV word [EBP-8], 42",
+                a.resolvePortableRegisters("    MOV reg6.w, 42"));
+    }
+
+    @Test
+    void resolvePortableRegisters_reg5to8_x86_64() {
+        Architecture a = Architecture.X86_64;
+        assertEquals("    MOV R8, 42",
+                a.resolvePortableRegisters("    MOV reg5, 42"));
+        assertEquals("    MOV R9, RAX",
+                a.resolvePortableRegisters("    MOV reg6, RAX"));
+        assertEquals("    ADD R10, 1",
+                a.resolvePortableRegisters("    ADD reg7, 1"));
+        assertEquals("    MOV RAX, R11",
+                a.resolvePortableRegisters("    MOV RAX, reg8"));
+    }
+
+    @Test
+    void resolvePortableRegisters_reg5to8_subRegs_x86_64() {
+        Architecture a = Architecture.X86_64;
+        assertEquals("    MOV R8B, 5",
+                a.resolvePortableRegisters("    MOV reg5.b, 5"));
+        assertEquals("    MOV R9W, 42",
+                a.resolvePortableRegisters("    MOV reg6.w, 42"));
+    }
+
+    @Test
+    void resolvePortableRegisters_reg5to8_arm32() {
+        Architecture a = Architecture.ARM32;
+        assertEquals("    MOV r6, 42",
+                a.resolvePortableRegisters("    MOV reg5, 42"));
+        assertEquals("    MOV r7, r0",
+                a.resolvePortableRegisters("    MOV reg6, r0"));
+        assertEquals("    ADD r8, 1",
+                a.resolvePortableRegisters("    ADD reg7, 1"));
+        assertEquals("    MOV r0, r9",
+                a.resolvePortableRegisters("    MOV r0, reg8"));
+    }
+
+    @Test
+    void resolvePortableRegisters_reg5to8_aarch64() {
+        Architecture a = Architecture.AARCH64;
+        assertEquals("    MOV x6, 42",
+                a.resolvePortableRegisters("    MOV reg5, 42"));
+        assertEquals("    MOV x7, x0",
+                a.resolvePortableRegisters("    MOV reg6, x0"));
+        assertEquals("    ADD x8, 1",
+                a.resolvePortableRegisters("    ADD reg7, 1"));
+        assertEquals("    MOV x0, x9",
+                a.resolvePortableRegisters("    MOV x0, reg8"));
+    }
+
+    @Test
+    void resolvePortableRegisters_reg5to8_subRegs_aarch64() {
+        Architecture a = Architecture.AARCH64;
+        assertEquals("    MOV w6, 5",
+                a.resolvePortableRegisters("    MOV reg5.b, 5"));
+        assertEquals("    MOV w7, 42",
+                a.resolvePortableRegisters("    MOV reg6.w, 42"));
+    }
+
+    // ── x86_32 spill fixup (memory-to-memory avoidance) ─────────────────────
+
+    @Test
+    void fixupSpillConflicts_twoSpillOperands_x86_32() {
+        Architecture a = Architecture.X86_32;
+        String input = "    MOV dword [EBP-4], dword [EBP-8]";
+        String result = a.fixupSpillConflicts(input);
+        assertTrue(result.contains("MOV EAX, dword [EBP-8]"),
+                "Should load second operand into scratch: " + result);
+        assertTrue(result.contains("MOV dword [EBP-4], EAX"),
+                "Should use scratch as source: " + result);
+    }
+
+    @Test
+    void fixupSpillConflicts_singleSpillOperand_noChange() {
+        Architecture a = Architecture.X86_32;
+        String input = "    MOV dword [EBP-4], EAX";
+        assertEquals(input, a.fixupSpillConflicts(input));
+    }
+
+    @Test
+    void fixupSpillConflicts_nonX86_32_noChange() {
+        Architecture a = Architecture.X86_64;
+        String input = "    MOV R8, R9";
+        assertEquals(input, a.fixupSpillConflicts(input));
+    }
+
+    @Test
+    void fixupSpillConflicts_byteSpill_usesAL() {
+        Architecture a = Architecture.X86_32;
+        String input = "    MOV byte [EBP-4], byte [EBP-8]";
+        String result = a.fixupSpillConflicts(input);
+        assertTrue(result.contains("MOV AL, byte [EBP-8]"),
+                "Should use AL as scratch for byte spills: " + result);
+    }
+
+    @Test
+    void fixupSpillConflicts_wordSpill_usesAX() {
+        Architecture a = Architecture.X86_32;
+        String input = "    MOV word [EBP-4], word [EBP-8]";
+        String result = a.fixupSpillConflicts(input);
+        assertTrue(result.contains("MOV AX, word [EBP-8]"),
+                "Should use AX as scratch for word spills: " + result);
+    }
+
+    @Test
+    void fixupSpillConflicts_multiLine_fixesEachLine() {
+        Architecture a = Architecture.X86_32;
+        String input = "    MOV dword [EBP-4], dword [EBP-8]\n"
+                + "    ADD dword [EBP-12], dword [EBP-16]";
+        String result = a.fixupSpillConflicts(input);
+        // Both lines should be fixed
+        assertTrue(result.contains("MOV EAX, dword [EBP-8]"),
+                "First line should be fixed: " + result);
+        assertTrue(result.contains("MOV EAX, dword [EBP-16]"),
+                "Second line should be fixed: " + result);
+    }
+
+    // ── Translation integration tests ───────────────────────────────────────
+
+    @Test
+    void translateLine_reg5to8_x86_32_moveSASM() {
+        SasmTranslator t = new SasmTranslator(Architecture.X86_32);
+        String src = String.join("\n",
+                "section .text",
+                "    move reg1 to reg5");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("MOV dword [EBP-4], EAX"),
+                "reg5 should resolve to spill slot: " + asm);
+    }
+
+    @Test
+    void translateLine_reg5to8_x86_32_spillToSpill() {
+        SasmTranslator t = new SasmTranslator(Architecture.X86_32);
+        String src = String.join("\n",
+                "section .text",
+                "    move reg5 to reg6");
+        String asm = t.translate(src);
+        // Should fix the memory-to-memory conflict via scratch
+        assertTrue(asm.contains("MOV EAX, dword [EBP-4]"),
+                "Should load source spill into scratch: " + asm);
+        assertTrue(asm.contains("MOV dword [EBP-8], EAX"),
+                "Should store scratch to destination spill: " + asm);
+    }
+
+    @Test
+    void translateLine_reg5to8_x86_64_realRegisters() {
+        SasmTranslator t = new SasmTranslator(Architecture.X86_64);
+        String src = String.join("\n",
+                "section .text",
+                "    move reg5 to reg6");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("MOV R9, R8"),
+                "reg5/reg6 should resolve to R8/R9: " + asm);
+    }
+
+    @Test
+    void translateLine_reg5to8_arm32_realRegisters() {
+        SasmTranslator t = new SasmTranslator(Architecture.ARM32);
+        String src = String.join("\n",
+                "section .text",
+                "    move reg5 to reg6");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("MOV r7, r6"),
+                "reg5/reg6 should resolve to r6/r7: " + asm);
+    }
+
+    @Test
+    void translateLine_reg5to8_aarch64_realRegisters() {
+        SasmTranslator t = new SasmTranslator(Architecture.AARCH64);
+        String src = String.join("\n",
+                "section .text",
+                "    move reg5 to reg6");
+        String asm = t.translate(src);
+        assertTrue(asm.contains("MOV x7, x6"),
+                "reg5/reg6 should resolve to x6/x7: " + asm);
+    }
+
+    @Test
+    void translateLine_reg5_expression_x86_32() {
+        SasmTranslator t = new SasmTranslator(Architecture.X86_32);
+        String src = String.join("\n",
+                "section .data",
+                "var myVar as dword = 0",
+                "section .text",
+                "    [myVar] = reg5 + 1");
+        String asm = t.translate(src);
+        // The expression should work with the spill slot
+        assertTrue(asm.contains("[EBP-4]") || asm.contains("EAX"),
+                "Expression with spill reg should compile: " + asm);
+        assertTrue(t.getErrors().isEmpty(), "No errors: " + t.getErrors());
+    }
+
+    @Test
+    void usesSpillSlots_x86_32_true() {
+        assertTrue(Architecture.X86_32.usesSpillSlots(),
+                "x86_32 should use spill slots for reg5-reg8");
+    }
+
+    @Test
+    void usesSpillSlots_otherArchs_false() {
+        assertFalse(Architecture.X86_64.usesSpillSlots());
+        assertFalse(Architecture.ARM32.usesSpillSlots());
+        assertFalse(Architecture.AARCH64.usesSpillSlots());
+    }
+
+    @Test
+    void isMemRef_sizedMemoryOperand() {
+        SasmTranslator t = new SasmTranslator(Architecture.X86_32);
+        // Test that the expression handler recognizes spill slots as memory refs
+        // by translating an expression where both dst and source are memory
+        String src = String.join("\n",
+                "section .data",
+                "var x as dword = 10",
+                "section .text",
+                "    reg5 = [x]");
+        String asm = t.translate(src);
+        // Should compile without errors (isMemRef now detects dword [...])
+        assertTrue(t.getErrors().isEmpty(), "No errors: " + t.getErrors());
+        assertTrue(asm.contains("[EBP-4]"),
+                "reg5 should appear as spill slot in output: " + asm);
+    }
 }
