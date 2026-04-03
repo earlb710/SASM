@@ -1491,6 +1491,9 @@ public class SasmIdePanel extends JPanel {
             }
             editor.setCaretPosition(0);
             undoManager.discardAllEdits();
+            // Apply syntax highlighting now — the DocumentListener is
+            // suppressed during loadingFile so it won't trigger on its own.
+            applyHighlights();
             currentFile = f;
             editorHeader.setText("  " + f.getParentFile().getName() + "/" + f.getName());
             dirty = false;
