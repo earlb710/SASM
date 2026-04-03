@@ -15,18 +15,18 @@
 section .text
 
 // ── print_char ──────────────────────────────────────────────────
-// Writes the character in AL to stdout (Linux sys_write).
+// Writes the character in reg1.b to stdout (Linux sys_write).
 //
-// Input:  EAX = character to print (byte; AL sub-register used internally)
-// Clobbers: AX, BX, CX, DX
+// Input:  reg1 = character to print (byte; reg1.b sub-register used internally)
+// Clobbers: reg1.w, reg2.w, reg3.w, reg4.w
 proc print_char (val byte char) {
     // store char on stack
-    push ax
-    move sp to cx           // cx = pointer to char on stack
-    move 4 to ax            // sys_write
-    move 1 to bx            // fd = stdout
-    move 1 to dx            // length = 1
+    push reg1.w
+    move sp to reg3.w           // reg3.w = pointer to char on stack
+    move 4 to reg1.w            // sys_write
+    move 1 to reg2.w            // fd = stdout
+    move 1 to reg4.w            // length = 1
     interrupt 0x80
-    pop ax
+    pop reg1.w
     return
 }

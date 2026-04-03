@@ -27,38 +27,38 @@ extern _GetStdHandle@4
 extern _WriteFile@20
 
 // ── print_char ──────────────────────────────────────────────────
-// Writes the character in AL to console stdout (Win32 WriteFile).
+// Writes the character in reg1.b to console stdout (Win32 WriteFile).
 //
-// Input:  EAX = character to print (byte; AL sub-register used internally)
-// Clobbers: EAX, ECX, EDX
+// Input:  reg1 = character to print (byte; reg1.b sub-register used internally)
+// Clobbers: reg1, reg3, reg4
 //
 // Example:
-//   move 'A' to eax
+//   move 'A' to reg1
 //   call @io.print_char
 proc print_char (val byte char) {
-    push ebp
-    move esp to ebp
-    subtract 8 from esp       // locals: [ebp-4]=char, [ebp-8]=written
+    push bp
+    move sp to bp
+    subtract 8 from sp       // locals: [bp-4]=char, [bp-8]=written
 
-    move al to [ebp-4]        // store the character
+    move reg1.b to [bp-4]        // store the character
 
     // Get stdout handle
     push io_STD_OUTPUT_HANDLE
     call _GetStdHandle@4
-    // eax = stdout handle
+    // reg1 = stdout handle
 
     // WriteFile(stdout, &char, 1, &written, NULL)
     push 0                    // lpOverlapped = NULL
-    address of ebp-8 to ecx
-    push ecx                  // lpNumberOfBytesWritten
+    address of bp-8 to reg3
+    push reg3                  // lpNumberOfBytesWritten
     push 1                    // nNumberOfBytesToWrite = 1
-    address of ebp-4 to ecx
-    push ecx                  // lpBuffer = &char
-    push eax                  // hFile = stdout handle
+    address of bp-4 to reg3
+    push reg3                  // lpBuffer = &char
+    push reg1                  // hFile = stdout handle
     call _WriteFile@20
 
-    move ebp to esp
-    pop ebp
+    move bp to sp
+    pop bp
     return
 }
 
@@ -66,49 +66,49 @@ proc print_char (val byte char) {
 // Writes a null-terminated string to console stdout (Win32 WriteFile).
 //
 // Input:
-//   [esp+4] = pointer to null-terminated string
+//   [sp+4] = pointer to null-terminated string
 //
 // Output:
-//   EAX = 1 (TRUE) on success, 0 (FALSE) on failure
+//   reg1 = 1 (TRUE) on success, 0 (FALSE) on failure
 //
-// Clobbers: EAX, ECX, EDX
+// Clobbers: reg1, reg3, reg4
 //
 // Example:
 //   push msg
 //   call @io.print_string
 proc print_string uses stack ( str_ptr ) {
-    push ebp
-    move esp to ebp
-    subtract 4 from esp       // local: [ebp-4] = bytes_written
+    push bp
+    move sp to bp
+    subtract 4 from sp       // local: [bp-4] = bytes_written
 
     // count string length
-    move [ebp+8] to ecx       // ecx = string pointer
-    move ecx to edx            // edx = scan pointer
+    move [bp+8] to reg3       // reg3 = string pointer
+    move reg3 to reg4            // reg4 = scan pointer
 .ps_len:
-    compare byte [edx], 0
+    compare byte [reg4], 0
     jump if equal .ps_done
-    increment edx
+    increment reg4
     jump .ps_len
 .ps_done:
-    subtract ecx from edx     // edx = length
+    subtract reg3 from reg4     // reg4 = length
 
     // Get stdout handle
-    push edx                   // save length
+    push reg4                   // save length
     push io_STD_OUTPUT_HANDLE
     call _GetStdHandle@4
-    pop edx                    // restore length
-    // eax = stdout handle
+    pop reg4                    // restore length
+    // reg1 = stdout handle
 
     // WriteFile(stdout, buffer, length, &written, NULL)
     push 0                     // lpOverlapped = NULL
-    address of ebp-4 to ecx
-    push ecx                   // lpNumberOfBytesWritten
-    push edx                   // nNumberOfBytesToWrite = length
-    push dword [ebp+8]        // lpBuffer = string pointer
-    push eax                   // hFile = stdout handle
+    address of bp-4 to reg3
+    push reg3                   // lpNumberOfBytesWritten
+    push reg4                   // nNumberOfBytesToWrite = length
+    push dword [bp+8]        // lpBuffer = string pointer
+    push reg1                   // hFile = stdout handle
     call _WriteFile@20
 
-    move ebp to esp
-    pop ebp
+    move bp to sp
+    pop bp
     return
 }

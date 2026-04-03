@@ -2,7 +2,7 @@
 //
 // Verifies that the modulo operator generates the correct NASM output.
 // Modulo uses DIV/IDIV like division but returns the remainder
-// from the high register (DX/EDX/RDX) instead of the quotient.
+// from the high register (reg4.w/reg4/RDX) instead of the quotient.
 
 section .data
     var dividend as word = 17
@@ -13,23 +13,23 @@ section .text
 // ── % operator (unsigned modulo) ─────────────────────────────────
 // 17 % 5 = 2
 
-// 16-bit: remainder in DX
-ax = cx % bx
+// 16-bit: remainder in reg4.w
+reg1.w = reg3.w % reg2.w
 
-// 32-bit: remainder in EDX
-eax = ecx % ebx
+// 32-bit: remainder in reg4
+reg1 = reg3 % reg2
 
 // 64-bit: remainder in RDX
 rax = rcx % rbx
 
 // ── mod keyword (same as %) ──────────────────────────────────────
 
-ax = cx mod bx
+reg1.w = reg3.w mod reg2.w
 
 // ── smod keyword (signed modulo, always IDIV) ────────────────────
 
-ax = cx smod bx
+reg1.w = reg3.w smod reg2.w
 
 // ── with memory operands ─────────────────────────────────────────
 
-ax = [dividend] % [divisor]
+reg1.w = [dividend] % [divisor]

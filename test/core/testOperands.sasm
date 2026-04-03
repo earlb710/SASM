@@ -30,64 +30,64 @@ var noInitAs  as dword
    //--------------------------------------------------------------- *)
 proc test_expressions {
     // simple assignment from variable
-    ax = [value1]                     // ax = 10
+    reg1.w = [value1]                     // reg1.w = 10
 
     // add with variable operand
-    ax = [value1] + [value2]          // ax = 10 + 20 = 30
+    reg1.w = [value1] + [value2]          // reg1.w = 10 + 20 = 30
 
     // subtract with variable operand
-    bx = [value2] - [value1]          // bx = 20 - 10 = 10
+    reg2.w = [value2] - [value1]          // reg2.w = 20 - 10 = 10
 
     // variable as destination
-    [result] = ax                     // result = 30
+    [result] = reg1.w                     // result = 30
 
     // increment variable through register
-    ax = [counter] + 1                // ax = 0 + 1 = 1
-    [counter] = ax                    // counter = 1
+    reg1.w = [counter] + 1                // reg1.w = 0 + 1 = 1
+    [counter] = reg1.w                    // counter = 1
 
     // multiply with variable operand
-    ax = [value1] * 3                 // ax = 10 * 3 = 30
+    reg1.w = [value1] * 3                 // reg1.w = 10 * 3 = 30
 
     // bitwise AND with variable
-    ax = [value1] && 0xFF             // ax = 10 & 0xFF = 10
+    reg1.w = [value1] && 0xFF             // reg1.w = 10 & 0xFF = 10
 
     // bitwise OR with variable
-    ax = [value2] || 0x100            // ax = 20 | 0x100 = 276
+    reg1.w = [value2] || 0x100            // reg1.w = 20 | 0x100 = 276
 
     // bitwise XOR with variable
-    ax = [value1] ^^ 0xFF             // ax = 10 ^ 0xFF = 245
+    reg1.w = [value1] ^^ 0xFF             // reg1.w = 10 ^ 0xFF = 245
 
     // bitwise XOR optimized (dst == op1)
-    ax = ax ^^ 0xFF                   // ax = ax ^ 0xFF
+    reg1.w = reg1.w ^^ 0xFF                   // reg1.w = reg1.w ^ 0xFF
 
     // shift with variable operand
-    ax = [value1] << 2                // ax = 10 << 2 = 40
+    reg1.w = [value1] << 2                // reg1.w = 10 << 2 = 40
 
     // bitwise NOT
-    ax = ![value1]                    // ax = ~10
+    reg1.w = ![value1]                    // reg1.w = ~10
 
     // bracketed variable names (required for expression assignment)
-    ax = [value1]                     // ax = 10
-    ax = [value1] + [value2]          // ax = 10 + 20 = 30
-    bx = [value2] - [value1]          // bx = 20 - 10 = 10
-    [result] = ax                     // result = 30
-    ax = [signedVal] + [unsgnVal]     // ax = -10 + 200 = 190
-    ax = [value1] + [value2] - 5      // chained: ax = 10 + 20 - 5 = 25
-    ax = [value1] * 3                 // ax = 10 * 3 = 30
-    ax = ![value1]                    // ax = ~10
+    reg1.w = [value1]                     // reg1.w = 10
+    reg1.w = [value1] + [value2]          // reg1.w = 10 + 20 = 30
+    reg2.w = [value2] - [value1]          // reg2.w = 20 - 10 = 10
+    [result] = reg1.w                     // result = 30
+    reg1.w = [signedVal] + [unsgnVal]     // reg1.w = -10 + 200 = 190
+    reg1.w = [value1] + [value2] - 5      // chained: reg1.w = 10 + 20 - 5 = 25
+    reg1.w = [value1] * 3                 // reg1.w = 10 * 3 = 30
+    reg1.w = ![value1]                    // reg1.w = ~10
 
     // signed-aware operations: div auto-selects IDIV when operand is signed
-    ax = [signedVal] div 5            // signed dividend → CWD + IDIV
-    ax = [value1] div 5               // unsigned dividend → XOR DX,DX + DIV
-    ax = 100 div [signedVal]          // signed divisor → CWD + IDIV
+    reg1.w = [signedVal] div 5            // signed dividend → CWD + IDIV
+    reg1.w = [value1] div 5               // unsigned dividend → XOR reg4.w,reg4.w + DIV
+    reg1.w = 100 div [signedVal]          // signed divisor → CWD + IDIV
 
     // explicit signed division with sdiv keyword
-    ax = [unsgnVal] sdiv 10           // explicit sdiv → always CWD + IDIV
+    reg1.w = [unsgnVal] sdiv 10           // explicit sdiv → always CWD + IDIV
 
     // signed-aware right shift: SAR for signed vars, SHR for unsigned
-    ax = [signedVal] >> 2             // signed → SAR ax, 2
-    ax = [value1] >> 2                // unsigned → SHR ax, 2
-    ax = [signedVal] >> 2 + 1         // chained: signed → SAR, then ADD
+    reg1.w = [signedVal] >> 2             // signed → SAR reg1.w, 2
+    reg1.w = [value1] >> 2                // unsigned → SHR reg1.w, 2
+    reg1.w = [signedVal] >> 2 + 1         // chained: signed → SAR, then ADD
 
     return
 }
@@ -96,12 +96,12 @@ proc test_expressions {
    test_swap — exercises comma-separated swap syntax.
    //--------------------------------------------------------------- *)
 proc test_swap {
-    move 0x1234 to ax
-    move 0x5678 to cx
+    move 0x1234 to reg1.w
+    move 0x5678 to reg3.w
 
-    swap ax, cx                       // ax ↔ cx: ax=0x5678, cx=0x1234
+    swap reg1.w, reg3.w                       // reg1.w ↔ reg3.w: reg1.w=0x5678, reg3.w=0x1234
 
-    swap ax and cx                    // swap back using "and" syntax
+    swap reg1.w and reg3.w                    // swap back using "and" syntax
 
     return
 }
@@ -114,6 +114,6 @@ _start:
     call test_swap
 
     // Exit (Linux syscall: sys_exit)
-    move 0 to bl                      // exit code 0
-    move 1 to ax                      // sys_exit
+    move 0 to reg2.b                      // exit code 0
+    move 1 to reg1.w                      // sys_exit
     syscall 0x80

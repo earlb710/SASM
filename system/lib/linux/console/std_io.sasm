@@ -15,23 +15,23 @@
 section .text
 
 // ── print_char ──────────────────────────────────────────────────
-// Writes the character in AL to stdout (Linux sys_write).
+// Writes the character in reg1.b to stdout (Linux sys_write).
 //
-// Input:  EAX = character to print (byte; AL sub-register used internally)
-// Clobbers: AX, BX, CX, DX
+// Input:  reg1 = character to print (byte; reg1.b sub-register used internally)
+// Clobbers: reg1.w, reg2.w, reg3.w, reg4.w
 //
 // Example:
-//   move 'A' to eax
+//   move 'A' to reg1
 //   call @io.print_char
 proc print_char (val byte char) {
     // store char on stack
-    push ax
-    move sp to cx           // cx = pointer to char on stack
-    move 4 to ax            // sys_write
-    move 1 to bx            // fd = stdout
-    move 1 to dx            // length = 1
+    push reg1.w
+    move sp to reg3.w           // reg3.w = pointer to char on stack
+    move 4 to reg1.w            // sys_write
+    move 1 to reg2.w            // fd = stdout
+    move 1 to reg4.w            // length = 1
     interrupt 0x80
-    pop ax
+    pop reg1.w
     return
 }
 
@@ -39,33 +39,33 @@ proc print_char (val byte char) {
 // Writes a null-terminated string to stdout (Linux sys_write).
 //
 // Input:
-//   ESI = pointer to null-terminated string
+//   ptr1 = pointer to null-terminated string
 //
 // Output:
-//   EAX = number of bytes written (or negative on error)
+//   reg1 = number of bytes written (or negative on error)
 //
-// Clobbers: EAX, EBX, ECX, EDX
+// Clobbers: reg1, reg2, reg3, reg4
 //
 // Example:
-//   move msg to esi
+//   move msg to ptr1
 //   call @io.print_string
 proc print_string (addr str_ptr) out val dword {
-    push esi                // save start pointer
+    push ptr1                // save start pointer
 
     // count string length
-    move esi to edx         // edx = scan pointer
+    move ptr1 to reg4         // reg4 = scan pointer
 .ps_len:
-    compare byte [edx], 0
+    compare byte [reg4], 0
     jump if equal .ps_done
-    increment edx
+    increment reg4
     jump .ps_len
 .ps_done:
-    subtract esi from edx   // edx = length
+    subtract ptr1 from reg4   // reg4 = length
 
     // sys_write(stdout, buf, len)
-    move 4 to eax            // sys_write
-    move 1 to ebx            // fd = stdout
-    pop ecx                  // ecx = buffer pointer
+    move 4 to reg1            // sys_write
+    move 1 to reg2            // fd = stdout
+    pop reg3                  // reg3 = buffer pointer
     interrupt 0x80
     return
 }

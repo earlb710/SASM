@@ -8,105 +8,105 @@
 //     #REF lib/mem.sasm mem
 //
 // Functions:
-//     call @mem.memcpy           // copy ECX bytes from ESI → EDI
-//     call @mem.memset           // fill ECX bytes at EDI with AL
-//     call @mem.memcmp           // compare ECX bytes at ESI vs EDI; EAX=0/<0/>0
-//     call @mem.bzero            // zero ECX bytes at EDI
+//     call @mem.memcpy           // copy reg3 bytes from ptr1 → ptr2
+//     call @mem.memset           // fill reg3 bytes at ptr2 with reg1.b
+//     call @mem.memcmp           // compare reg3 bytes at ptr1 vs ptr2; reg1=0/<0/>0
+//     call @mem.bzero            // zero reg3 bytes at ptr2
 
 #COMPAT Linux x86 (i386)
 
 section .text
 
 // ── memcpy ──────────────────────────────────────────────────────
-// Copies ECX bytes from source (ESI) to destination (EDI).
+// Copies reg3 bytes from source (ptr1) to destination (ptr2).
 // The regions must not overlap (use memmove for overlapping regions).
-// After the call, ESI and EDI are advanced past the copied region.
+// After the call, ptr1 and ptr2 are advanced past the copied region.
 //
-// Input:  EDI = pointer to destination buffer
-//         ESI = pointer to source buffer
-//         ECX = number of bytes to copy
-// Clobbers: ECX, ESI, EDI (all advanced past the copied region)
+// Input:  ptr2 = pointer to destination buffer
+//         ptr1 = pointer to source buffer
+//         reg3 = number of bytes to copy
+// Clobbers: reg3, ptr1, ptr2 (all advanced past the copied region)
 //
 // Example:
-//   move dst_buf to edi
-//   move src_buf to esi
-//   move 16 to ecx
+//   move dst_buf to ptr2
+//   move src_buf to ptr1
+//   move 16 to reg3
 //   call @mem.memcpy
-inline proc memcpy (addr dst default edi, addr src default esi, val dword count default ecx) {
+inline proc memcpy (addr dst default ptr2, addr src default ptr1, val dword count default reg3) {
     cld                         // forward direction (DF = 0)
-    rep movsb                   // copy ECX bytes from [ESI] to [EDI]
+    rep movsb                   // copy reg3 bytes from [ptr1] to [ptr2]
     return
 }
 
 // ── memset ──────────────────────────────────────────────────────
-// Fills ECX bytes at the destination buffer with the value in AL
-// (low byte of EAX).  After the call, EDI is advanced past the
+// Fills reg3 bytes at the destination buffer with the value in reg1.b
+// (low byte of reg1).  After the call, ptr2 is advanced past the
 // filled region.
 //
-// Input:  EDI = pointer to destination buffer
-//         EAX = fill value (only the low byte AL is used)
-//         ECX = number of bytes to fill
-// Clobbers: ECX, EDI (advanced past the filled region)
+// Input:  ptr2 = pointer to destination buffer
+//         reg1 = fill value (only the low byte reg1.b is used)
+//         reg3 = number of bytes to fill
+// Clobbers: reg3, ptr2 (advanced past the filled region)
 //
 // Example:
-//   move buf to edi
-//   move 0xFF to eax            // fill value in AL
-//   move 32 to ecx
+//   move buf to ptr2
+//   move 0xFF to reg1            // fill value in reg1.b
+//   move 32 to reg3
 //   call @mem.memset
-inline proc memset (addr dst default edi, val dword value default eax, val dword count default ecx) {
+inline proc memset (addr dst default ptr2, val dword value default reg1, val dword count default reg3) {
     cld                         // forward direction (DF = 0)
-    rep stosb                   // fill ECX bytes with AL at [EDI]
+    rep stosb                   // fill reg3 bytes with reg1.b at [ptr2]
     return
 }
 
 // ── memcmp ──────────────────────────────────────────────────────
-// Compares ECX bytes starting at ptr1 (ESI) with ECX bytes
-// starting at ptr2 (EDI).  Comparison is unsigned byte-by-byte.
+// Compares reg3 bytes starting at ptr1 (ptr1) with reg3 bytes
+// starting at ptr2 (ptr2).  Comparison is unsigned byte-by-byte.
 //
-// Input:  ESI = pointer to first  buffer (ptr1)
-//         EDI = pointer to second buffer (ptr2)
-//         ECX = number of bytes to compare
-// Output: EAX = 0  if all ECX bytes are equal
+// Input:  ptr1 = pointer to first  buffer (ptr1)
+//         ptr2 = pointer to second buffer (ptr2)
+//         reg3 = number of bytes to compare
+// Output: reg1 = 0  if all reg3 bytes are equal
 //              < 0 if ptr1 < ptr2 at first differing byte
 //              > 0 if ptr1 > ptr2 at first differing byte
-// Clobbers: ECX, ESI, EDI (advanced past the compared region)
+// Clobbers: reg3, ptr1, ptr2 (advanced past the compared region)
 //
 // Example:
-//   move buf1 to esi
-//   move buf2 to edi
-//   move 8 to ecx
-//   call @mem.memcmp    // eax = 0 if buf1[0..7] == buf2[0..7]
-inline proc memcmp (addr ptr1 default esi, addr ptr2 default edi, val dword count default ecx) out val dword {
+//   move buf1 to ptr1
+//   move buf2 to ptr2
+//   move 8 to reg3
+//   call @mem.memcmp    // reg1 = 0 if buf1[0..7] == buf2[0..7]
+inline proc memcmp (addr ptr1 default ptr1, addr ptr2 default ptr2, val dword count default reg3) out val dword {
     cld                         // forward direction (DF = 0)
-    repe cmpsb                  // compare bytes while equal; stops on mismatch or ECX=0
+    repe cmpsb                  // compare bytes while equal; stops on mismatch or reg3=0
     je .equal                   // ZF=1 → all bytes were equal
     jb .less                    // CF=1 → ptr1 byte < ptr2 byte at mismatch
-    move 1 to eax               // ptr1 byte > ptr2 byte
+    move 1 to reg1               // ptr1 byte > ptr2 byte
     return
 .less:
-    move -1 to eax
+    move -1 to reg1
     return
 .equal:
-    move 0 to eax
+    move 0 to reg1
     return
 }
 
 // ── bzero ───────────────────────────────────────────────────────
-// Fills ECX bytes at the destination buffer with zero bytes.
+// Fills reg3 bytes at the destination buffer with zero bytes.
 // Equivalent to calling memset with a fill value of 0.
-// After the call, EDI is advanced past the zeroed region.
+// After the call, ptr2 is advanced past the zeroed region.
 //
-// Input:  EDI = pointer to destination buffer
-//         ECX = number of bytes to zero
-// Clobbers: EAX (set to 0), ECX, EDI (advanced past the zeroed region)
+// Input:  ptr2 = pointer to destination buffer
+//         reg3 = number of bytes to zero
+// Clobbers: reg1 (set to 0), reg3, ptr2 (advanced past the zeroed region)
 //
 // Example:
-//   move my_buf to edi
-//   move 64 to ecx
+//   move my_buf to ptr2
+//   move 64 to reg3
 //   call @mem.bzero
-inline proc bzero (addr dst default edi, val dword count default ecx) {
-    xor eax, eax                // fill byte = 0 (al = 0)
+inline proc bzero (addr dst default ptr2, val dword count default reg3) {
+    xor reg1, reg1                // fill byte = 0 (reg1.b = 0)
     cld                         // forward direction (DF = 0)
-    rep stosb                   // zero ECX bytes at [EDI]
+    rep stosb                   // zero reg3 bytes at [ptr2]
     return
 }

@@ -2,24 +2,26 @@ package com.sasm;
 
 import java.awt.*;
 import java.awt.event.*;
+import java.util.*;
+import java.util.List;
 import javax.swing.*;
 import javax.swing.event.*;
 
 /**
  * "Add Variant" dialog — collects a variant name and all target-platform
- * settings (Operating System, Output Type, Format Variant, Processor).
+ * settings (Processor, Operating System, Output Type, Format Variant).
  *
  * <p>Five rows are stacked vertically on a scrollable canvas:</p>
  * <ol>
  *   <li>Variant Name — free-text field</li>
- *   <li>Operating System — pop-list (blank default; Linux / Windows) followed by
- *       a read-only description area showing the format name and overview</li>
- *   <li>Output Type — pop-list (Executable or DLL / Shared Library) populated
- *       when the OS is chosen</li>
- *   <li>Variant — pop-list (populated when Output Type changes) followed by a
- *       read-only description area with architecture, toolchain, etc.</li>
- *   <li>Processor — pop-list (filtered by the variant's architecture) followed
- *       by a read-only description area with historical context</li>
+ *   <li>Processor — pop-list (all processors, highest selected by default)
+ *       followed by a read-only description area with historical context</li>
+ *   <li>Operating System — pop-list filtered by the selected processor's
+ *       compatible architectures, followed by a read-only description area</li>
+ *   <li>Output Type — pop-list (Executable or DLL / Shared Library) filtered
+ *       to only show types that have variants matching the processor</li>
+ *   <li>Variant — pop-list filtered by processor / OS / output type, followed
+ *       by a read-only description area with architecture, toolchain, etc.</li>
  * </ol>
  * <p>OK and Cancel buttons appear at the bottom.  OK is enabled only when all
  * five fields contain a non-blank value and the name is valid.</p>
@@ -47,6 +49,12 @@ public class AddVariantWizard extends JDialog {
 
     // ── result state ─────────────────────────────────────────────────────────
     private boolean confirmed = false;
+
+    /** True once the user has manually typed into the variant name field. */
+    private boolean userEditedName = false;
+
+    /** Suppresses the document listener when the name is set programmatically. */
+    private boolean settingNameProgrammatically = false;
 
     // ── OS data ──────────────────────────────────────────────────────────────
     private OsDefinition currentDef;
@@ -130,12 +138,20 @@ public class AddVariantWizard extends JDialog {
         gbRow = addLabeledControl(canvas, gbRow, "Variant Name:", variantNameField,
                 "A label for this variant (e.g. linux-64-static, win-dll-32).");
 
-        // ── Operating System ──────────────────────────────────────────────────
+        // ── Processor (first, with highest selected) ─────────────────────────
+        for (String p : ALL_PROCESSORS) {
+            processorChoice.addItem(p);
+        }
+        processorChoice.setSelectedItem(DEFAULT_PROCESSOR);
+        gbRow = addLabeledControl(canvas, gbRow, "Processor:", processorChoice,
+                "Select the target CPU. The operating system and variant choices below"
+                + " will be filtered to match the selected processor's architecture.");
+        gbRow = addDescriptionArea(canvas, gbRow, new JScrollPane(processorDescArea));
+
+        // ── Operating System (filtered by processor) ─────────────────────────
         osChoice.addItem("");
-        osChoice.addItem("Linux");
-        osChoice.addItem("Windows");
         gbRow = addLabeledControl(canvas, gbRow, "Operating System:", osChoice,
-                "Select the target OS to load matching format definitions.");
+                "Select the target OS (filtered to OSes that support the selected processor).");
         gbRow = addDescriptionArea(canvas, gbRow, new JScrollPane(osDescArea));
 
         // ── Output Type ──────────────────────────────────────────────────────
@@ -143,18 +159,11 @@ public class AddVariantWizard extends JDialog {
         gbRow = addLabeledControl(canvas, gbRow, "Output Type:", outputTypeChoice,
                 "Select the output type: Executable or DLL / Shared Library.");
 
-        // ── Variant ───────────────────────────────────────────────────────────
+        // ── Variant (filtered by processor / OS / output type) ───────────────
         variantChoice.addItem("");
         gbRow = addLabeledControl(canvas, gbRow, "Variant:", variantChoice,
-                "Select the format variant after choosing an operating system and output type.");
+                "Select the format variant (filtered by processor, OS, and output type).");
         gbRow = addDescriptionArea(canvas, gbRow, new JScrollPane(variantDescArea));
-
-        // ── Processor ─────────────────────────────────────────────────────────
-        processorChoice.addItem("");
-        gbRow = addLabeledControl(canvas, gbRow, "Processor:", processorChoice,
-                "Select the target CPU; choices are filtered to processors compatible with the"
-                + " selected variant's architecture (e.g. x86 family for x86/x86-64 variants).");
-        gbRow = addDescriptionArea(canvas, gbRow, new JScrollPane(processorDescArea));
 
         // spacer
         GridBagConstraints sp = new GridBagConstraints();
@@ -175,14 +184,21 @@ public class AddVariantWizard extends JDialog {
         add(btnRow, BorderLayout.SOUTH);
 
         // ── wire events ─────────────────────────────────────────────────────
+        processorChoice.addItemListener(e -> onProcessorChanged());
         osChoice.addItemListener(e -> onOsChanged());
         outputTypeChoice.addItemListener(e -> onOutputTypeChanged());
         variantChoice.addItemListener(e -> onVariantChanged());
-        processorChoice.addItemListener(e -> onProcessorChanged());
         variantNameField.getDocument().addDocumentListener(new DocumentListener() {
-            public void insertUpdate(DocumentEvent e) { refreshOkButton(); }
-            public void removeUpdate(DocumentEvent e) { refreshOkButton(); }
-            public void changedUpdate(DocumentEvent e) { refreshOkButton(); }
+            public void insertUpdate(DocumentEvent e) { onNameFieldChanged(); }
+            public void removeUpdate(DocumentEvent e) { onNameFieldChanged(); }
+            public void changedUpdate(DocumentEvent e) { onNameFieldChanged(); }
+            private void onNameFieldChanged() {
+                if (!settingNameProgrammatically) {
+                    // Reset if user clears the field so auto-population can resume
+                    userEditedName = !variantNameField.getText().trim().isEmpty();
+                }
+                refreshOkButton();
+            }
         });
         okBtn.addActionListener(e -> onOkPressed());
         cancelBtn.addActionListener(e -> dispose());
@@ -190,6 +206,8 @@ public class AddVariantWizard extends JDialog {
             @Override public void windowClosing(WindowEvent e) { dispose(); }
         });
 
+        // fire initial processor selection to populate OS choices
+        onProcessorChanged();
         refreshOkButton();
     }
 
@@ -253,13 +271,155 @@ public class AddVariantWizard extends JDialog {
         return ta;
     }
 
+    // ── processor / architecture constants ──────────────────────────────────
+
+    /**
+     * All available processors ordered from highest (most recent / most
+     * powerful) to lowest, grouped by architecture family.
+     * The first entry is the default selection.
+     */
+    private static final String[] ALL_PROCESSORS = {
+        "x86_64", "pentium", "80486", "80386", "80286", "80186", "8086",
+        "aarch64", "armv7"
+    };
+
+    /** The processor pre-selected when the dialog opens. */
+    private static final String DEFAULT_PROCESSOR = "x86_64";
+
+    /** All known operating systems. */
+    private static final String[] ALL_OSES = { "Linux", "Windows" };
+
+    /** All known output types. */
+    private static final String[] ALL_OUTPUT_TYPES = {
+        "Executable", "DLL / Shared Library"
+    };
+
+    /**
+     * Returns the set of variant architectures compatible with the given
+     * processor.  For example, all 32-bit x86 processors (8086–pentium)
+     * can target both {@code "x86"} and {@code "x86_64"} variants (the
+     * 64-bit host can run 32-bit code), while the {@code "x86_64"} processor
+     * only targets 64-bit variants.
+     */
+    private static Set<String> architecturesForProcessor(String processor) {
+        if (processor == null || processor.isEmpty()) return Set.of();
+        return switch (processor.toLowerCase()) {
+            case "x86_64" -> Set.of("x86_64");
+            case "pentium", "80486", "80386", "80286", "80186", "8086"
+                           -> Set.of("x86", "x86_64");
+            case "aarch64" -> Set.of("aarch64");
+            case "armv7"   -> Set.of("arm32");
+            default        -> Set.of();
+        };
+    }
+
+    /**
+     * Returns the set of OSes that have at least one variant whose
+     * architecture is compatible with the given processor.  Checks all
+     * output types for each OS.
+     */
+    private static Set<String> osesForProcessor(String processor) {
+        Set<String> archs = architecturesForProcessor(processor);
+        if (archs.isEmpty()) return Set.of();
+        Set<String> result = new LinkedHashSet<>();
+        for (String os : ALL_OSES) {
+            for (String ot : ALL_OUTPUT_TYPES) {
+                try {
+                    OsDefinition def = JsonLoader.load(os, ot);
+                    if (def.variants != null) {
+                        for (OsDefinition.Variant v : def.variants) {
+                            if (v.architecture != null
+                                    && archs.contains(v.architecture.toLowerCase())) {
+                                result.add(os);
+                                break;
+                            }
+                        }
+                    }
+                } catch (Exception ignored) { /* no definition for this combo */ }
+                if (result.contains(os)) break; // already found a match
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Returns the output types that have at least one variant compatible
+     * with the given processor for the given OS.
+     */
+    private static List<String> outputTypesForProcessorAndOs(
+            String processor, String os) {
+        Set<String> archs = architecturesForProcessor(processor);
+        List<String> result = new ArrayList<>();
+        for (String ot : ALL_OUTPUT_TYPES) {
+            try {
+                OsDefinition def = JsonLoader.load(os, ot);
+                if (def.variants != null) {
+                    for (OsDefinition.Variant v : def.variants) {
+                        if (v.architecture != null
+                                && archs.contains(v.architecture.toLowerCase())) {
+                            result.add(ot);
+                            break;
+                        }
+                    }
+                }
+            } catch (Exception ignored) { /* no definition for this combo */ }
+        }
+        return result;
+    }
+
     // ── event handlers ────────────────────────────────────────────────────────
 
+    /**
+     * Processor changed → reload processor description, repopulate OS
+     * choices and clear downstream fields.
+     */
+    private void onProcessorChanged() {
+        // clear downstream
+        currentDef = null;
+        osDescArea.setText("");
+        osChoice.removeAllItems();
+        osChoice.addItem("");
+        outputTypeChoice.removeAllItems();
+        outputTypeChoice.addItem("");
+        variantDescArea.setText("");
+        variantChoice.removeAllItems();
+        variantChoice.addItem("");
+
+        String processor = selectedText(processorChoice);
+        if (processor.isEmpty()) {
+            processorDescArea.setText("");
+            refreshOkButton();
+            return;
+        }
+
+        // show processor description
+        try {
+            ProcessorDefinition def = JsonLoader.loadProcessor(processor);
+            processorDescArea.setText(buildProcessorDescription(def));
+            processorDescArea.setCaretPosition(0);
+        } catch (Exception ex) {
+            processorDescArea.setText(
+                    "Could not load processor definition for '" + processor + "':\n"
+                    + ex.getMessage());
+        }
+
+        // populate OS choices filtered by processor
+        Set<String> compatibleOses = osesForProcessor(processor);
+        for (String os : ALL_OSES) {
+            if (compatibleOses.contains(os)) {
+                osChoice.addItem(os);
+            }
+        }
+
+        refreshOkButton();
+    }
+
+    /**
+     * OS changed → load OS definition overview, repopulate output-type
+     * choices and clear downstream fields.
+     */
     private void onOsChanged() {
         currentDef = null;
-        processorDescArea.setText("");
-        processorChoice.removeAllItems();
-        processorChoice.addItem("");
         variantDescArea.setText("");
         variantChoice.removeAllItems();
         variantChoice.addItem("");
@@ -273,27 +433,32 @@ public class AddVariantWizard extends JDialog {
             return;
         }
 
-        outputTypeChoice.addItem("Executable");
-        outputTypeChoice.addItem("DLL / Shared Library");
-
+        // show OS description from the first loadable definition
         try {
-            currentDef = JsonLoader.load(os);
+            OsDefinition firstDef = JsonLoader.load(os);
+            osDescArea.setText(buildOsDescription(firstDef));
+            osDescArea.setCaretPosition(0);
         } catch (Exception ex) {
-            osDescArea.setText("Could not load definition for " + os + ":\n" + ex.getMessage());
-            refreshOkButton();
-            return;
+            osDescArea.setText("Could not load definition for " + os + ":\n"
+                    + ex.getMessage());
         }
 
-        osDescArea.setText(buildOsDescription(currentDef));
-        osDescArea.setCaretPosition(0);
+        // populate output types filtered by processor + OS
+        String processor = selectedText(processorChoice);
+        List<String> validTypes = outputTypesForProcessorAndOs(processor, os);
+        for (String ot : validTypes) {
+            outputTypeChoice.addItem(ot);
+        }
+
         refreshOkButton();
     }
 
+    /**
+     * Output type changed → load OS definition for this OS + output type,
+     * repopulate variant choices filtered by the processor's architecture.
+     */
     private void onOutputTypeChanged() {
         currentDef = null;
-        processorDescArea.setText("");
-        processorChoice.removeAllItems();
-        processorChoice.addItem("");
         variantDescArea.setText("");
         variantChoice.removeAllItems();
         variantChoice.addItem("");
@@ -317,19 +482,23 @@ public class AddVariantWizard extends JDialog {
         osDescArea.setText(buildOsDescription(currentDef));
         osDescArea.setCaretPosition(0);
 
+        // populate variant choices filtered by processor architecture
+        Set<String> archs = architecturesForProcessor(selectedText(processorChoice));
         if (currentDef.variants != null) {
             for (OsDefinition.Variant v : currentDef.variants) {
-                variantChoice.addItem(v.name != null ? v.name : v.id);
+                if (v.architecture != null
+                        && archs.contains(v.architecture.toLowerCase())) {
+                    variantChoice.addItem(v.name != null ? v.name : v.id);
+                }
             }
         }
         refreshOkButton();
     }
 
+    /**
+     * Variant changed → show variant description.
+     */
     private void onVariantChanged() {
-        processorDescArea.setText("");
-        processorChoice.removeAllItems();
-        processorChoice.addItem("");
-
         String selected = selectedText(variantChoice);
         if (selected.isEmpty() || currentDef == null || currentDef.variants == null) {
             variantDescArea.setText("");
@@ -337,63 +506,31 @@ public class AddVariantWizard extends JDialog {
             return;
         }
 
-        int idx = variantChoice.getSelectedIndex();
-        if (idx <= 0) {
-            variantDescArea.setText("");
-            refreshOkButton();
-            return;
-        }
-        int variantIdx = idx - 1;
-
-        if (variantIdx < 0 || variantIdx >= currentDef.variants.size()) {
-            variantDescArea.setText("");
-            refreshOkButton();
-            return;
-        }
-
-        OsDefinition.Variant v = currentDef.variants.get(variantIdx);
-        variantDescArea.setText(buildVariantDescription(v));
-        variantDescArea.setCaretPosition(0);
-
-        String[] processors = processorsForArchitecture(v.architecture);
-        for (String p : processors) {
-            processorChoice.addItem(p);
-        }
-
-        // Default to x86_64 if available
-        for (int pi = 0; pi < processorChoice.getItemCount(); pi++) {
-            if ("x86_64".equals(processorChoice.getItemAt(pi))) {
-                processorChoice.setSelectedIndex(pi);
-                onProcessorChanged();
+        // find the matching variant in currentDef (by displayed name)
+        OsDefinition.Variant matched = null;
+        for (OsDefinition.Variant v : currentDef.variants) {
+            String display = v.name != null ? v.name : v.id;
+            if (selected.equals(display)) {
+                matched = v;
                 break;
             }
         }
 
-        refreshOkButton();
-    }
-
-    private void onProcessorChanged() {
-        String selected = selectedText(processorChoice);
-        if (selected.isEmpty()) {
-            processorDescArea.setText("");
-            refreshOkButton();
-            return;
+        if (matched != null) {
+            variantDescArea.setText(buildVariantDescription(matched));
+            variantDescArea.setCaretPosition(0);
+        } else {
+            variantDescArea.setText("");
         }
 
-        try {
-            ProcessorDefinition def = JsonLoader.loadProcessor(selected);
-            processorDescArea.setText(buildProcessorDescription(def));
-            processorDescArea.setCaretPosition(0);
-        } catch (Exception ex) {
-            processorDescArea.setText(
-                    "Could not load processor definition for '" + selected + "':\n"
-                    + ex.getMessage());
-        }
         refreshOkButton();
     }
 
     /** Enables OK only when all five fields are non-blank and the name is valid. */
     private void refreshOkButton() {
+        // auto-populate variant name when all combos are filled and user hasn't typed
+        maybePopulateDefaultName();
+
         String name = variantNameField.getText().trim();
         boolean nameOk = !name.isEmpty() && name.matches(VARIANT_NAME_PATTERN);
         boolean ready = nameOk
@@ -402,6 +539,52 @@ public class AddVariantWizard extends JDialog {
                      && !selectedText(variantChoice).isEmpty()
                      && !selectedText(processorChoice).isEmpty();
         okBtn.setEnabled(ready);
+    }
+
+    /**
+     * When all four combo boxes have a non-blank selection and the variant
+     * name field is still empty (and the user has not manually edited it),
+     * populates the name with a default derived from the selected options.
+     * <p>Format: {@code <os>-<processor>-<bits>-<linking>}, e.g.
+     * {@code linux-x86_64-64-static}.</p>
+     */
+    private void maybePopulateDefaultName() {
+        if (userEditedName) return;
+        if (!variantNameField.getText().trim().isEmpty()) return;
+
+        String processor  = selectedText(processorChoice);
+        String os         = selectedText(osChoice);
+        String outputType = selectedText(outputTypeChoice);
+        String variant    = selectedText(variantChoice);
+        if (processor.isEmpty() || os.isEmpty()
+                || outputType.isEmpty() || variant.isEmpty()) {
+            return;
+        }
+
+        // Derive bits and linking from the selected variant definition
+        String bits    = "";
+        String linking = "";
+        if (currentDef != null && currentDef.variants != null) {
+            for (OsDefinition.Variant v : currentDef.variants) {
+                String display = v.name != null ? v.name : v.id;
+                if (variant.equals(display)) {
+                    if (v.bits > 0) bits = String.valueOf(v.bits);
+                    if (v.linking != null) linking = v.linking.toLowerCase();
+                    break;
+                }
+            }
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(os.toLowerCase());
+        sb.append('-').append(processor.toLowerCase());
+        if (!bits.isEmpty())    sb.append('-').append(bits);
+        if (!linking.isEmpty()) sb.append('-').append(linking);
+
+        // Set the text without triggering the userEditedName flag
+        settingNameProgrammatically = true;
+        variantNameField.setText(sb.toString());
+        settingNameProgrammatically = false;
     }
 
     // ── description builders ──────────────────────────────────────────────────
@@ -476,19 +659,6 @@ public class AddVariantWizard extends JDialog {
         return sb.toString();
     }
 
-    private static String[] processorsForArchitecture(String architecture) {
-        if (architecture == null) return new String[0];
-        return switch (architecture.toLowerCase()) {
-            case "x86_64" -> new String[]{
-                "8086", "80186", "80286", "80386", "80486", "pentium", "x86_64"
-            };
-            case "x86" -> new String[]{
-                "8086", "80186", "80286", "80386", "80486", "pentium"
-            };
-            default -> new String[0];
-        };
-    }
-
     private static String wrap(String text, int maxWidth) {
         if (text == null) return "";
         String[] words = text.split("\\s+");
@@ -533,28 +703,29 @@ public class AddVariantWizard extends JDialog {
     /**
      * Pre-fills all form fields from an existing {@link ProjectFile.VariantEntry}
      * by programmatically selecting each Choice value and firing the cascade.
+     * The cascade order is: Processor → OS → Output Type → Variant.
      */
     private void applyPreFill(ProjectFile.VariantEntry ve) {
         if (ve.variantName != null) variantNameField.setText(ve.variantName);
 
-        // Select OS → triggers onOsChanged
+        // Select Processor → triggers onProcessorChanged (which populates OS)
+        if (ve.processor != null && selectItem(processorChoice, ve.processor)) {
+            onProcessorChanged();
+        }
+
+        // Select OS → triggers onOsChanged (which populates output types)
         if (ve.os != null && selectItem(osChoice, ve.os)) {
             onOsChanged();
         }
 
-        // Select Output Type → triggers onOutputTypeChanged
+        // Select Output Type → triggers onOutputTypeChanged (which populates variants)
         if (ve.outputType != null && selectItem(outputTypeChoice, ve.outputType)) {
             onOutputTypeChanged();
         }
 
-        // Select Variant → triggers onVariantChanged (which populates processors)
-        if (ve.variant != null && selectItem(variantChoice, ve.variant)) {
-            onVariantChanged();
-        }
-
-        // Select Processor → triggers onProcessorChanged
-        if (ve.processor != null) selectItem(processorChoice, ve.processor);
-        onProcessorChanged();
+        // Select Variant → triggers onVariantChanged
+        if (ve.variant != null) selectItem(variantChoice, ve.variant);
+        onVariantChanged();
 
         refreshOkButton();
     }

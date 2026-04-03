@@ -46,13 +46,13 @@
 // Win32 API cleans the stack.  Callers push arguments right-to-left
 // and the API pops them on return.
 //
-// Win32 handles are 32-bit DWORD values returned in eax.
-// Error returns:  eax = -1 (INVALID_HANDLE_VALUE) or eax = 0 (FALSE).
+// Win32 handles are 32-bit DWORD values returned in reg1.
+// Error returns:  reg1 = -1 (INVALID_HANDLE_VALUE) or reg1 = 0 (FALSE).
 //
 // Register conventions:
-//   eax — return value / handle / success flag
-//   ecx, edx — scratch (caller-saved, clobbered by API calls)
-//   ebx, esi, edi, ebp — callee-saved (preserved by these wrappers)
+//   reg1 — return value / handle / success flag
+//   reg3, reg4 — scratch (caller-saved, clobbered by API calls)
+//   reg2, ptr1, ptr2, bp — callee-saved (preserved by these wrappers)
 
 section .data
 
@@ -98,20 +98,20 @@ extern _GetStdHandle@4
 // Opens an existing file for reading.
 //
 // Input:
-//   [esp+4] = pointer to null-terminated file path (LPCSTR)
+//   [sp+4] = pointer to null-terminated file path (LPCSTR)
 //
 // Output:
-//   eax = file handle, or -1 (INVALID_HANDLE_VALUE) on error
+//   reg1 = file handle, or -1 (INVALID_HANDLE_VALUE) on error
 //
-// Clobbers: ecx, edx (per stdcall)
+// Clobbers: reg3, reg4 (per stdcall)
 //
 // Example:
 //   push file_path
 //   call @io.open_file_read
-//   // eax = handle (check for io_INVALID_HANDLE)
+//   // reg1 = handle (check for io_INVALID_HANDLE)
 proc io_open_file_read uses stack ( file_path ) {
-    push ebp
-    move esp to ebp
+    push bp
+    move sp to bp
 
     push 0                            // hTemplateFile = NULL
     push io_FILE_ATTRIBUTE_NORMAL     // dwFlagsAndAttributes
@@ -119,10 +119,10 @@ proc io_open_file_read uses stack ( file_path ) {
     push 0                            // lpSecurityAttributes = NULL
     push io_FILE_SHARE_READ           // dwShareMode
     push io_GENERIC_READ              // dwDesiredAccess
-    push dword [ebp+8]               // lpFileName (file path from caller)
+    push dword [bp+8]               // lpFileName (file path from caller)
     call _CreateFileA@28
 
-    pop ebp
+    pop bp
     return
 }
 
@@ -130,20 +130,20 @@ proc io_open_file_read uses stack ( file_path ) {
 // Creates or truncates a file for writing.
 //
 // Input:
-//   [esp+4] = pointer to null-terminated file path (LPCSTR)
+//   [sp+4] = pointer to null-terminated file path (LPCSTR)
 //
 // Output:
-//   eax = file handle, or -1 (INVALID_HANDLE_VALUE) on error
+//   reg1 = file handle, or -1 (INVALID_HANDLE_VALUE) on error
 //
-// Clobbers: ecx, edx (per stdcall)
+// Clobbers: reg3, reg4 (per stdcall)
 //
 // Example:
 //   push output_path
 //   call @io.create_file_write
-//   // eax = handle
+//   // reg1 = handle
 proc io_create_file_write uses stack ( file_path ) {
-    push ebp
-    move esp to ebp
+    push bp
+    move sp to bp
 
     push 0                            // hTemplateFile = NULL
     push io_FILE_ATTRIBUTE_NORMAL     // dwFlagsAndAttributes
@@ -151,10 +151,10 @@ proc io_create_file_write uses stack ( file_path ) {
     push 0                            // lpSecurityAttributes = NULL
     push 0                            // dwShareMode = 0 (exclusive)
     push io_GENERIC_WRITE             // dwDesiredAccess
-    push dword [ebp+8]               // lpFileName (file path from caller)
+    push dword [bp+8]               // lpFileName (file path from caller)
     call _CreateFileA@28
 
-    pop ebp
+    pop bp
     return
 }
 
@@ -162,39 +162,39 @@ proc io_create_file_write uses stack ( file_path ) {
 // Reads bytes from an open file handle.
 //
 // Input:
-//   [esp+4]  = file handle (HANDLE)
-//   [esp+8]  = pointer to destination buffer (LPVOID)
-//   [esp+12] = number of bytes to read (DWORD)
+//   [sp+4]  = file handle (HANDLE)
+//   [sp+8]  = pointer to destination buffer (LPVOID)
+//   [sp+12] = number of bytes to read (DWORD)
 //
 // Output:
-//   eax = 1 (TRUE) on success, 0 (FALSE) on failure
+//   reg1 = 1 (TRUE) on success, 0 (FALSE) on failure
 //   The actual number of bytes read is stored in a local variable;
 //   callers who need it should pass their own lpBytesRead pointer
 //   or use read_file_ex below.
 //
-// Clobbers: ecx, edx
+// Clobbers: reg3, reg4
 //
 // Example:
 //   push 256                         // nNumberOfBytesToRead
 //   push buffer                      // lpBuffer
-//   push eax                         // hFile (handle from open)
+//   push reg1                         // hFile (handle from open)
 //   call @io.read_file
-//   // eax = TRUE/FALSE
+//   // reg1 = TRUE/FALSE
 proc io_read_file uses stack ( file_handle, buffer_ptr, num_bytes ) {
-    push ebp
-    move esp to ebp
-    subtract 4 from esp               // local: bytes_read (DWORD)
+    push bp
+    move sp to bp
+    subtract 4 from sp               // local: bytes_read (DWORD)
 
     push 0                            // lpOverlapped = NULL
-    address of ebp-4 to eax
-    push eax                          // lpNumberOfBytesRead
-    push dword [ebp+16]              // nNumberOfBytesToRead
-    push dword [ebp+12]              // lpBuffer
-    push dword [ebp+8]               // hFile
+    address of bp-4 to reg1
+    push reg1                          // lpNumberOfBytesRead
+    push dword [bp+16]              // nNumberOfBytesToRead
+    push dword [bp+12]              // lpBuffer
+    push dword [bp+8]               // hFile
     call _ReadFile@20
 
-    move ebp to esp
-    pop ebp
+    move bp to sp
+    pop bp
     return
 }
 
@@ -202,36 +202,36 @@ proc io_read_file uses stack ( file_handle, buffer_ptr, num_bytes ) {
 // Writes bytes to an open file handle.
 //
 // Input:
-//   [esp+4]  = file handle (HANDLE)
-//   [esp+8]  = pointer to data buffer (LPCVOID)
-//   [esp+12] = number of bytes to write (DWORD)
+//   [sp+4]  = file handle (HANDLE)
+//   [sp+8]  = pointer to data buffer (LPCVOID)
+//   [sp+12] = number of bytes to write (DWORD)
 //
 // Output:
-//   eax = 1 (TRUE) on success, 0 (FALSE) on failure
+//   reg1 = 1 (TRUE) on success, 0 (FALSE) on failure
 //
-// Clobbers: ecx, edx
+// Clobbers: reg3, reg4
 //
 // Example:
 //   push 5                           // nNumberOfBytesToWrite
 //   push msg                         // lpBuffer
-//   push eax                         // hFile (handle from open/create)
+//   push reg1                         // hFile (handle from open/create)
 //   call @io.write_file
-//   // eax = TRUE/FALSE
+//   // reg1 = TRUE/FALSE
 proc io_write_file uses stack ( file_handle, buffer_ptr, num_bytes ) {
-    push ebp
-    move esp to ebp
-    subtract 4 from esp               // local: bytes_written (DWORD)
+    push bp
+    move sp to bp
+    subtract 4 from sp               // local: bytes_written (DWORD)
 
     push 0                            // lpOverlapped = NULL
-    address of ebp-4 to eax
-    push eax                          // lpNumberOfBytesWritten
-    push dword [ebp+16]              // nNumberOfBytesToWrite
-    push dword [ebp+12]              // lpBuffer
-    push dword [ebp+8]               // hFile
+    address of bp-4 to reg1
+    push reg1                          // lpNumberOfBytesWritten
+    push dword [bp+16]              // nNumberOfBytesToWrite
+    push dword [bp+12]              // lpBuffer
+    push dword [bp+8]               // hFile
     call _WriteFile@20
 
-    move ebp to esp
-    pop ebp
+    move bp to sp
+    pop bp
     return
 }
 
@@ -239,24 +239,24 @@ proc io_write_file uses stack ( file_handle, buffer_ptr, num_bytes ) {
 // Closes an open file handle.
 //
 // Input:
-//   [esp+4] = file handle (HANDLE)
+//   [sp+4] = file handle (HANDLE)
 //
 // Output:
-//   eax = 1 (TRUE) on success, 0 (FALSE) on failure
+//   reg1 = 1 (TRUE) on success, 0 (FALSE) on failure
 //
-// Clobbers: ecx, edx
+// Clobbers: reg3, reg4
 //
 // Example:
-//   push eax                         // hObject (file handle)
+//   push reg1                         // hObject (file handle)
 //   call @io.close_file
 proc io_close_file uses stack ( file_handle ) {
-    push ebp
-    move esp to ebp
+    push bp
+    move sp to bp
 
-    push dword [ebp+8]               // hObject
+    push dword [bp+8]               // hObject
     call _CloseHandle@4
 
-    pop ebp
+    pop bp
     return
 }
 
@@ -264,38 +264,38 @@ proc io_close_file uses stack ( file_handle ) {
 // Writes a message to the console standard output.
 //
 // Input:
-//   [esp+4] = pointer to data buffer (LPCVOID)
-//   [esp+8] = number of bytes to write (DWORD)
+//   [sp+4] = pointer to data buffer (LPCVOID)
+//   [sp+8] = number of bytes to write (DWORD)
 //
 // Output:
-//   eax = 1 (TRUE) on success, 0 (FALSE) on failure
+//   reg1 = 1 (TRUE) on success, 0 (FALSE) on failure
 //
-// Clobbers: ecx, edx
+// Clobbers: reg3, reg4
 //
 // Example:
 //   push 13                          // length
 //   push hello_msg                   // buffer
 //   call @io.write_stdout
 proc io_write_stdout uses stack ( buffer_ptr, num_bytes ) {
-    push ebp
-    move esp to ebp
-    subtract 4 from esp               // local: bytes_written (DWORD)
+    push bp
+    move sp to bp
+    subtract 4 from sp               // local: bytes_written (DWORD)
 
     // Get stdout handle
     push io_STD_OUTPUT_HANDLE
     call _GetStdHandle@4
-    // eax = stdout handle
+    // reg1 = stdout handle
 
     // WriteFile(stdout, buffer, length, &written, NULL)
     push 0                            // lpOverlapped = NULL
-    address of ebp-4 to ecx
-    push ecx                          // lpNumberOfBytesWritten
-    push dword [ebp+12]              // nNumberOfBytesToWrite
-    push dword [ebp+8]               // lpBuffer
-    push eax                          // hFile = stdout handle
+    address of bp-4 to reg3
+    push reg3                          // lpNumberOfBytesWritten
+    push dword [bp+12]              // nNumberOfBytesToWrite
+    push dword [bp+8]               // lpBuffer
+    push reg1                          // hFile = stdout handle
     call _WriteFile@20
 
-    move ebp to esp
-    pop ebp
+    move bp to sp
+    pop bp
     return
 }

@@ -101,44 +101,44 @@ start:
     // =========================================================
 
     // -- square: 7^2 = 49 -----------------------------------------
-    call @math.square( 7 )           // in eax=7 (by value, literal)
-    move eax to dword [result_sq]
+    call @math.square( 7 )           // in reg1=7 (by value, literal)
+    move reg1 to dword [result_sq]
 
     // -- square: 256^2 = 65536 ------------------------------------
-    call @math.square( 256 )         // out eax = 65536
+    call @math.square( 256 )         // out reg1 = 65536
 
     // -- sqrt_int: sqrt(49) = 7 -----------------------------------
-    call @math.sqrt_int( 49 )        // in eax=49 (by value, literal)
-    move eax to dword [result_sqrt]
+    call @math.sqrt_int( 49 )        // in reg1=49 (by value, literal)
+    move reg1 to dword [result_sqrt]
 
     // -- sqrt_int: sqrt(100) = 10 ---------------------------------
-    call @math.sqrt_int( 100 )       // out eax = 10
+    call @math.sqrt_int( 100 )       // out reg1 = 10
 
     // -- sqrt_int: sqrt(2) = 1 (nearest integer) ------------------
-    call @math.sqrt_int( 2 )         // out eax = 1
+    call @math.sqrt_int( 2 )         // out reg1 = 1
 
     // -- chain: sqrt(square(5)) = 5 -------------------------------
-    call @math.square( 5 )           // out eax = 25
-    call @math.sqrt_int              // eax = 25 from square; out eax = 5
+    call @math.square( 5 )           // out reg1 = 25
+    call @math.sqrt_int              // reg1 = 25 from square; out reg1 = 5
 
     // =========================================================
     //  Integer tests -- max / min (two values)
-    //  Positional: first arg -> in eax, second arg -> in ebx
+    //  Positional: first arg -> in reg1, second arg -> in reg2
     // =========================================================
 
     // -- max(10, 20) = 20 -----------------------------------------
-    call @math.max( 10, 20 )         // in eax=10, in ebx=20 (both by value, literals)
-    move eax to dword [result_max]
+    call @math.max( 10, 20 )         // in reg1=10, in reg2=20 (both by value, literals)
+    move reg1 to dword [result_max]
 
     // -- max(30, 5) = 30 ------------------------------------------
-    call @math.max( 30, 5 )          // out eax = 30
+    call @math.max( 30, 5 )          // out reg1 = 30
 
     // -- min(10, 20) = 10 -----------------------------------------
-    call @math.min( 10, 20 )         // in eax=10, in ebx=20
-    move eax to dword [result_min]
+    call @math.min( 10, 20 )         // in reg1=10, in reg2=20
+    move reg1 to dword [result_min]
 
     // -- min(30, 5) = 5 -------------------------------------------
-    call @math.min( 30, 5 )          // out eax = 5
+    call @math.min( 30, 5 )          // out reg1 = 5
 
     // =========================================================
     //  Integer tests -- max_array / min_array
@@ -148,15 +148,15 @@ start:
     // =========================================================
 
     // -- max_array([5, 3, 9, 1, 7]) = 9 ---------------------------
-    call @math.max_array( int_arr, 5 )  // in esi=int_arr (ptr), in ecx=5 (val)
-    move eax to dword [result_maxa]
+    call @math.max_array( int_arr, 5 )  // in ptr1=int_arr (ptr), in reg3=5 (val)
+    move reg1 to dword [result_maxa]
 
     // -- min_array([5, 3, 9, 1, 7]) = 1 ---------------------------
-    call @math.min_array( int_arr, 5 )  // in esi=int_arr (ptr), in ecx=5 (val)
-    move eax to dword [result_mina]
+    call @math.min_array( int_arr, 5 )  // in ptr1=int_arr (ptr), in reg3=5 (val)
+    move reg1 to dword [result_mina]
 
     // -- max_array with count loaded from variable (by-value [var]) --
-    call @math.max_array( int_arr, [arr_count] )  // ecx = [arr_count] = 5 (by value)
+    call @math.max_array( int_arr, [arr_count] )  // reg3 = [arr_count] = 5 (by value)
 
     // =========================================================
     //  Float tests -- square_float / sqrt
@@ -192,11 +192,11 @@ start:
     // =========================================================
 
     // -- max_array_float([1.5, 8.0, 3.25, 6.0]) = 8.0 ------------
-    call @math.max_array_float( float_arr, 4 )   // esi=float_arr (ptr), ecx=4 (val)
+    call @math.max_array_float( float_arr, 4 )   // ptr1=float_arr (ptr), reg3=4 (val)
     fstp dword [result_mxaf]
 
     // -- min_array_float([1.5, 8.0, 3.25, 6.0]) = 1.5 ------------
-    call @math.min_array_float( float_arr, 4 )   // esi=float_arr (ptr), ecx=4 (val)
+    call @math.min_array_float( float_arr, 4 )   // ptr1=float_arr (ptr), reg3=4 (val)
     fstp dword [result_mnaf]
 
     // =========================================================
@@ -217,11 +217,11 @@ start:
     // =========================================================
 
     // -- max_array_double([1.5, 8.0, 3.25, 6.0]) = 8.0 ----------
-    call @math.max_array_double( double_arr, 4 )  // esi=double_arr (ptr), ecx=4 (val)
+    call @math.max_array_double( double_arr, 4 )  // ptr1=double_arr (ptr), reg3=4 (val)
     fstp qword [result_mxad]
 
     // -- min_array_double([1.5, 8.0, 3.25, 6.0]) = 1.5 ----------
-    call @math.min_array_double( double_arr, 4 )  // esi=double_arr (ptr), ecx=4 (val)
+    call @math.min_array_double( double_arr, 4 )  // ptr1=double_arr (ptr), reg3=4 (val)
     fstp qword [result_mnad]
 
     // =========================================================
@@ -275,6 +275,6 @@ start:
 
 exit:
     // -- exit cleanly ---------------------------------------------
-    move 1 to eax                  // sys_exit
-    move 0 to ebx                  // exit code 0
+    move 1 to reg1                  // sys_exit
+    move 0 to reg2                  // exit code 0
     interrupt 0x80

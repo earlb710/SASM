@@ -22,30 +22,30 @@ var dwordArr  as dword[4]              // 4 dwords, zero-initialized
 var fillBuf   as byte[10] = 0xFF      // 10 bytes, each set to 0xFF
 
 (* //---------------------------------------------------------------
-   fill_array — fills 'buffer' with the value in al (10 elements).
+   fill_array — fills 'buffer' with the value in reg1.b (10 elements).
    //--------------------------------------------------------------- *)
 proc fill_array {
-    move 0 to bx                      // bx = byte index
-    move 10 to cx                     // cx = element count
-    repeat cx times {
-        move al to byte [buffer + bx] // buffer[bx] = al
-        increment bx
+    move 0 to reg2.w                      // reg2.w = byte index
+    move 10 to reg3.w                     // reg3.w = element count
+    repeat reg3.w times {
+        move reg1.b to byte [buffer + reg2.w] // buffer[reg2.w] = reg1.b
+        increment reg2.w
     }
     return
 }
 
 (* //---------------------------------------------------------------
-   sum_array — returns the sum of 'buffer' (10 bytes) in ax.
+   sum_array — returns the sum of 'buffer' (10 bytes) in reg1.w.
    //--------------------------------------------------------------- *)
 proc sum_array {
-    move 0 to ax                      // ax = accumulator
-    move 0 to bx                      // bx = byte index
-    move 10 to cx                     // cx = element count
-    repeat cx times {
-        move byte [buffer + bx] to dl
-        move zero dl to dx            // zero-extend byte → word
-        ax = ax + dx
-        increment bx
+    move 0 to reg1.w                      // reg1.w = accumulator
+    move 0 to reg2.w                      // reg2.w = byte index
+    move 10 to reg3.w                     // reg3.w = element count
+    repeat reg3.w times {
+        move byte [buffer + reg2.w] to reg4.b
+        move zero reg4.b to reg4.w            // zero-extend byte → word
+        reg1.w = reg1.w + reg4.w
+        increment reg2.w
     }
     return
 }
@@ -56,12 +56,12 @@ proc sum_array {
    Expected sum: 10 * 0xAA = 10 * 170 = 1700 (0x06A4).
    //--------------------------------------------------------------- *)
 _start:
-    move 0xAA to al                   // fill value
+    move 0xAA to reg1.b                   // fill value
     call fill_array                   // buffer[0..9] = 0xAA
 
-    call sum_array                    // ax = 1700 (0x06A4)
+    call sum_array                    // reg1.w = 1700 (0x06A4)
 
-    // Exit (Linux syscall: sys_exit with status in bl)
-    move al to bl                     // exit code = low byte of sum (0xA4)
-    move 1 to ax                      // sys_exit
+    // Exit (Linux syscall: sys_exit with status in reg2.b)
+    move reg1.b to reg2.b                     // exit code = low byte of sum (0xA4)
+    move 1 to reg1.w                      // sys_exit
     syscall 0x80

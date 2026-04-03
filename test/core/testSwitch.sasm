@@ -18,18 +18,18 @@ var counter as word = 0
 
 // //---------------------------------------------------------------
 // 1. Basic switch — register operand
-//    Dispatches on the value of ax.
+//    Dispatches on the value of reg1.w.
 // //---------------------------------------------------------------
 proc test_switch_register {
-    switch (ax) {
+    switch (reg1.w) {
         1 : {
-            move 10 to bx
+            move 10 to reg2.w
         }
         2 : {
-            move 20 to bx
+            move 20 to reg2.w
         }
         3 : {
-            move 30 to bx
+            move 30 to reg2.w
         }
     }
     return
@@ -147,6 +147,6 @@ _start:
     call test_switch_in_for
 
     // Exit (Linux syscall: sys_exit)
-    move 0 to bl
-    move 1 to ax
+    move 0 to reg2.b
+    move 1 to reg1.w
     syscall 0x80

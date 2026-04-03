@@ -1,0 +1,128 @@
+// testMathLong.sasm
+// Project : Test-projects
+//
+// Exercises the 5 long (64-bit) integer math-library routines:
+//
+//   @math.sqrt_long   — [ptr1] = integer √[ptr1]          (qword via FPU)
+//   @math.abs_long    — [ptr1] = |[ptr1]|                  (qword, pure integer)
+//   @math.max_long    — [ptr1] = max([ptr1],[ptr2])         (signed qword, pure integer)
+//   @math.min_long    — [ptr1] = min([ptr1],[ptr2])         (signed qword, pure integer)
+//   @math.sign_long   — reg1  = sign([ptr1]): -1, 0, or 1 (qword, pure integer)
+//
+// These routines use pointer-based calling conventions: ptr1 (and ptr2
+// for two-operand functions) point to qword values in memory.  Results
+// are stored back to the qword at [ptr1] (or in reg1 for sign_long).
+//
+// Target: 32-bit Linux ELF executable (uses int 0x80 for exit).
+//
+// Build with:
+//   nasm -f elf32 testMathLong.asm -o testMathLong.o
+//   ld -m elf_i386 testMathLong.o -o testMathLong
+//
+// NOTE: This file tests SASM-to-NASM translation only.
+//       Only sqrt_long requires x87 FPU support; all others are pure integer.
+
+#REF lib/math.sasm math
+
+section .data
+
+// ── 64-bit test inputs ───────────────────────────────────────────
+
+// sqrt_long: √100 = 10
+var q_sqrt_val    as qword = 100
+
+// abs_long: |-42| = 42
+var q_abs_neg     as qword = -42
+
+// abs_long: |7| = 7
+var q_abs_pos     as qword = 7
+
+// max_long / min_long operands
+var q_a           as qword = 300
+var q_b           as qword = 500
+
+// sign_long test values
+var q_neg         as qword = -99
+var q_zero        as qword = 0
+var q_pos         as qword = 42
+
+// ── result storage ───────────────────────────────────────────────
+var r_sqrt        as qword = 0     // sqrt_long(100) = 10
+var r_abs_neg     as qword = 0     // abs_long(-42)  = 42
+var r_abs_pos     as qword = 0     // abs_long(7)    = 7
+var r_max         as qword = 0     // max_long(300, 500) = 500
+var r_min         as qword = 0     // min_long(300, 500) = 300
+var r_sign_neg    as dword = 0     // sign_long(-99) = -1
+var r_sign_zero   as dword = 0     // sign_long(0)   = 0
+var r_sign_pos    as dword = 0     // sign_long(42)  = 1
+
+section .text
+
+start:
+    // ═════════════════════════════════════════════════════════════
+    //  sqrt_long: √100 = 10
+    // ═════════════════════════════════════════════════════════════
+
+    // Copy input to result buffer, then operate in-place
+    fild qword [q_sqrt_val]
+    fistp qword [r_sqrt]
+    lea ptr1, [r_sqrt]
+    call @math.sqrt_long               // [r_sqrt] = 10
+
+    // ═════════════════════════════════════════════════════════════
+    //  abs_long: |-42| = 42,  |7| = 7
+    // ═════════════════════════════════════════════════════════════
+
+    fild qword [q_abs_neg]
+    fistp qword [r_abs_neg]
+    lea ptr1, [r_abs_neg]
+    call @math.abs_long                // [r_abs_neg] = 42
+
+    fild qword [q_abs_pos]
+    fistp qword [r_abs_pos]
+    lea ptr1, [r_abs_pos]
+    call @math.abs_long                // [r_abs_pos] = 7
+
+    // ═════════════════════════════════════════════════════════════
+    //  max_long: max(300, 500) = 500
+    // ═════════════════════════════════════════════════════════════
+
+    // Copy q_a → r_max, then compare with q_b
+    fild qword [q_a]
+    fistp qword [r_max]
+    lea ptr1, [r_max]
+    lea ptr2, [q_b]
+    call @math.max_long                // [r_max] = 500
+
+    // ═════════════════════════════════════════════════════════════
+    //  min_long: min(300, 500) = 300
+    // ═════════════════════════════════════════════════════════════
+
+    // Copy q_a → r_min, then compare with q_b
+    fild qword [q_a]
+    fistp qword [r_min]
+    lea ptr1, [r_min]
+    lea ptr2, [q_b]
+    call @math.min_long                // [r_min] = 300
+
+    // ═════════════════════════════════════════════════════════════
+    //  sign_long: sign(-99) = -1, sign(0) = 0, sign(42) = 1
+    // ═════════════════════════════════════════════════════════════
+
+    lea ptr1, [q_neg]
+    call @math.sign_long               // reg1 = -1
+    move reg1 to dword [r_sign_neg]
+
+    lea ptr1, [q_zero]
+    call @math.sign_long               // reg1 = 0
+    move reg1 to dword [r_sign_zero]
+
+    lea ptr1, [q_pos]
+    call @math.sign_long               // reg1 = 1
+    move reg1 to dword [r_sign_pos]
+
+exit:
+    // ── exit cleanly ────────────────────────────────────────────
+    move 1 to reg1                      // sys_exit
+    move 0 to reg2                      // exit code 0
+    interrupt 0x80

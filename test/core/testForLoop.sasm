@@ -35,8 +35,8 @@ proc fill_buffer {
 // //---------------------------------------------------------------
 proc countdown {
     for (i=9; i>=0; i--) {
-        move i to al
-        move al to byte [buffer + i]
+        move i to reg1.b
+        move reg1.b to byte [buffer + i]
     }
     return
 }
@@ -100,6 +100,6 @@ _start:
     call fill_inclusive         // 6. <= condition
 
     // Exit (Linux syscall: sys_exit)
-    move 0 to bl
-    move 1 to ax
+    move 0 to reg2.b
+    move 1 to reg1.w
     syscall 0x80

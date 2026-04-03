@@ -33,6 +33,13 @@ public class ProjectFile {
     /** Ordered list of variants added to this project via "Add Variant". */
     public List<VariantEntry> variants;
 
+    /**
+     * The {@link VariantEntry#variantName} of the variant that is currently
+     * selected as the default build target.  May be {@code null} if no
+     * default has been chosen yet.
+     */
+    public String defaultVariant;
+
     // ── legacy flat fields (kept for backward-compat with older project files) ─
 
     /** @deprecated use {@link #variants} instead. */

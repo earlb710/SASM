@@ -28,6 +28,34 @@ import java.util.regex.Pattern;
  */
 public class SasmTranslator {
 
+    // ── target architecture ──────────────────────────────────────────────────
+
+    /**
+     * The target architecture for this translator instance.
+     * Controls register name resolution, instruction mapping, and parameter
+     * register pool selection.  Defaults to {@link Architecture#X86_32}.
+     */
+    private final Architecture arch;
+
+    /** Constructs a translator targeting x86 32-bit (the default). */
+    public SasmTranslator() {
+        this(Architecture.X86_32);
+    }
+
+    /**
+     * Constructs a translator targeting the given architecture.
+     *
+     * @param arch the target architecture; must not be {@code null}
+     */
+    public SasmTranslator(Architecture arch) {
+        this.arch = (arch != null) ? arch : Architecture.X86_32;
+    }
+
+    /** Returns the target architecture of this translator. */
+    public Architecture getArchitecture() {
+        return arch;
+    }
+
     // ── label counter for generated labels ───────────────────────────────────
     private int labelSeq = 0;
 
@@ -377,6 +405,9 @@ public class SasmTranslator {
     String translateLine(String line) {
         // Preserve blank lines
         if (line.isBlank()) return line;
+
+        // ── resolve portable register names (reg1→EAX, ptr1→ESI, etc.) ─────
+        line = arch.resolvePortableRegisters(line);
 
         String trimmed = line.trim();
         String leading = leadingWhitespace(line);
@@ -1774,10 +1805,13 @@ public class SasmTranslator {
             // Mangle local labels (.foo → .foo_N) to avoid collisions across
             // multiple expansions of the same inline proc.
             String mangledLine = bodyLine.replaceAll("\\.(\\w+)", ".$1_" + id);
-            String asm = tryTranslateCode(mangledLine);
+            // Resolve portable register names so library bodies that use
+            // reg1/ptr1/bp/sp etc. get the physical names for the target arch.
+            String resolvedLine = arch.resolvePortableRegisters(mangledLine);
+            String asm = tryTranslateCode(resolvedLine);
             if (asm == null) {
                 // Unrecognised line — pass through (raw ASM)
-                asm = "    " + mangledLine;
+                asm = "    " + resolvedLine;
             }
             if (!asm.isEmpty()) {
                 sb.append('\n').append(asm);
@@ -1865,7 +1899,9 @@ public class SasmTranslator {
                 Matcher m = inlineDecl.matcher(code);
                 if (m.find()) {
                     String pname  = m.group(1);
-                    String params = m.group(2).trim();
+                    // Resolve portable register names in params so that
+                    // "in reg1 as value" is treated the same as "in eax as value".
+                    String params = arch.resolvePortableRegisters(m.group(2).trim());
                     collectName = pname;
                     collectBody = new ArrayList<>();
                     braceDepth  = 0;
@@ -1884,7 +1920,9 @@ public class SasmTranslator {
                 m = regularDecl.matcher(code);
                 if (m.find() && !code.contains("inline")) {
                     String pname  = m.group(1);
-                    String params = m.group(2).trim();
+                    // Resolve portable register names in params so that
+                    // "in reg1 as value" is treated the same as "in eax as value".
+                    String params = arch.resolvePortableRegisters(m.group(2).trim());
                     // Store in-param register list for positional calling.
                     List<String> defRegs = new ArrayList<>();
                     List<String> inRegs = parseInParamRegs(params, defRegs);
@@ -2110,10 +2148,10 @@ public class SasmTranslator {
             if ("val".equals(fw))  { break; }
         }
 
-        String[] addrRegs = {"esi", "edi"};
+        String[] addrRegs = {arch.resolveReg("ptr1"), arch.resolveReg("ptr2")};
         String[] valRegs  = addrPrecedesFirstVal
-                ? new String[]{"ecx", "edx", "ebx"}
-                : new String[]{"eax", "ebx", "ecx", "edx"};
+                ? new String[]{arch.resolveReg("reg3"), arch.resolveReg("reg4"), arch.resolveReg("reg2")}
+                : new String[]{arch.resolveReg("reg1"), arch.resolveReg("reg2"), arch.resolveReg("reg3"), arch.resolveReg("reg4")};
         int addrIdx = 0;
         int valIdx  = 0;
 
@@ -2162,9 +2200,12 @@ public class SasmTranslator {
      *
      * <p>Example: {@code "val dword length default eax"} → {@code "eax"}.</p>
      */
-    private static String extractDefaultReg(String token) {
+    private String extractDefaultReg(String token) {
         Matcher m = DEFAULT_REG.matcher(token.trim());
-        return m.find() ? m.group(1).toLowerCase() : null;
+        if (!m.find()) return null;
+        String raw = m.group(1).toLowerCase();
+        // Resolve portable register names (e.g. "reg1" → "eax" on x86-32)
+        return arch.resolveReg(raw).toLowerCase();
     }
 
     /**

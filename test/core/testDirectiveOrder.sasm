@@ -18,5 +18,5 @@ section .text
 global _start
 
 _start:
-    move msg_bytes to ax
+    move msg_bytes to reg1.w
     halt

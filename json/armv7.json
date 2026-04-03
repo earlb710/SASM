@@ -1,0 +1,6 @@
+{
+  "processor": "armv7",
+  "description": "ARMv7-A 32-bit instruction set architecture. The ARMv7-A profile is widely used in smartphones, tablets, and embedded systems (including Raspberry Pi 2). Supports the Thumb-2 mixed 16/32-bit instruction encoding, NEON SIMD extensions, and VFPv3/VFPv4 floating-point. Operating modes include ARM (32-bit fixed-width instructions), Thumb (16/32-bit), and Jazelle. The architecture defines a load/store model with 16 general-purpose 32-bit registers (R0–R15), where R13 is the stack pointer (SP), R14 the link register (LR), and R15 the program counter (PC). Condition codes (N, Z, C, V in the CPSR) allow nearly every instruction to execute conditionally.",
+  "source_reference": "doc/instruction_armv7.md",
+  "instructions": []
+}

@@ -79,7 +79,10 @@ public class SasmIdePanel extends JPanel {
     private LineNumberComponent editorLineNumbers;
 
     // ── assembler output (right pane — NASM, 1/3 width) ─────────────────────
-    private final JLabel    asmHeader = new JLabel("  Assembler Output", SwingConstants.LEFT);
+    /** Dropdown listing all project variants; replaces the plain "Assembler Output" label. */
+    private final JComboBox<String> variantChoice = new JComboBox<>();
+    /** The single action listener on variantChoice; stored so it can be cleanly removed during model refresh. */
+    private final ActionListener variantChoiceListener = e -> onVariantSelected();
     private final JTextArea asmOutput = new JTextArea(30, 40);
     private JScrollPane     asmScroll;
     private LineNumberComponent asmLineNumbers;
@@ -99,11 +102,21 @@ public class SasmIdePanel extends JPanel {
     /** The parent container holding the editor and asm panes (needed for toggle). */
     private JSplitPane splitPane;
 
+    /** Outer split pane separating the project file list from the editor area. */
+    private JSplitPane outerSplitPane;
+
     /** Tracks the last-known editor line count so line-number repaint is skipped when unchanged. */
     private int lastEditorLineCount = -1;
 
     /** Cached translation so we skip asmOutput.setText() when the result is unchanged. */
     private String lastAsmText = "";
+
+    /**
+     * Architecture of the currently selected variant.  Updated by
+     * {@link #rebuildTranslatorForSelectedVariant()} and used by the syntax
+     * highlighter to choose arch-appropriate register and keyword patterns.
+     */
+    private Architecture currentArch = Architecture.X86_32;
 
     /**
      * Set of 0-based line indices in the editor that are padding blanks
@@ -119,6 +132,9 @@ public class SasmIdePanel extends JPanel {
      * redundant re-translation cycle.
      */
     private boolean updatingPadding = false;
+    /** Guard: suppresses DocumentListener during file loading so that
+     *  editor.setText() does not re-mark the old file as dirty. */
+    private boolean loadingFile = false;
 
     /**
      * Guard flag that suppresses the {@link javax.swing.undo.UndoManager}
@@ -175,7 +191,7 @@ public class SasmIdePanel extends JPanel {
     }
 
     // ── SASM → NASM translator ───────────────────────────────────────────────
-    private final SasmTranslator translator = new SasmTranslator();
+    private SasmTranslator translator = new SasmTranslator();
 
     // ── undo / redo ───────────────────────────────────────────────────────────
     private final UndoManager undoManager = new UndoManager();
@@ -184,6 +200,9 @@ public class SasmIdePanel extends JPanel {
     private ProjectFile project;
     private File        currentFile;
     private boolean     dirty = false;   // editor has unsaved changes
+    /** Guard: suppresses the file-list selection listener while the selection
+     *  is being programmatically restored after a Cancel in the save dialog. */
+    private boolean     suppressFileSelection = false;
 
     /**
      * Maps each entry index in the file list to its absolute {@link File}.
@@ -225,12 +244,149 @@ public class SasmIdePanel extends JPanel {
         asmOutput.setText("");
         editorHeader.setText("  (no file open)");
         treeHeader.setText(pf != null && pf.name != null ? pf.name : "Project Files");
-        // Tell the translator where to find library files referenced by #REF
-        // so that inline proc bodies can be expanded at call sites.
-        translator.setWorkingDirectory(
-                pf != null && pf.workingDirectory != null
-                        ? new File(pf.workingDirectory) : null);
+        // refreshFileList also repopulates the variant dropdown and rebuilds the translator
         refreshFileList();
+    }
+
+    /**
+     * Repopulates the variant dropdown from the current project's variant list
+     * and rebuilds the translator to match the selected variant's architecture.
+     */
+    private void refreshVariantChoice() {
+        // Temporarily remove the listener to avoid cascading re-translate calls
+        // while we rebuild the model.
+        variantChoice.removeActionListener(variantChoiceListener);
+
+        // Remember what was selected so we can try to restore it after clearing.
+        String previousSel = (String) variantChoice.getSelectedItem();
+
+        variantChoice.removeAllItems();
+
+        if (project != null) {
+            java.util.List<ProjectFile.VariantEntry> variants = project.getVariants();
+            for (ProjectFile.VariantEntry ve : variants) {
+                String name = ve.variantName != null ? ve.variantName : "(unnamed)";
+                variantChoice.addItem(name);
+            }
+
+            // Restore selection priority:
+            //  1. whatever the user had selected before the refresh
+            //  2. the project's saved default variant
+            //  3. first item (fallback)
+            if (previousSel != null) {
+                variantChoice.setSelectedItem(previousSel);
+            }
+            if (variantChoice.getSelectedItem() == null
+                    && project.defaultVariant != null
+                    && !project.defaultVariant.isEmpty()) {
+                variantChoice.setSelectedItem(project.defaultVariant);
+            }
+            if (variantChoice.getSelectedItem() == null && variantChoice.getItemCount() > 0) {
+                variantChoice.setSelectedIndex(0);
+            }
+        }
+
+        // Restore action listener
+        variantChoice.addActionListener(variantChoiceListener);
+
+        // Rebuild translator for the currently selected variant
+        rebuildTranslatorForSelectedVariant();
+    }
+
+    /**
+     * Derives the target {@link Architecture} from a {@link ProjectFile.VariantEntry}
+     * using the processor name stored in the entry.
+     */
+    private static Architecture architectureFor(ProjectFile.VariantEntry ve) {
+        if (ve == null || ve.processor == null) return Architecture.X86_32;
+        return Architecture.from(ve.processor, 0);
+    }
+
+    /**
+     * (Re-)creates the {@link SasmTranslator} configured for the architecture of
+     * whichever variant is currently selected in the dropdown.
+     */
+    private void rebuildTranslatorForSelectedVariant() {
+        Architecture arch = Architecture.X86_32;
+        if (project != null) {
+            String sel = (String) variantChoice.getSelectedItem();
+            if (sel != null) {
+                for (ProjectFile.VariantEntry ve : project.getVariants()) {
+                    String name = ve.variantName != null ? ve.variantName : "(unnamed)";
+                    if (sel.equals(name)) {
+                        arch = architectureFor(ve);
+                        break;
+                    }
+                }
+            }
+        }
+        translator = new SasmTranslator(arch);
+        translator.setWorkingDirectory(
+                project != null && project.workingDirectory != null
+                        ? new File(project.workingDirectory) : null);
+        currentArch = arch;
+        lastAsmText = ""; // force a re-translate
+    }
+
+    /** Called when the user picks a different variant from the dropdown. */
+    private void onVariantSelected() {
+        rebuildTranslatorForSelectedVariant();
+        if (asmVisible) {
+            updateAsmOutput();
+        }
+    }
+
+    /**
+     * Returns the concatenated {@code code_example.source} blocks from every
+     * {@code required_component} of the selected variant's OS format definition,
+     * or an empty string if the variant has no OS/format data or none of its
+     * components have code examples.
+     *
+     * <p>Each block is preceded by a short banner comment so the reader can
+     * identify which binary-format component it belongs to.</p>
+     */
+    private String buildPluginCode() {
+        if (project == null) return "";
+        String sel = (String) variantChoice.getSelectedItem();
+        if (sel == null) return "";
+
+        ProjectFile.VariantEntry ve = null;
+        for (ProjectFile.VariantEntry entry : project.getVariants()) {
+            String name = entry.variantName != null ? entry.variantName : "(unnamed)";
+            if (sel.equals(name)) { ve = entry; break; }
+        }
+        if (ve == null || ve.os == null || ve.os.isEmpty()) return "";
+
+        try {
+            OsDefinition osDef = JsonLoader.load(ve.os, ve.outputType);
+            // Find the OsDefinition.Variant whose name matches the stored variant field
+            OsDefinition.Variant osVariant = null;
+            if (osDef.variants != null) {
+                for (OsDefinition.Variant ov : osDef.variants) {
+                    if (ov.name != null && ov.name.equals(ve.variant)) {
+                        osVariant = ov;
+                        break;
+                    }
+                }
+            }
+            if (osVariant == null || osVariant.required_components == null) return "";
+
+            StringBuilder sb = new StringBuilder();
+            for (OsDefinition.Component comp : osVariant.required_components) {
+                if (comp.code_example != null
+                        && comp.code_example.source != null
+                        && !comp.code_example.source.isBlank()) {
+                    if (sb.length() > 0) sb.append("\n\n");
+                    if (comp.name != null && !comp.name.isBlank()) {
+                        sb.append("; ── ").append(comp.name).append(" ──\n");
+                    }
+                    sb.append(comp.code_example.source);
+                }
+            }
+            return sb.toString();
+        } catch (Exception ignored) {
+            return "";
+        }
     }
 
     /**
@@ -240,6 +396,9 @@ public class SasmIdePanel extends JPanel {
      * in alphabetical order.
      */
     public void refreshFileList() {
+        // Always keep the variant dropdown in sync with the project's variant list
+        refreshVariantChoice();
+
         String prevSel = currentFile != null ? currentFile.getAbsolutePath() : null;
         fileListModel.clear();
         fileIndex.clear();
@@ -306,8 +465,22 @@ public class SasmIdePanel extends JPanel {
     }
 
     /**
+     * Updates the file-list entry for the currently open file to reflect the
+     * current dirty state: appends " *" to the name when there are unsaved
+     * changes, removes it once the file is saved.
+     */
+    private void updateDirtyIndicator() {
+        if (currentFile == null) return;
+        for (int i = 0; i < fileIndex.size(); i++) {
+            if (currentFile.equals(fileIndex.get(i))) {
+                fileListModel.set(i, "   " + currentFile.getName() + (dirty ? " *" : ""));
+                return;
+            }
+        }
+    }
+
+    /**
      * Creates a new {@code .sasm} file in the project's {@code core/}
-     * directory, seeds it with a starter template, and opens it in the editor.
      *
      * @param baseName file name without extension (validated before calling)
      * @throws IOException              if the file cannot be written
@@ -329,6 +502,7 @@ public class SasmIdePanel extends JPanel {
             Files.writeString(currentFile.toPath(),
                               getSourceText(), StandardCharsets.UTF_8);
             dirty = false;
+            updateDirtyIndicator();  // remove * from file list when saved
         } catch (IOException ignored) {
             // Non-fatal — content remains in the editor.
         }
@@ -630,12 +804,22 @@ public class SasmIdePanel extends JPanel {
         // ── right pane (assembler output — 1/3 of remaining width) ───────────
         asmPane = new JPanel(new BorderLayout(0, 0));
 
-        asmHeader.setFont(new Font("SansSerif", Font.BOLD, 12));
-        asmHeader.setOpaque(true);
-        asmHeader.setBackground(new Color(0x2B, 0x57, 0x97));
-        asmHeader.setForeground(Color.WHITE);
-        asmHeader.setPreferredSize(new Dimension(0, 28));
-        asmPane.add(asmHeader, BorderLayout.NORTH);
+        // Header bar: blue background, variant dropdown instead of a plain label
+        JPanel asmHeaderBar = new JPanel(new BorderLayout(4, 0));
+        asmHeaderBar.setBackground(new Color(0x2B, 0x57, 0x97));
+        asmHeaderBar.setPreferredSize(new Dimension(0, 28));
+
+        JLabel asmHeaderLabel = new JLabel("  Variant:", SwingConstants.LEFT);
+        asmHeaderLabel.setFont(new Font("SansSerif", Font.BOLD, 12));
+        asmHeaderLabel.setForeground(Color.WHITE);
+        asmHeaderBar.add(asmHeaderLabel, BorderLayout.WEST);
+
+        variantChoice.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        variantChoice.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+        variantChoice.addActionListener(variantChoiceListener);
+        asmHeaderBar.add(variantChoice, BorderLayout.CENTER);
+
+        asmPane.add(asmHeaderBar, BorderLayout.NORTH);
 
         asmOutput.setFont(new Font("Monospaced", Font.PLAIN, 13));
         asmOutput.setBackground(new Color(0x0A, 0x14, 0x28));
@@ -662,12 +846,17 @@ public class SasmIdePanel extends JPanel {
         splitPane.setResizeWeight(1.0);
 
         // ── assemble panels ──────────────────────────────────────────────────
-        add(leftPane,  BorderLayout.WEST);
-        add(splitPane, BorderLayout.CENTER);
+        outerSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
+                                        leftPane, splitPane);
+        outerSplitPane.setContinuousLayout(true);
+        outerSplitPane.setDividerSize(6);
+        outerSplitPane.setBorder(null);
+        outerSplitPane.setDividerLocation(210);
+        add(outerSplitPane, BorderLayout.CENTER);
 
         // ── wire events ───────────────────────────────────────────────────────
         fileList.addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
+            if (!e.getValueIsAdjusting() && !suppressFileSelection) {
                 int idx = fileList.getSelectedIndex();
                 if (idx >= 0 && idx < fileIndex.size()) {
                     File selected = fileIndex.get(idx);
@@ -686,8 +875,11 @@ public class SasmIdePanel extends JPanel {
             @Override public void changedUpdate(DocumentEvent e) { /* style change — ignore */ }
             private void onTextChange() {
                 // Skip when we are inserting/removing padding lines
-                if (updatingPadding) return;
-                dirty = true;
+                if (updatingPadding || loadingFile) return;
+                if (!dirty) {
+                    dirty = true;
+                    updateDirtyIndicator();  // show * on first unsaved change
+                }
                 // Only start translation timer when the asm pane is visible
                 if (asmVisible) {
                     translateTimer.restart();
@@ -722,7 +914,7 @@ public class SasmIdePanel extends JPanel {
         // Record undoable edits from the editor document, but skip any
         // edits that originate from programmatic padding updates.
         editor.getDocument().addUndoableEditListener(e -> {
-            if (!updatingPadding && !updatingHighlight) {
+            if (!updatingPadding && !updatingHighlight && !loadingFile) {
                 undoManager.addEdit(e.getEdit());
             }
         });
@@ -863,6 +1055,12 @@ public class SasmIdePanel extends JPanel {
      * is completely skipped, giving the editor maximum performance.
      */
     private void toggleAsmPane() {
+        // Save the source-line number at the top of the editor viewport before
+        // any layout or text changes.  Raw scroll pixels are NOT used because
+        // adding/removing padding lines shifts the pixel offset of each source
+        // line — restoring pixels would land on the wrong source line.
+        int savedTopLine = topVisibleSourceLine();
+
         asmVisible = !asmVisible;
         asmPane.setVisible(asmVisible);
 
@@ -882,6 +1080,12 @@ public class SasmIdePanel extends JPanel {
         splitPane.repaint();
 
         if (asmVisible) {
+            // Ensure the variant dropdown is up-to-date whenever the pane is shown.
+            // This is a belt-and-suspenders call: refreshVariantChoice() is already
+            // called from refreshFileList(), but re-running it here guarantees the
+            // combo renders correctly even if the initial population happened off the
+            // EDT (e.g. a startup race condition).
+            refreshVariantChoice();
             // Refresh translation now that the pane is visible again
             lastAsmText = "";
             updateAsmOutput();
@@ -891,6 +1095,65 @@ public class SasmIdePanel extends JPanel {
             // Remove any padding lines from the editor
             removePaddingLines();
         }
+
+        // After all layout and text changes have been committed, scroll the
+        // editor so the same source line that was at the top is still at the
+        // top.  The revalidate() call above queues a layout pass on the EDT;
+        // invokeLater ensures we run after it (and after applyPerLinePadding).
+        SwingUtilities.invokeLater(() -> scrollEditorToSourceLine(savedTopLine));
+    }
+
+    /**
+     * Returns the 0-based source line number currently visible at the top of
+     * the editor viewport.  Padding lines are not counted.
+     */
+    @SuppressWarnings("deprecation")
+    private int topVisibleSourceLine() {
+        int vpY = editorScroll.getViewport().getViewPosition().y;
+        int offset = editor.viewToModel(new java.awt.Point(0, vpY));
+        int paddedLine = editor.getDocument().getDefaultRootElement()
+                .getElementIndex(offset);
+        // Count how many non-padding lines precede paddedLine
+        int srcLine = 0;
+        for (int i = 0; i < paddedLine; i++) {
+            if (!paddingLines.contains(i)) {
+                srcLine++;
+            }
+        }
+        return srcLine;
+    }
+
+    /**
+     * Scrolls the editor so that the given 0-based source line number is at
+     * the top of the visible area, regardless of how many padding lines exist.
+     */
+    @SuppressWarnings("deprecation")
+    private void scrollEditorToSourceLine(int srcLine) {
+        // Walk padded lines to find the padded-line index for srcLine
+        int srcCount = 0;
+        int totalLines = editor.getDocument().getDefaultRootElement().getElementCount();
+        int targetPaddedLine = Math.max(0, totalLines - 1);
+        for (int i = 0; i < totalLines; i++) {
+            if (!paddingLines.contains(i)) {
+                if (srcCount == srcLine) {
+                    targetPaddedLine = i;
+                    break;
+                }
+                srcCount++;
+            }
+        }
+        try {
+            int startOffset = editor.getDocument().getDefaultRootElement()
+                    .getElement(targetPaddedLine).getStartOffset();
+            java.awt.Rectangle r = editor.modelToView(startOffset);
+            if (r != null) {
+                JScrollBar vsb = editorScroll.getVerticalScrollBar();
+                int maxScroll = Math.max(0, vsb.getMaximum() - vsb.getVisibleAmount());
+                vsb.setValue(Math.min(r.y, maxScroll));
+            }
+        } catch (BadLocationException ignored) {
+            // Non-fatal — scroll position stays wherever it landed
+        }
     }
 
     /** Translates the current editor content and updates the assembler pane. */
@@ -899,6 +1162,15 @@ public class SasmIdePanel extends JPanel {
         String source = getSourceText();
         try {
             String asm = translator.translate(source);
+            // Append variant plugin code (binary-format component templates) if any
+            String plugin = buildPluginCode();
+            if (!plugin.isEmpty()) {
+                asm = asm
+                        + "\n\n; ════════════════════════════════════════\n"
+                        + "; Variant plugin code\n"
+                        + "; ════════════════════════════════════════\n\n"
+                        + plugin;
+            }
             // Skip the expensive setText + repaint cycle when the
             // translated output hasn't changed (e.g. typing in a comment).
             if (asm.equals(lastAsmText)) return;
@@ -1110,7 +1382,7 @@ public class SasmIdePanel extends JPanel {
     private void applyHighlights() {
         updatingHighlight = true;
         try {
-            SasmSyntaxHighlighter.applyHighlights(editor.getStyledDocument());
+            SasmSyntaxHighlighter.applyHighlights(editor.getStyledDocument(), currentArch);
             applyEditorTabStops();
         } finally {
             updatingHighlight = false;
@@ -1174,7 +1446,32 @@ public class SasmIdePanel extends JPanel {
     // ── file I/O ──────────────────────────────────────────────────────────────
 
     private void openFile(File f) {
-        saveCurrentFile();
+        // Prompt to save unsaved changes before switching files.
+        if (dirty && currentFile != null) {
+            int choice = JOptionPane.showConfirmDialog(
+                    this,
+                    "Save changes to \"" + currentFile.getName() + "\"?",
+                    "Unsaved Changes",
+                    JOptionPane.YES_NO_CANCEL_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+            if (choice == JOptionPane.YES_OPTION) {
+                saveCurrentFile();
+            } else if (choice != JOptionPane.NO_OPTION) {
+                // CANCEL or dialog closed — abort the file switch and restore
+                // the file-list highlight to the currently open file.
+                suppressFileSelection = true;
+                try {
+                    restoreFileListSelection();
+                } finally {
+                    suppressFileSelection = false;
+                }
+                return;
+            }
+            // NO_OPTION: discard changes — clear the dirty indicator on the
+            // old file before switching, so the * is removed from the tree.
+            dirty = false;
+            updateDirtyIndicator();
+        }
         try {
             String content = Files.readString(f.toPath(), StandardCharsets.UTF_8);
             // Stop the debounce timer before replacing editor text so the
@@ -1184,9 +1481,19 @@ public class SasmIdePanel extends JPanel {
             // Clear padding state before loading new content
             paddingLines = Collections.emptySet();
             editorLineNumbers.setPaddingLines(paddingLines);
-            editor.setText(content);
+            // Guard against DocumentListener re-marking the old file dirty
+            // while we replace the editor content with the new file's text.
+            loadingFile = true;
+            try {
+                editor.setText(content);
+            } finally {
+                loadingFile = false;
+            }
             editor.setCaretPosition(0);
             undoManager.discardAllEdits();
+            // Apply syntax highlighting now — the DocumentListener is
+            // suppressed during loadingFile so it won't trigger on its own.
+            applyHighlights();
             currentFile = f;
             editorHeader.setText("  " + f.getParentFile().getName() + "/" + f.getName());
             dirty = false;
@@ -1196,12 +1503,31 @@ public class SasmIdePanel extends JPanel {
                 lastAsmText = "";   // force refresh when pane is toggled on
             }
         } catch (IOException ex) {
-            editor.setText("// Could not open '" + f.getName() + "':\n// " + ex.getMessage());
+            loadingFile = true;
+            try {
+                editor.setText("// Could not open '" + f.getName() + "':\n// " + ex.getMessage());
+            } finally {
+                loadingFile = false;
+            }
             currentFile = null;
             dirty = false;
             asmOutput.setText("");
         }
         if (onFileStateChanged != null) onFileStateChanged.run();
+    }
+
+    /** Restores the file-list selection to the currently open file. */
+    private void restoreFileListSelection() {
+        if (currentFile == null) {
+            fileList.clearSelection();
+            return;
+        }
+        for (int i = 0; i < fileIndex.size(); i++) {
+            if (currentFile.equals(fileIndex.get(i))) {
+                fileList.setSelectedIndex(i);
+                return;
+            }
+        }
     }
 
     private static String nvl(String s) { return s != null ? s : ""; }

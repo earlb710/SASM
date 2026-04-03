@@ -22,42 +22,42 @@ var result_sum    as dword
 section .text
 
 // ── inline proc: double_val ──────────────────────────────────
-// Doubles the value in EAX by adding it to itself.
+// Doubles the value in reg1 by adding it to itself.
 //
-// in  EAX = value to double
-// out EAX = value * 2
-inline proc double_val ( in eax as value, out eax as result ) {
-    eax = eax + eax
+// in  reg1 = value to double
+// out reg1 = value * 2
+inline proc double_val (val dword value) out val dword {
+    reg1 = reg1 + reg1
     return
 }
 
 // ── inline proc: square_val ──────────────────────────────────
-// Squares the unsigned value in EAX.
+// Squares the unsigned value in reg1.
 //
-// in  EAX = value to square (unsigned)
-// out EAX = value * value (low 32 bits)
-// clobbers EDX
-inline proc square_val ( in eax as value, out eax as result ) {
-    multiply by eax
+// in  reg1 = value to square (unsigned)
+// out reg1 = value * value (low 32 bits)
+// clobbers reg4
+inline proc square_val (val dword value) out val dword {
+    multiply by reg1
     return
 }
 
 // ── inline proc: add_regs ────────────────────────────────────
-// Adds EBX to EAX.
+// Adds reg2 to reg1.
 //
-// in  EAX = first operand
-// in  EBX = second operand
-// out EAX = first + second
-inline proc add_regs ( in eax as first, in ebx as second, out eax as result ) {
-    eax = eax + ebx
+// in  reg1 = first operand
+// in  reg2 = second operand
+// out reg1 = first + second
+inline proc add_regs (val dword first, val dword second) out val dword {
+    reg1 = reg1 + reg2
     return
 }
 
 // ── regular proc for comparison ──────────────────────────────
-// A regular (non-inline) proc that doubles EAX.  Generates a
+// A regular (non-inline) proc that doubles reg1.  Generates a
 // CALL/RET pair.
-proc double_regular ( in eax as value, out eax as result ) {
-    eax = eax + eax
+proc double_regular (val dword value) out val dword {
+    reg1 = reg1 + reg1
     return
 }
 
@@ -65,27 +65,27 @@ global _start
 
 proc _start {
     // Test 1: inline square — 7 * 7 = 49
-    move 7 to eax
+    move 7 to reg1
     call square_val
-    move eax to dword [result_square]
+    move reg1 to dword [result_square]
 
     // Test 2: inline double — 7 + 7 = 14
-    move 7 to eax
+    move 7 to reg1
     call double_val
-    move eax to dword [result_double]
+    move reg1 to dword [result_double]
 
     // Test 3: inline add_regs — 10 + 20 = 30
-    move 10 to eax
-    move 20 to ebx
+    move 10 to reg1
+    move 20 to reg2
     call add_regs
-    move eax to dword [result_sum]
+    move reg1 to dword [result_sum]
 
     // Test 4: regular (non-inline) double — still uses CALL
-    move 7 to eax
+    move 7 to reg1
     call double_regular
 
     // exit
-    move 1 to eax
-    move 0 to ebx
+    move 1 to reg1
+    move 0 to reg2
     interrupt 0x80
 }

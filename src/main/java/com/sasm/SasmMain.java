@@ -77,14 +77,20 @@ public class SasmMain {
             System.exit(1);
         }
 
-        mainFrame = buildMainFrame();
-        mainFrame.setVisible(true);
+        // All Swing construction and initial project load MUST run on the EDT.
+        // Doing it on the main thread is a threading violation that can cause
+        // combo-box model updates to never trigger a repaint, making the variant
+        // dropdown appear empty even when items have been added.
+        javax.swing.SwingUtilities.invokeLater(() -> {
+            mainFrame = buildMainFrame();
+            mainFrame.setVisible(true);
 
-        // Restore last project, if any.
-        ProjectFile last = loadLastProject();
-        if (last != null) {
-            applyLoadedProject(last);
-        }
+            // Restore last project, if any.
+            ProjectFile last = loadLastProject();
+            if (last != null) {
+                applyLoadedProject(last);
+            }
+        });
     }
 
     // ── main-frame construction ──────────────────────────────────────────────
@@ -93,6 +99,7 @@ public class SasmMain {
         JFrame frame = new JFrame(APP_TITLE);
         frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         frame.setSize(1100, 700);
+        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
         frame.setLayout(new BorderLayout());
 
         // ── menu bar ────────────────────────────────────────────────────────
@@ -139,7 +146,7 @@ public class SasmMain {
 
         fileMenu.addSeparator();
 
-        propertiesItem = new JMenuItem("Properties");
+        propertiesItem = new JMenuItem("Project Properties");
         propertiesItem.setEnabled(false); // enabled when a dir (core/variant) is selected
         fileMenu.add(propertiesItem);
 
@@ -283,7 +290,17 @@ public class SasmMain {
             wizard.setVisible(true);
             if (wizard.isConfirmed()) {
                 currentProjectFile = wizard.getSavedProjectFile();
-                ProjectFile pf = toProjectFile(wizard);
+                // Load the project from the JSON the wizard just wrote so that
+                // variants (and defaultVariant) added inside the wizard are
+                // reflected in currentProject — not just in the file on disk.
+                ProjectFile pf;
+                try {
+                    pf = JsonLoader.loadProjectFile(currentProjectFile);
+                } catch (Exception ex) {
+                    // Fallback: build from wizard fields (variants will be absent)
+                    statusBar.setText(" Warning: could not reload project file — " + ex.getMessage());
+                    pf = toProjectFile(wizard);
+                }
                 applyLoadedProject(pf);
                 saveLastProject(currentProjectFile);
             } else {
@@ -470,6 +487,18 @@ public class SasmMain {
         }
 
         ProjectFile.VariantEntry ve = wizard.toVariantEntry();
+
+        // Reject duplicate names
+        for (ProjectFile.VariantEntry existing : currentProject.getVariants()) {
+            if (ve.variantName != null && ve.variantName.equals(existing.variantName)) {
+                JOptionPane.showMessageDialog(mainFrame,
+                        "A variant named \"" + ve.variantName + "\" already exists.\n"
+                        + "Please choose a unique name.",
+                        "Duplicate Variant Name",
+                        JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+        }
 
         // Create a subdirectory for the variant
         if (currentProject.workingDirectory != null && ve.variantName != null) {
@@ -761,6 +790,21 @@ public class SasmMain {
             currentProject.workingDirectory = wizard.getWorkingDirectory();
             currentProject.targetDirectory  = wizard.getTargetDirectory();
 
+            // Apply variants (pre-existing + any newly added via "New Variant" button)
+            currentProject.variants        = new java.util.ArrayList<>(wizard.getPendingVariants());
+            currentProject.defaultVariant  = wizard.getSelectedDefaultVariant();
+
+            // Create directories for any new variants that don't have one yet
+            if (currentProject.workingDirectory != null) {
+                File workDir = new File(currentProject.workingDirectory);
+                for (ProjectFile.VariantEntry ve : currentProject.variants) {
+                    if (ve.variantName != null && !ve.variantName.isEmpty()) {
+                        File variantDir = new File(workDir, ve.variantName);
+                        if (!variantDir.exists()) variantDir.mkdirs();
+                    }
+                }
+            }
+
             // Re-save the project file
             File dir = new File(currentProject.workingDirectory);
             File newProjFile = new File(dir, currentProject.name + ".json");
@@ -819,6 +863,21 @@ public class SasmMain {
         if (!wizard.isConfirmed()) return;
 
         ProjectFile.VariantEntry updated = wizard.toVariantEntry();
+
+        // If variant name changed, check for duplicate before proceeding
+        if (!variantDirName.equals(updated.variantName)) {
+            for (int i = 0; i < variants.size(); i++) {
+                if (i != targetIdx && updated.variantName != null
+                        && updated.variantName.equals(variants.get(i).variantName)) {
+                    JOptionPane.showMessageDialog(mainFrame,
+                            "A variant named \"" + updated.variantName + "\" already exists.\n"
+                            + "Please choose a unique name.",
+                            "Duplicate Variant Name",
+                            JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+            }
+        }
 
         // If variant name changed, rename the directory
         if (!variantDirName.equals(updated.variantName)
@@ -1133,6 +1192,51 @@ public class SasmMain {
         if (pf == null || pf.name == null) return;
 
         currentProject = pf;
+
+        // ── Reconcile variants with filesystem ───────────────────────────────
+        // If any variant directories exist on disk that are not tracked in
+        // pf.variants (e.g. the project was created before variants were
+        // persisted to JSON), create minimal VariantEntry objects so that
+        // every poplist that reads pf.variants stays in sync with the tree.
+        if (pf.workingDirectory != null) {
+            File workDir = new File(pf.workingDirectory);
+            if (workDir.isDirectory()) {
+                File[] subDirs = workDir.listFiles(
+                        f -> f.isDirectory()
+                                && !f.getName().equals("core")
+                                && !f.getName().equals("lib")
+                                && !f.getName().startsWith("."));
+                if (subDirs != null && subDirs.length > 0) {
+                    List<ProjectFile.VariantEntry> existing = pf.getVariants();
+                    java.util.Set<String> knownNames = new java.util.HashSet<>();
+                    for (ProjectFile.VariantEntry ve : existing) {
+                        if (ve.variantName != null) knownNames.add(ve.variantName);
+                    }
+                    boolean changed = false;
+                    for (File sub : subDirs) {
+                        if (!knownNames.contains(sub.getName())) {
+                            ProjectFile.VariantEntry orphan = new ProjectFile.VariantEntry();
+                            orphan.variantName = sub.getName();
+                            existing.add(orphan);
+                            changed = true;
+                        }
+                    }
+                    // Persist the migration so it does not re-run on every load
+                    if (changed && currentProjectFile != null) {
+                        try {
+                            JsonLoader.saveProjectFile(pf, currentProjectFile);
+                        } catch (Exception ex) {
+                            // statusBar may not yet exist at startup; fall back to stderr
+                            if (statusBar != null) {
+                                statusBar.setText(" Warning: could not save migrated project — " + ex.getMessage());
+                            } else {
+                                System.err.println("SASM: could not save migrated project: " + ex.getMessage());
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // Switch to IDE card
         cardLayout.show(cardPanel, CARD_IDE);
