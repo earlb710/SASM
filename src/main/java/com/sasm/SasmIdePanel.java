@@ -132,6 +132,9 @@ public class SasmIdePanel extends JPanel {
      * redundant re-translation cycle.
      */
     private boolean updatingPadding = false;
+    /** Guard: suppresses DocumentListener during file loading so that
+     *  editor.setText() does not re-mark the old file as dirty. */
+    private boolean loadingFile = false;
 
     /**
      * Guard flag that suppresses the {@link javax.swing.undo.UndoManager}
@@ -872,7 +875,7 @@ public class SasmIdePanel extends JPanel {
             @Override public void changedUpdate(DocumentEvent e) { /* style change — ignore */ }
             private void onTextChange() {
                 // Skip when we are inserting/removing padding lines
-                if (updatingPadding) return;
+                if (updatingPadding || loadingFile) return;
                 if (!dirty) {
                     dirty = true;
                     updateDirtyIndicator();  // show * on first unsaved change
@@ -911,7 +914,7 @@ public class SasmIdePanel extends JPanel {
         // Record undoable edits from the editor document, but skip any
         // edits that originate from programmatic padding updates.
         editor.getDocument().addUndoableEditListener(e -> {
-            if (!updatingPadding && !updatingHighlight) {
+            if (!updatingPadding && !updatingHighlight && !loadingFile) {
                 undoManager.addEdit(e.getEdit());
             }
         });
@@ -1478,7 +1481,14 @@ public class SasmIdePanel extends JPanel {
             // Clear padding state before loading new content
             paddingLines = Collections.emptySet();
             editorLineNumbers.setPaddingLines(paddingLines);
-            editor.setText(content);
+            // Guard against DocumentListener re-marking the old file dirty
+            // while we replace the editor content with the new file's text.
+            loadingFile = true;
+            try {
+                editor.setText(content);
+            } finally {
+                loadingFile = false;
+            }
             editor.setCaretPosition(0);
             undoManager.discardAllEdits();
             currentFile = f;
@@ -1490,7 +1500,12 @@ public class SasmIdePanel extends JPanel {
                 lastAsmText = "";   // force refresh when pane is toggled on
             }
         } catch (IOException ex) {
-            editor.setText("// Could not open '" + f.getName() + "':\n// " + ex.getMessage());
+            loadingFile = true;
+            try {
+                editor.setText("// Could not open '" + f.getName() + "':\n// " + ex.getMessage());
+            } finally {
+                loadingFile = false;
+            }
             currentFile = null;
             dirty = false;
             asmOutput.setText("");
@@ -1504,10 +1519,8 @@ public class SasmIdePanel extends JPanel {
             fileList.clearSelection();
             return;
         }
-        String name = currentFile.getName();
-        for (int i = 0; i < fileListModel.getSize(); i++) {
-            String item = fileListModel.getElementAt(i);
-            if (item.equals(name) || item.equals("  " + name)) {
+        for (int i = 0; i < fileIndex.size(); i++) {
+            if (currentFile.equals(fileIndex.get(i))) {
                 fileList.setSelectedIndex(i);
                 return;
             }
