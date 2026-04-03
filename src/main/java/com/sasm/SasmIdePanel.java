@@ -102,6 +102,9 @@ public class SasmIdePanel extends JPanel {
     /** The parent container holding the editor and asm panes (needed for toggle). */
     private JSplitPane splitPane;
 
+    /** Outer split pane separating the project file list from the editor area. */
+    private JSplitPane outerSplitPane;
+
     /** Tracks the last-known editor line count so line-number repaint is skipped when unchanged. */
     private int lastEditorLineCount = -1;
 
@@ -194,6 +197,9 @@ public class SasmIdePanel extends JPanel {
     private ProjectFile project;
     private File        currentFile;
     private boolean     dirty = false;   // editor has unsaved changes
+    /** Guard: suppresses the file-list selection listener while the selection
+     *  is being programmatically restored after a Cancel in the save dialog. */
+    private boolean     suppressFileSelection = false;
 
     /**
      * Maps each entry index in the file list to its absolute {@link File}.
@@ -837,12 +843,17 @@ public class SasmIdePanel extends JPanel {
         splitPane.setResizeWeight(1.0);
 
         // ── assemble panels ──────────────────────────────────────────────────
-        add(leftPane,  BorderLayout.WEST);
-        add(splitPane, BorderLayout.CENTER);
+        outerSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
+                                        leftPane, splitPane);
+        outerSplitPane.setContinuousLayout(true);
+        outerSplitPane.setDividerSize(6);
+        outerSplitPane.setBorder(null);
+        outerSplitPane.setDividerLocation(210);
+        add(outerSplitPane, BorderLayout.CENTER);
 
         // ── wire events ───────────────────────────────────────────────────────
         fileList.addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
+            if (!e.getValueIsAdjusting() && !suppressFileSelection) {
                 int idx = fileList.getSelectedIndex();
                 if (idx >= 0 && idx < fileIndex.size()) {
                     File selected = fileIndex.get(idx);
@@ -1432,7 +1443,29 @@ public class SasmIdePanel extends JPanel {
     // ── file I/O ──────────────────────────────────────────────────────────────
 
     private void openFile(File f) {
-        saveCurrentFile();
+        // Prompt to save unsaved changes before switching files.
+        if (dirty && currentFile != null) {
+            int choice = JOptionPane.showConfirmDialog(
+                    this,
+                    "Save changes to \"" + currentFile.getName() + "\"?",
+                    "Unsaved Changes",
+                    JOptionPane.YES_NO_CANCEL_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+            if (choice == JOptionPane.YES_OPTION) {
+                saveCurrentFile();
+            } else if (choice != JOptionPane.NO_OPTION) {
+                // CANCEL or dialog closed — abort the file switch and restore
+                // the file-list highlight to the currently open file.
+                suppressFileSelection = true;
+                try {
+                    restoreFileListSelection();
+                } finally {
+                    suppressFileSelection = false;
+                }
+                return;
+            }
+            // NO_OPTION: discard changes and continue opening the new file.
+        }
         try {
             String content = Files.readString(f.toPath(), StandardCharsets.UTF_8);
             // Stop the debounce timer before replacing editor text so the
@@ -1460,6 +1493,22 @@ public class SasmIdePanel extends JPanel {
             asmOutput.setText("");
         }
         if (onFileStateChanged != null) onFileStateChanged.run();
+    }
+
+    /** Restores the file-list selection to the currently open file. */
+    private void restoreFileListSelection() {
+        if (currentFile == null) {
+            fileList.clearSelection();
+            return;
+        }
+        String name = currentFile.getName();
+        for (int i = 0; i < fileListModel.getSize(); i++) {
+            String item = fileListModel.getElementAt(i);
+            if (item.equals(name) || item.equals("  " + name)) {
+                fileList.setSelectedIndex(i);
+                return;
+            }
+        }
     }
 
     private static String nvl(String s) { return s != null ? s : ""; }
