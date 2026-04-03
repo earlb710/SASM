@@ -99,6 +99,7 @@ public class SasmMain {
         JFrame frame = new JFrame(APP_TITLE);
         frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         frame.setSize(1100, 700);
+        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
         frame.setLayout(new BorderLayout());
 
         // ── menu bar ────────────────────────────────────────────────────────
