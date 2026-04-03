@@ -531,6 +531,10 @@ public class SasmTranslator {
 
         String asm = tryTranslateCode(code);
         if (asm != null) {
+            // On x86_32, fix up any memory-to-memory conflicts from
+            // spill-slot registers (reg5–reg8 → dword [EBP-N]).
+            asm = arch.fixupSpillConflicts(asm);
+
             if (asm.indexOf('\n') >= 0) {
                 // Multi-line result: apply indentation to each line,
                 // trailing comment to last line only.
@@ -548,6 +552,7 @@ public class SasmTranslator {
         // Passthrough — already ASM or unrecognised.
         // Return the normalised code (with comment) so parentheses used
         // as memory-operand brackets are converted even for raw NASM lines.
+        code = arch.fixupSpillConflicts(code);
         return leading + code + comment;
     }
 
@@ -2486,9 +2491,23 @@ public class SasmTranslator {
         return sb.toString();
     }
 
-    /** Returns {@code true} if {@code s} is a bracketed memory reference. */
+    /**
+     * Returns {@code true} if {@code s} is a memory reference — either a
+     * plain bracketed reference ({@code [var]}) or a size-prefixed reference
+     * such as {@code dword [EBP-4]} (emitted for x86_32 spill slots).
+     */
     private static boolean isMemRef(String s) {
-        return s.startsWith("[") && s.endsWith("]");
+        if (s.startsWith("[") && s.endsWith("]")) return true;
+        // Size-prefixed memory operand: byte/word/dword/qword [...]
+        if (s.endsWith("]")) {
+            int bracket = s.indexOf('[');
+            if (bracket > 0) {
+                String prefix = s.substring(0, bracket).trim().toLowerCase();
+                return prefix.equals("byte") || prefix.equals("word")
+                        || prefix.equals("dword") || prefix.equals("qword");
+            }
+        }
+        return false;
     }
 
     /**
