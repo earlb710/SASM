@@ -1464,7 +1464,10 @@ public class SasmIdePanel extends JPanel {
                 }
                 return;
             }
-            // NO_OPTION: discard changes and continue opening the new file.
+            // NO_OPTION: discard changes — clear the dirty indicator on the
+            // old file before switching, so the * is removed from the tree.
+            dirty = false;
+            updateDirtyIndicator();
         }
         try {
             String content = Files.readString(f.toPath(), StandardCharsets.UTF_8);
