@@ -339,15 +339,13 @@ public class SasmIdePanel extends JPanel {
         if (asmVisible) {
             updateAsmOutput();
         }
-        // updateAsmOutput() already queues one invokeLater for scroll
-        // restoration, but a single pass is not always enough — Swing may
-        // still have pending layout work from the setText() calls inside
-        // applyPerLinePadding / applyHighlights.  A second invokeLater
-        // runs after those are fully committed, making the position stick.
-        SwingUtilities.invokeLater(() -> {
+        // updateAsmOutput() already queues a double-invokeLater for scroll
+        // restoration, but we add one more layer here as a belt-and-suspenders
+        // guarantee — this runs after ALL pending revalidation passes.
+        SwingUtilities.invokeLater(() -> SwingUtilities.invokeLater(() -> {
             scrollEditorToSourceLine(savedTopLine);
             syncAsmScrollToEditor();
-        });
+        }));
     }
 
     /**
@@ -1129,9 +1127,10 @@ public class SasmIdePanel extends JPanel {
 
         // After all layout and text changes have been committed, scroll the
         // editor so the same source line that was at the top is still at the
-        // top.  The revalidate() call above queues a layout pass on the EDT;
-        // invokeLater ensures we run after it (and after applyPerLinePadding).
-        SwingUtilities.invokeLater(() -> scrollEditorToSourceLine(savedTopLine));
+        // top.  Double invokeLater ensures we run after both the revalidation
+        // pass AND any events that revalidation itself queues.
+        SwingUtilities.invokeLater(() -> SwingUtilities.invokeLater(() ->
+                scrollEditorToSourceLine(savedTopLine)));
     }
 
     /**
@@ -1191,6 +1190,15 @@ public class SasmIdePanel extends JPanel {
     private void updateAsmOutput() {
         // Strip padding before translating so the translator sees pure source
         String source = getSourceText();
+        // ── suppress all automatic scroll adjustments ────────────────
+        // editor.setText() inside applyPerLinePadding triggers the
+        // DefaultCaret to call scrollRectToVisible(caret-at-0) via
+        // adjustVisibility().  The subsequent applyHighlights() fires
+        // revalidation events that can run AFTER a single invokeLater,
+        // overwriting our restored scroll position.  Setting the caret
+        // to NEVER_UPDATE prevents all such automatic adjustments.
+        DefaultCaret editorCaret = (DefaultCaret) editor.getCaret();
+        editorCaret.setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
         try {
             String asm = translator.translate(source);
             // Append variant plugin code (binary-format component templates) if any
@@ -1204,7 +1212,10 @@ public class SasmIdePanel extends JPanel {
             }
             // Skip the expensive setText + repaint cycle when the
             // translated output hasn't changed (e.g. typing in a comment).
-            if (asm.equals(lastAsmText)) return;
+            if (asm.equals(lastAsmText)) {
+                editorCaret.setUpdatePolicy(DefaultCaret.UPDATE_WHEN_ON_EDT);
+                return;
+            }
             lastAsmText = asm;
             // Remember which source line is currently at the top of the
             // editor viewport so we can restore scroll after text changes.
@@ -1221,24 +1232,37 @@ public class SasmIdePanel extends JPanel {
             // Update ASM gutter with source-line-relative numbering
             asmLineNumbers.setSourceLineMap(translator.getLastLineMap());
             syncingScroll = false;
-            // Defer viewport restoration until after Swing completes the
-            // layout pass triggered by setText().  Synchronous setValue()
-            // is overwritten by the pending revalidation, so invokeLater
-            // is the only reliable way to make the position stick.
-            SwingUtilities.invokeLater(() -> {
+            // Defer viewport restoration until after Swing completes ALL
+            // pending layout/revalidation passes triggered by setText()
+            // and setCharacterAttributes().  A double invokeLater ensures
+            // we run after both the first round of revalidation events
+            // AND any events those revalidation passes themselves queue.
+            // The caret update policy is restored here rather than in the
+            // finally block so that it stays suppressed through all
+            // deferred revalidation/layout events.
+            SwingUtilities.invokeLater(() -> SwingUtilities.invokeLater(() -> {
                 // Restore editor so the same source line is at the top
                 scrollEditorToSourceLine(savedTopLine);
                 // Sync ASM pane to the (now-restored) editor scroll position
                 syncAsmScrollToEditor();
-            });
+                // Re-enable normal caret-follows-typing scrolling now that
+                // the scroll position is locked in.
+                editorCaret.setUpdatePolicy(DefaultCaret.UPDATE_WHEN_ON_EDT);
+            }));
         } catch (Exception ex) {
             String errMsg = "; Translation error: " + ex.getMessage();
-            if (errMsg.equals(lastAsmText)) return;
+            if (errMsg.equals(lastAsmText)) {
+                editorCaret.setUpdatePolicy(DefaultCaret.UPDATE_WHEN_ON_EDT);
+                return;
+            }
             lastAsmText = errMsg;
             syncingScroll = true;
             asmOutput.setText(errMsg);
             asmLineNumbers.setSourceLineMap(null);
             syncingScroll = false;
+            // Restore caret policy immediately on error — no deferred
+            // scroll restoration is needed.
+            editorCaret.setUpdatePolicy(DefaultCaret.UPDATE_WHEN_ON_EDT);
         }
         asmLineNumbers.revalidate();
         asmLineNumbers.repaint();
