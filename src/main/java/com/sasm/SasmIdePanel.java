@@ -346,16 +346,21 @@ public class SasmIdePanel extends JPanel {
         // runs after those are fully committed, making the position stick.
         SwingUtilities.invokeLater(() -> {
             scrollEditorToSourceLine(savedTopLine);
-            // Re-sync the ASM pane to the restored editor scroll position
-            if (asmVisible) {
-                JScrollBar asmVsb = asmScroll.getVerticalScrollBar();
-                int editorY = editorScroll.getVerticalScrollBar().getValue();
-                int maxY = Math.max(0,
-                        asmVsb.getMaximum() - asmVsb.getVisibleAmount());
-                asmScroll.getViewport().setViewPosition(
-                        new Point(0, Math.min(editorY, maxY)));
-            }
+            syncAsmScrollToEditor();
         });
+    }
+
+    /**
+     * Syncs the ASM output pane's vertical scroll position to the editor's
+     * current vertical scroll position, clamped to the ASM pane's maximum.
+     */
+    private void syncAsmScrollToEditor() {
+        if (!asmVisible) return;
+        JScrollBar asmVsb = asmScroll.getVerticalScrollBar();
+        int editorY = editorScroll.getVerticalScrollBar().getValue();
+        int maxY = Math.max(0, asmVsb.getMaximum() - asmVsb.getVisibleAmount());
+        asmScroll.getViewport().setViewPosition(
+                new Point(0, Math.min(editorY, maxY)));
     }
 
     /**
@@ -1224,11 +1229,7 @@ public class SasmIdePanel extends JPanel {
                 // Restore editor so the same source line is at the top
                 scrollEditorToSourceLine(savedTopLine);
                 // Sync ASM pane to the (now-restored) editor scroll position
-                JScrollBar asmVsb = asmScroll.getVerticalScrollBar();
-                int editorY = editorScroll.getVerticalScrollBar().getValue();
-                int maxY = Math.max(0, asmVsb.getMaximum() - asmVsb.getVisibleAmount());
-                asmScroll.getViewport().setViewPosition(
-                        new Point(0, Math.min(editorY, maxY)));
+                syncAsmScrollToEditor();
             });
         } catch (Exception ex) {
             String errMsg = "; Translation error: " + ex.getMessage();
