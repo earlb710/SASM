@@ -14,6 +14,7 @@ import java.util.Set;
 import javax.swing.*;
 import javax.swing.event.*;
 import javax.swing.text.BadLocationException;
+import javax.swing.text.DefaultCaret;
 import javax.swing.text.DefaultHighlighter;
 import javax.swing.text.Highlighter;
 import javax.swing.text.JTextComponent;
@@ -827,6 +828,10 @@ public class SasmIdePanel extends JPanel {
         asmOutput.setCaretColor(new Color(0x7F, 0xDB, 0xCA));
         asmOutput.setEditable(false);
         asmOutput.setTabSize(4);
+        // Prevent DefaultCaret from scrolling to the top whenever
+        // setText() replaces the document content.
+        ((DefaultCaret) asmOutput.getCaret())
+                .setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
 
         asmLineNumbers = new LineNumberComponent(asmOutput);
         asmScroll = new JScrollPane(asmOutput);
@@ -1179,30 +1184,24 @@ public class SasmIdePanel extends JPanel {
             // setText-induced scroll reset doesn't fight with the user's
             // scroll position in the editor.
             syncingScroll = true;
-            // Preserve the ASM pane's scroll position across setText()
-            // so that switching variants doesn't jump back to line 1.
-            int savedAsmScrollY = asmScroll.getVerticalScrollBar().getValue();
-            int savedAsmCaret   = Math.min(asmOutput.getCaretPosition(),
-                                           asm.length());
             asmOutput.setText(asm);
-            // Restore caret: clamp to new text length in case the new
-            // translation is shorter than before.
-            int restoredCaret = Math.min(savedAsmCaret, asm.length());
-            asmOutput.setCaretPosition(restoredCaret);
             syncingScroll = false;
             // Insert per-line padding into the editor so that each source
             // line occupies the same number of rows as its ASM translation.
             applyPerLinePadding(translator.getLastLineMap());
             // Update ASM gutter with source-line-relative numbering
             asmLineNumbers.setSourceLineMap(translator.getLastLineMap());
-            // After text change, synchronise asm scroll to editor position.
-            // Clamp to the maximum scrollable value so we don't overshoot
-            // when the new translation is shorter.
-            JScrollBar asmVsb = asmScroll.getVerticalScrollBar();
-            int targetY = Math.min(editorScroll.getVerticalScrollBar().getValue(),
-                                   asmVsb.getMaximum() - asmVsb.getVisibleAmount());
-            asmScroll.getViewport().setViewPosition(
-                    new Point(0, Math.max(0, targetY)));
+            // Defer viewport sync until after Swing's layout pass so
+            // the ASM pane's preferred size is up-to-date and the
+            // position actually sticks (synchronous setViewPosition
+            // can be overwritten by the pending revalidation).
+            SwingUtilities.invokeLater(() -> {
+                JScrollBar asmVsb = asmScroll.getVerticalScrollBar();
+                int editorY = editorScroll.getVerticalScrollBar().getValue();
+                int maxY = Math.max(0, asmVsb.getMaximum() - asmVsb.getVisibleAmount());
+                asmScroll.getViewport().setViewPosition(
+                        new Point(0, Math.min(editorY, maxY)));
+            });
         } catch (Exception ex) {
             String errMsg = "; Translation error: " + ex.getMessage();
             if (errMsg.equals(lastAsmText)) return;
