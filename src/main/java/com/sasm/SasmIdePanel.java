@@ -160,6 +160,35 @@ public class SasmIdePanel extends JPanel {
     /** Current highlight tag in the ASM output (removed before adding a new one). */
     private Object asmHighlightTag;
 
+    // ── find bar ─────────────────────────────────────────────────────────────
+
+    /** The collapsible find-bar strip that slides in below the editor header. */
+    private JPanel    findBar;
+    /** Text field where the user enters the search query. */
+    private JTextField findField;
+    /** Shows the current match index and total count, e.g. "3 / 12". */
+    private JLabel     matchCountLabel;
+
+    /** Highlight painter for all non-current match occurrences (muted blue). */
+    private final Highlighter.HighlightPainter matchPainter =
+            new DefaultHighlighter.DefaultHighlightPainter(new Color(0x26, 0x4F, 0x78));
+
+    /** Highlight painter for the currently selected match (bright orange). */
+    private final Highlighter.HighlightPainter currentMatchPainter =
+            new DefaultHighlighter.DefaultHighlightPainter(new Color(0xFF, 0xA5, 0x00));
+
+    /** Highlight tags for every non-current match, in document order. */
+    private final java.util.List<Object> matchHighlightTags = new ArrayList<>();
+
+    /** Highlight tag for the currently selected match (painted on top). */
+    private Object currentMatchHighlightTag;
+
+    /** [start, end] char offsets for every match, in document order. */
+    private final java.util.List<int[]> currentMatches = new ArrayList<>();
+
+    /** 0-based index into {@link #currentMatches} for the active match, or -1. */
+    private int currentMatchIndex = -1;
+
     /**
      * Debounce timer for SASM→NASM translation.  Instead of translating on
      * every keystroke, the timer is restarted each time the editor content
@@ -826,6 +855,10 @@ public class SasmIdePanel extends JPanel {
         });
         editorPane.add(editorScroll, BorderLayout.CENTER);
 
+        // ── find bar (hidden until Ctrl+F) ───────────────────────────────────
+        findBar  = buildFindBar();
+        editorPane.add(findBar, BorderLayout.SOUTH);
+
         // ── right pane (assembler output — 1/3 of remaining width) ───────────
         asmPane = new JPanel(new BorderLayout(0, 0));
 
@@ -919,6 +952,11 @@ public class SasmIdePanel extends JPanel {
                 // Schedule syntax highlighting after the document change is
                 // fully committed so that the full text is available.
                 SwingUtilities.invokeLater(SasmIdePanel.this::applyHighlights);
+                // Refresh find-bar highlights if the find bar is open, so
+                // that match positions stay in sync with the edited text.
+                if (findBar != null && findBar.isVisible()) {
+                    SwingUtilities.invokeLater(SasmIdePanel.this::onFindTextChange);
+                }
             }
         });
 
@@ -939,9 +977,19 @@ public class SasmIdePanel extends JPanel {
         // ── synced line-cursor highlight ─────────────────────────────────
         editor.addCaretListener(e -> updateLineHighlight());
 
-        // ── undo / redo ───────────────────────────────────────────────────
-        // Record undoable edits from the editor document, but skip any
-        // edits that originate from programmatic padding updates.
+        // ── Ctrl+F → open find bar ────────────────────────────────────────
+        // Register on both the editor (WHEN_FOCUSED) and the panel
+        // (WHEN_ANCESTOR_OF_FOCUSED_COMPONENT) so the shortcut works
+        // regardless of which sub-component currently holds focus.
+        KeyStroke ctrlF = KeyStroke.getKeyStroke(KeyEvent.VK_F, InputEvent.CTRL_DOWN_MASK);
+        editor.getInputMap(JComponent.WHEN_FOCUSED).put(ctrlF, "openFindBar");
+        editor.getActionMap().put("openFindBar", new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) { showFindBar(); }
+        });
+        getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(ctrlF, "openFindBar");
+        getActionMap().put("openFindBar", new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) { showFindBar(); }
+        });
         editor.getDocument().addUndoableEditListener(e -> {
             if (!updatingPadding && !updatingHighlight && !loadingFile) {
                 undoManager.addEdit(e.getEdit());
@@ -963,7 +1011,249 @@ public class SasmIdePanel extends JPanel {
     /** Re-applies the most recently undone edit, if any. */
     public void redo() { if (undoManager.canRedo()) undoManager.redo(); }
 
-    // ── synced line-cursor highlight ──────────────────────────────────────────
+    // ── find bar ──────────────────────────────────────────────────────────────
+
+    /**
+     * Constructs the collapsible find-bar strip.  Call once from
+     * {@link #buildUi()}.  The bar is initially hidden; call
+     * {@link #showFindBar()} to make it visible.
+     */
+    private JPanel buildFindBar() {
+        JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 3));
+        bar.setBackground(new Color(0x2D, 0x2D, 0x2D));
+        bar.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0,
+                new Color(0x50, 0x50, 0x50)));
+
+        JLabel findLabel = new JLabel("Find:");
+        findLabel.setForeground(new Color(0xCC, 0xCC, 0xCC));
+        findLabel.setFont(new Font("SansSerif", Font.PLAIN, 12));
+
+        findField = new JTextField(22);
+        findField.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        findField.setBackground(new Color(0x3C, 0x3C, 0x3C));
+        findField.setForeground(Color.WHITE);
+        findField.setCaretColor(Color.WHITE);
+        findField.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(0x55, 0x55, 0x55)),
+                BorderFactory.createEmptyBorder(2, 4, 2, 4)));
+
+        matchCountLabel = new JLabel("");
+        matchCountLabel.setForeground(new Color(0x88, 0x88, 0x88));
+        matchCountLabel.setFont(new Font("SansSerif", Font.PLAIN, 11));
+        matchCountLabel.setPreferredSize(new Dimension(72, 20));
+
+        JButton prevButton = new JButton("◀");
+        styleSmallButton(prevButton, "Previous match (Shift+Enter)");
+
+        JButton nextButton = new JButton("▶");
+        styleSmallButton(nextButton, "Next match (Enter)");
+
+        JButton closeButton = new JButton("✕");
+        styleSmallButton(closeButton, "Close (Escape)");
+
+        bar.add(findLabel);
+        bar.add(findField);
+        bar.add(matchCountLabel);
+        bar.add(prevButton);
+        bar.add(nextButton);
+        bar.add(closeButton);
+
+        // ── wire events ──────────────────────────────────────────────────
+        findField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e) { onFindTextChange(); }
+            @Override public void removeUpdate(DocumentEvent e) { onFindTextChange(); }
+            @Override public void changedUpdate(DocumentEvent e) {}
+        });
+
+        // Enter → next match
+        findField.addActionListener(e -> findNext());
+
+        // Shift+Enter → previous match
+        KeyStroke shiftEnter = KeyStroke.getKeyStroke(
+                KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK);
+        findField.getInputMap().put(shiftEnter, "findPrev");
+        findField.getActionMap().put("findPrev", new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) { findPrevious(); }
+        });
+
+        // Escape → close the find bar
+        KeyStroke escape = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
+        findField.getInputMap().put(escape, "closeFindBar");
+        findField.getActionMap().put("closeFindBar", new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) { hideFindBar(); }
+        });
+
+        prevButton.addActionListener(e -> findPrevious());
+        nextButton.addActionListener(e -> findNext());
+        closeButton.addActionListener(e -> hideFindBar());
+
+        bar.setVisible(false);
+        return bar;
+    }
+
+    /** Applies a uniform dark style to a small find-bar button. */
+    private static void styleSmallButton(JButton btn, String tooltip) {
+        btn.setFocusable(false);
+        btn.setFont(new Font("SansSerif", Font.PLAIN, 10));
+        btn.setPreferredSize(new Dimension(30, 22));
+        btn.setToolTipText(tooltip);
+    }
+
+    /**
+     * Shows the find bar and focuses the search field.  If a query is already
+     * present its matches are immediately highlighted.
+     */
+    public void showFindBar() {
+        findBar.setVisible(true);
+        findField.selectAll();
+        findField.requestFocusInWindow();
+        onFindTextChange();
+    }
+
+    /** Hides the find bar and clears all match highlights. */
+    public void hideFindBar() {
+        findBar.setVisible(false);
+        clearMatchHighlights();
+        currentMatches.clear();
+        currentMatchIndex = -1;
+        editor.requestFocusInWindow();
+    }
+
+    /** Advances to the next match, wrapping at the end. */
+    public void findNext() {
+        if (currentMatches.isEmpty()) return;
+        currentMatchIndex = (currentMatchIndex + 1) % currentMatches.size();
+        highlightCurrentMatch();
+        updateMatchCountLabel();
+    }
+
+    /** Moves to the previous match, wrapping at the beginning. */
+    public void findPrevious() {
+        if (currentMatches.isEmpty()) return;
+        currentMatchIndex =
+                (currentMatchIndex - 1 + currentMatches.size()) % currentMatches.size();
+        highlightCurrentMatch();
+        updateMatchCountLabel();
+    }
+
+    /**
+     * Re-runs the search for the current query text, updates all match
+     * highlights and selects the first (or nearest) match.  Called whenever
+     * the query text or the editor document changes.
+     */
+    private void onFindTextChange() {
+        clearMatchHighlights();
+        currentMatches.clear();
+        currentMatchIndex = -1;
+
+        String query = findField.getText();
+        if (query.isEmpty()) {
+            matchCountLabel.setText("");
+            return;
+        }
+
+        String text;
+        try {
+            javax.swing.text.Document doc = editor.getDocument();
+            text = doc.getText(0, doc.getLength());
+        } catch (BadLocationException ex) {
+            return;
+        }
+
+        // Case-insensitive search
+        String lowerText  = text.toLowerCase();
+        String lowerQuery = query.toLowerCase();
+        int queryLen = query.length();
+        Highlighter h = editor.getHighlighter();
+
+        int pos = 0;
+        while ((pos = lowerText.indexOf(lowerQuery, pos)) >= 0) {
+            int end = pos + queryLen;
+            currentMatches.add(new int[]{pos, end});
+            try {
+                matchHighlightTags.add(h.addHighlight(pos, end, matchPainter));
+            } catch (BadLocationException ignored) {}
+            pos = end;
+        }
+
+        if (currentMatches.isEmpty()) {
+            matchCountLabel.setText("No results");
+            matchCountLabel.setForeground(new Color(0xCC, 0x44, 0x44));
+            return;
+        }
+
+        // Select the first match (or the one nearest the caret)
+        int caretPos = editor.getCaretPosition();
+        currentMatchIndex = 0;
+        for (int i = 0; i < currentMatches.size(); i++) {
+            if (currentMatches.get(i)[0] >= caretPos) {
+                currentMatchIndex = i;
+                break;
+            }
+        }
+        highlightCurrentMatch();
+        updateMatchCountLabel();
+    }
+
+    /**
+     * Paints the current-match highlight on top of the all-matches layer and
+     * scrolls the editor to make the match visible.
+     */
+    private void highlightCurrentMatch() {
+        if (currentMatchHighlightTag != null) {
+            editor.getHighlighter().removeHighlight(currentMatchHighlightTag);
+            currentMatchHighlightTag = null;
+        }
+        if (currentMatchIndex < 0 || currentMatchIndex >= currentMatches.size()) return;
+
+        int[] match = currentMatches.get(currentMatchIndex);
+        try {
+            currentMatchHighlightTag = editor.getHighlighter()
+                    .addHighlight(match[0], match[1], currentMatchPainter);
+        } catch (BadLocationException ignored) {}
+        scrollToMatchOffset(match[0]);
+    }
+
+    /** Removes all find-related highlights from the editor. */
+    private void clearMatchHighlights() {
+        Highlighter h = editor.getHighlighter();
+        for (Object tag : matchHighlightTags) {
+            h.removeHighlight(tag);
+        }
+        matchHighlightTags.clear();
+        if (currentMatchHighlightTag != null) {
+            h.removeHighlight(currentMatchHighlightTag);
+            currentMatchHighlightTag = null;
+        }
+    }
+
+    /** Updates the "N / M" counter label. */
+    private void updateMatchCountLabel() {
+        if (currentMatches.isEmpty()) {
+            matchCountLabel.setText("No results");
+            matchCountLabel.setForeground(new Color(0xCC, 0x44, 0x44));
+        } else {
+            matchCountLabel.setText((currentMatchIndex + 1) + " / " + currentMatches.size());
+            matchCountLabel.setForeground(new Color(0x88, 0x88, 0x88));
+        }
+    }
+
+    /**
+     * Scrolls the editor viewport so that the character at {@code offset} is
+     * roughly centred vertically.
+     */
+    @SuppressWarnings("deprecation")
+    private void scrollToMatchOffset(int offset) {
+        try {
+            Rectangle r = editor.modelToView(offset);
+            if (r == null) return;
+            JScrollBar vsb = editorScroll.getVerticalScrollBar();
+            int viewHeight = editorScroll.getViewport().getHeight();
+            int target = Math.max(0, r.y - viewHeight / 2);
+            int max = Math.max(0, vsb.getMaximum() - vsb.getVisibleAmount());
+            vsb.setValue(Math.min(target, max));
+        } catch (BadLocationException ignored) {}
+    }
 
     /**
      * Updates the line-cursor highlight in both the SASM editor and the ASM
