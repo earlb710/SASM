@@ -17,34 +17,34 @@ class SasmBuilderTest {
 
     @Test
     void assembleElf64_substitutesPaths() {
-        File asm = new File("/work/out/hello.asm");
+        File asm = new File("/work/out/hello.nasm");
         File obj = new File("/work/out/hello.o");
         String[] cmd = SasmBuilder.buildAssembleCommand(
                 "nasm -f elf64 program.asm -o program.o", asm, obj);
         assertEquals(
-                "nasm -f elf64 /work/out/hello.asm -o /work/out/hello.o",
+                "nasm -f elf64 /work/out/hello.nasm -o /work/out/hello.o",
                 String.join(" ", cmd));
     }
 
     @Test
     void assembleElf32_substitutesPaths() {
-        File asm = new File("/work/out/main.asm");
+        File asm = new File("/work/out/main.nasm");
         File obj = new File("/work/out/main.o");
         String[] cmd = SasmBuilder.buildAssembleCommand(
                 "nasm -f elf32 program.asm -o program.o", asm, obj);
         assertEquals(
-                "nasm -f elf32 /work/out/main.asm -o /work/out/main.o",
+                "nasm -f elf32 /work/out/main.nasm -o /work/out/main.o",
                 String.join(" ", cmd));
     }
 
     @Test
     void assembleWin32_substitutesObjExtension() {
-        File asm = new File("/work/out/hello.asm");
+        File asm = new File("/work/out/hello.nasm");
         File obj = new File("/work/out/hello.obj");
         String[] cmd = SasmBuilder.buildAssembleCommand(
                 "nasm -f win32 program.asm -o program.obj", asm, obj);
         assertEquals(
-                "nasm -f win32 /work/out/hello.asm -o /work/out/hello.obj",
+                "nasm -f win32 /work/out/hello.nasm -o /work/out/hello.obj",
                 String.join(" ", cmd));
     }
 

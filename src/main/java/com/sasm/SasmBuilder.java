@@ -9,9 +9,9 @@ import java.util.function.Consumer;
 /**
  * Orchestrates a full build of a single project variant:
  * <ol>
- *   <li>Translate each {@code .sasm} source file to NASM {@code .asm} via
+ *   <li>Translate each {@code .sasm} source file to NASM {@code .nasm} via
  *       {@link SasmTranslator}.</li>
- *   <li>Assemble each {@code .asm} to an object file using the toolchain
+ *   <li>Assemble each {@code .nasm} to an object file using the toolchain
  *       command from the OS definition JSON.</li>
  *   <li>Link all object files into the final binary using the toolchain
  *       link command.</li>
@@ -23,7 +23,7 @@ import java.util.function.Consumer;
  *
  * <p>Source files are taken from
  * {@code <workingDirectory>/<variantName>/}.
- * Generated files (.asm, .o, binary) are written into
+ * Generated files (.nasm, .o, binary) are written into
  * {@code <targetDirectory>/<variantName>/}, where {@code targetDirectory}
  * defaults to {@code <workingDirectory>/target} when not set on the
  * project.</p>
@@ -111,7 +111,7 @@ public class SasmBuilder {
         String objExt = (varDef.toolchain.assemble != null
                 && varDef.toolchain.assemble.contains(".obj")) ? ".obj" : ".o";
 
-        // ── 4. Translate .sasm → .asm and assemble → object files ─────────────
+        // ── 4. Translate .sasm → .nasm and assemble → object files ─────────────
         Architecture targetArch = Architecture.from(
                 varDef.architecture, varDef.bits);
         SasmTranslator translator = new SasmTranslator(targetArch);
@@ -119,7 +119,7 @@ public class SasmBuilder {
 
         for (File sasmFile : sasmFiles) {
             String baseName = sasmFile.getName().replaceAll("\\.sasm$", "");
-            File asmFile = new File(variantTargetDir, baseName + ".asm");
+            File asmFile = new File(variantTargetDir, baseName + ".nasm");
             File objFile = new File(variantTargetDir, baseName + objExt);
 
             // Translate
@@ -217,15 +217,15 @@ public class SasmBuilder {
      * Builds the assemble command by substituting placeholder file names in
      * the template with the actual absolute paths.
      *
-     * <p>Any token that ends with {@code .asm} is replaced by
-     * {@code asmFile}, and any token ending with {@code .o} or {@code .obj}
-     * is replaced by {@code objFile}.</p>
+     * <p>Any token that ends with {@code .asm} or {@code .nasm} is replaced
+     * by {@code asmFile}, and any token ending with {@code .o} or
+     * {@code .obj} is replaced by {@code objFile}.</p>
      */
     static String[] buildAssembleCommand(String template, File asmFile, File objFile) {
         String[] tokens = template.trim().split("\\s+");
         for (int i = 0; i < tokens.length; i++) {
             String tl = tokens[i].toLowerCase();
-            if (tl.endsWith(".asm")) {
+            if (tl.endsWith(".asm") || tl.endsWith(".nasm")) {
                 tokens[i] = asmFile.getAbsolutePath();
             } else if (tl.endsWith(".o") || tl.endsWith(".obj")) {
                 tokens[i] = objFile.getAbsolutePath();
