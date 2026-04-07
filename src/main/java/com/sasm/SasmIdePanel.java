@@ -88,6 +88,19 @@ public class SasmIdePanel extends JPanel {
     private JScrollPane     asmScroll;
     private LineNumberComponent asmLineNumbers;
 
+    // ── hex bytecode viewer (split inside the ASM pane) ─────────────────────
+    /** Read-only text area showing hex-encoded machine code per ASM line. */
+    private final JTextArea hexOutput = new JTextArea(30, 20);
+    private JScrollPane hexScroll;
+    /** Toggle button to show/hide the hex viewer inside the ASM pane. */
+    private final JButton hexToggle = new JButton("Hex");
+    /** Whether the hex viewer is currently visible. */
+    private boolean hexVisible = false;
+    /** Split pane that divides the ASM output and hex viewer horizontally. */
+    private JSplitPane asmHexSplit;
+    /** Hex encoder — created/replaced alongside the translator. */
+    private NasmHexEncoder hexEncoder = new NasmHexEncoder();
+
     /** The right-hand asm pane container (hidden when toggle is off). */
     private JPanel asmPane;
 
@@ -354,6 +367,7 @@ public class SasmIdePanel extends JPanel {
         translator.setWorkingDirectory(
                 project != null && project.workingDirectory != null
                         ? new File(project.workingDirectory) : null);
+        hexEncoder = new NasmHexEncoder(arch);
         currentArch = arch;
         lastAsmText = ""; // force a re-translate
     }
@@ -388,6 +402,13 @@ public class SasmIdePanel extends JPanel {
         int maxY = Math.max(0, asmVsb.getMaximum() - asmVsb.getVisibleAmount());
         asmScroll.getViewport().setViewPosition(
                 new Point(0, Math.min(editorY, maxY)));
+        // Keep hex viewer in sync with the ASM scroll position
+        if (hexVisible) {
+            JScrollBar hexVsb = hexScroll.getVerticalScrollBar();
+            int hexMaxY = Math.max(0, hexVsb.getMaximum() - hexVsb.getVisibleAmount());
+            hexScroll.getViewport().setViewPosition(
+                    new Point(0, Math.min(editorY, hexMaxY)));
+        }
     }
 
     /**
@@ -862,7 +883,7 @@ public class SasmIdePanel extends JPanel {
         // ── right pane (assembler output — 1/3 of remaining width) ───────────
         asmPane = new JPanel(new BorderLayout(0, 0));
 
-        // Header bar: blue background, variant dropdown instead of a plain label
+        // Header bar: blue background, variant dropdown and hex toggle
         JPanel asmHeaderBar = new JPanel(new BorderLayout(4, 0));
         asmHeaderBar.setBackground(new Color(0x2B, 0x57, 0x97));
         asmHeaderBar.setPreferredSize(new Dimension(0, 28));
@@ -876,6 +897,15 @@ public class SasmIdePanel extends JPanel {
         variantChoice.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
         variantChoice.addActionListener(variantChoiceListener);
         asmHeaderBar.add(variantChoice, BorderLayout.CENTER);
+
+        // "Hex" toggle button on the right end of the ASM header bar
+        hexToggle.setFont(new Font("SansSerif", Font.BOLD, 10));
+        hexToggle.setFocusable(false);
+        hexToggle.setMargin(new Insets(2, 6, 2, 6));
+        hexToggle.setToolTipText("Show/hide hex bytecode viewer");
+        hexToggle.setPreferredSize(new Dimension(48, 28));
+        hexToggle.addActionListener(e -> toggleHexPane());
+        asmHeaderBar.add(hexToggle, BorderLayout.EAST);
 
         asmPane.add(asmHeaderBar, BorderLayout.NORTH);
 
@@ -895,7 +925,29 @@ public class SasmIdePanel extends JPanel {
         asmScroll.setRowHeaderView(asmLineNumbers);
         asmScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER);
         asmScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        asmPane.add(asmScroll, BorderLayout.CENTER);
+
+        // Hex bytecode viewer (initially hidden)
+        hexOutput.setFont(new Font("Monospaced", Font.PLAIN, 13));
+        hexOutput.setBackground(new Color(0x0A, 0x14, 0x28));
+        hexOutput.setForeground(new Color(0xCC, 0xCC, 0x66));
+        hexOutput.setCaretColor(new Color(0xCC, 0xCC, 0x66));
+        hexOutput.setEditable(false);
+        hexOutput.setTabSize(4);
+        ((DefaultCaret) hexOutput.getCaret())
+                .setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
+        hexScroll = new JScrollPane(hexOutput);
+        hexScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER);
+        hexScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+
+        // Horizontal split between ASM output and hex viewer
+        asmHexSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, asmScroll, hexScroll);
+        asmHexSplit.setContinuousLayout(true);
+        asmHexSplit.setDividerSize(4);
+        asmHexSplit.setBorder(null);
+        hexScroll.setVisible(false);
+        asmHexSplit.setDividerLocation(1.0);
+        asmHexSplit.setResizeWeight(1.0);
+        asmPane.add(asmHexSplit, BorderLayout.CENTER);
 
         // ── split the editor area with a draggable divider ─────────────────
         splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, editorPane, asmPane);
@@ -967,6 +1019,11 @@ public class SasmIdePanel extends JPanel {
                 syncingScroll = true;
                 asmScroll.getViewport().setViewPosition(
                         new Point(0, e.getValue()));
+                // Keep hex viewer in sync
+                if (hexVisible) {
+                    hexScroll.getViewport().setViewPosition(
+                            new Point(0, e.getValue()));
+                }
                 syncingScroll = false;
             }
         });
@@ -1424,6 +1481,47 @@ public class SasmIdePanel extends JPanel {
     }
 
     /**
+     * Shows or hides the hex bytecode viewer alongside the ASM output pane.
+     * When shown, each NASM output line is paired with its hex-encoded
+     * machine code bytes.
+     */
+    private void toggleHexPane() {
+        hexVisible = !hexVisible;
+        hexScroll.setVisible(hexVisible);
+
+        if (hexVisible) {
+            // Show hex pane: split 60/40 between ASM and hex
+            asmHexSplit.setResizeWeight(0.6);
+            asmHexSplit.setDividerLocation(0.6);
+            // Populate the hex viewer with the current ASM output
+            updateHexOutput();
+        } else {
+            // Hide hex pane
+            asmHexSplit.setResizeWeight(1.0);
+            asmHexSplit.setDividerLocation(1.0);
+        }
+
+        asmHexSplit.revalidate();
+        asmHexSplit.repaint();
+    }
+
+    /**
+     * Populates the hex viewer with the bytecode encoding of the current
+     * ASM output text.
+     */
+    private void updateHexOutput() {
+        if (!hexVisible) return;
+        String asm = asmOutput.getText();
+        java.util.List<String> hexLines = hexEncoder.encodeAll(asm);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < hexLines.size(); i++) {
+            if (i > 0) sb.append('\n');
+            sb.append(hexLines.get(i));
+        }
+        hexOutput.setText(sb.toString());
+    }
+
+    /**
      * Returns the 0-based source line number currently visible at the top of
      * the editor viewport.  Padding lines are not counted.
      */
@@ -1558,6 +1656,8 @@ public class SasmIdePanel extends JPanel {
         asmLineNumbers.repaint();
         // Refresh the synced line highlight after translation changes
         updateLineHighlight();
+        // Refresh hex viewer if visible
+        updateHexOutput();
     }
 
     /**
