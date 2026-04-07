@@ -169,7 +169,7 @@ public class SasmBuilder {
             return true;
         }
 
-        String outputName = "main";
+        String outputName = variant.variantName;
 
         // Determine the binary output extension.
         // Windows executables get ".exe", Windows DLLs get ".dll", Linux
