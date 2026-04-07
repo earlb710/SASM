@@ -112,7 +112,7 @@ public final class SasmSyntaxHighlighter {
             + "[abcd][xhl]|[sd][il]|[sb]p|"
             + "st[0-7]?|"
             + "xmm(?:1[0-5]|[0-9])|ymm(?:1[0-5]|[0-9])|"
-            + "reg[1-4](?:\\.[bw])?|ptr[1-2](?:\\.[bw])?|bp(?:\\.[bw])?|freg[1-2])\\b",
+            + "reg[1-8](?:\\.[bw])?|ptr[1-2](?:\\.[bw])?|bp(?:\\.[bw])?|freg[1-2])\\b",
             Pattern.CASE_INSENSITIVE);
 
     /**
@@ -132,7 +132,7 @@ public final class SasmSyntaxHighlighter {
             // NEON quad q0–q15
             + "q(?:1[0-5]|[0-9])|"
             // SASM portable aliases
-            + "reg[1-4](?:\\.[bw])?|ptr[1-2](?:\\.[bw])?|bp(?:\\.[bw])?|freg[1-2]"
+            + "reg[1-8](?:\\.[bw])?|ptr[1-2](?:\\.[bw])?|bp(?:\\.[bw])?|freg[1-2]"
             + ")\\b",
             Pattern.CASE_INSENSITIVE);
 
@@ -160,7 +160,7 @@ public final class SasmSyntaxHighlighter {
             + "b(?:[12][0-9]|3[01]|[0-9])|"
             + "h(?:[12][0-9]|3[01]|[0-9])|"
             // SASM portable aliases
-            + "reg[1-4](?:\\.[bw])?|ptr[1-2](?:\\.[bw])?|bp(?:\\.[bw])?|freg[1-2]"
+            + "reg[1-8](?:\\.[bw])?|ptr[1-2](?:\\.[bw])?|bp(?:\\.[bw])?|freg[1-2]"
             + ")\\b",
             Pattern.CASE_INSENSITIVE);
 

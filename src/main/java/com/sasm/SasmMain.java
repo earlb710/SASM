@@ -127,7 +127,6 @@ public class SasmMain {
         fileMenu.add(addVariantItem);
 
         addFileItem = new JMenuItem("Add New SASM File");
-        addFileItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_F, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         addFileItem.setEnabled(false);   // enabled when a core/variant dir is selected
         fileMenu.add(addFileItem);
 
@@ -170,11 +169,20 @@ public class SasmMain {
         redoItem.setEnabled(false);
         editMenu.add(redoItem);
 
+        editMenu.addSeparator();
+
+        JMenuItem findItem = new JMenuItem("Find");
+        findItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_F, InputEvent.CTRL_DOWN_MASK));
+        findItem.setEnabled(false); // enabled after a project is loaded
+        findItem.addActionListener(e -> { if (idePanel != null) idePanel.showFindBar(); });
+        editMenu.add(findItem);
+
         // Refresh enabled state each time the menu is opened
         editMenu.addMenuListener(new MenuListener() {
             @Override public void menuSelected(MenuEvent e) {
                 undoItem.setEnabled(idePanel != null && idePanel.canUndo());
                 redoItem.setEnabled(idePanel != null && idePanel.canRedo());
+                findItem.setEnabled(idePanel != null && idePanel.hasOpenFile());
             }
             @Override public void menuDeselected(MenuEvent e) {}
             @Override public void menuCanceled(MenuEvent e)   {}
