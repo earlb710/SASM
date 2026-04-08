@@ -425,16 +425,17 @@ public class SasmBuilder {
                               File srcDir, Consumer<String> logger) {
         if (!asmFile.exists() || !objFile.exists()) return false;
 
-        long asmMod = asmFile.lastModified();
-        long objMod = objFile.lastModified();
-        long newestOutput = Math.min(asmMod, objMod);
+        // Use the oldest output timestamp: every source/library must be
+        // older than both outputs for the build to be up-to-date.
+        long oldestOutputMod = Math.min(asmFile.lastModified(),
+                                        objFile.lastModified());
 
         // Source file itself must be older than outputs.
-        if (sasmFile.lastModified() >= newestOutput) return false;
+        if (sasmFile.lastModified() >= oldestOutputMod) return false;
 
         // Check #REF library dependencies.
         for (File libFile : collectRefFiles(sasmFile, srcDir)) {
-            if (libFile.lastModified() >= newestOutput) return false;
+            if (libFile.lastModified() >= oldestOutputMod) return false;
         }
         return true;
     }
