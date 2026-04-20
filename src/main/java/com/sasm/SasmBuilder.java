@@ -5,13 +5,15 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Orchestrates a full build of a single project variant:
  * <ol>
- *   <li>Translate each {@code .sasm} source file to NASM {@code .asm} via
+ *   <li>Translate each {@code .sasm} source file to NASM {@code .nasm} via
  *       {@link SasmTranslator}.</li>
- *   <li>Assemble each {@code .asm} to an object file using the toolchain
+ *   <li>Assemble each {@code .nasm} to an object file using the toolchain
  *       command from the OS definition JSON.</li>
  *   <li>Link all object files into the final binary using the toolchain
  *       link command.</li>
@@ -23,7 +25,7 @@ import java.util.function.Consumer;
  *
  * <p>Source files are taken from
  * {@code <workingDirectory>/<variantName>/}.
- * Generated files (.asm, .o, binary) are written into
+ * Generated files (.nasm, .o, binary) are written into
  * {@code <targetDirectory>/<variantName>/}, where {@code targetDirectory}
  * defaults to {@code <workingDirectory>/target} when not set on the
  * project.</p>
@@ -38,10 +40,82 @@ public class SasmBuilder {
         this.variant = variant;
     }
 
+    /** Pattern for {@code #REF <file> <alias>} directives in SASM source. */
+    private static final Pattern REF_DIRECTIVE = Pattern.compile(
+            "#REF\\s+(\\S+)\\s+(\\S+)");
+
     // ── public API ────────────────────────────────────────────────────────────
 
     /**
-     * Runs the complete build for the variant.
+     * Deletes all generated files (.nasm, .o/.obj, and the binary) from
+     * the variant's target directory.
+     *
+     * @param logger  receives one line of output at a time
+     * @return {@code true} if clean completed without errors
+     */
+    public boolean clean(Consumer<String> logger) {
+        String workDir = project.workingDirectory;
+        if (workDir == null || workDir.isEmpty()) {
+            logger.accept("ERROR: project working directory is not set.");
+            return false;
+        }
+
+        String targetBase = (project.targetDirectory != null
+                && !project.targetDirectory.isEmpty())
+                ? project.targetDirectory
+                : workDir + File.separator + "target";
+
+        File variantTargetDir = new File(targetBase, variant.variantName);
+        logger.accept("Clean: " + variant.variantName);
+        logger.accept("  Target : " + variantTargetDir.getAbsolutePath());
+        logger.accept("");
+
+        if (!variantTargetDir.isDirectory()) {
+            logger.accept("  (nothing to clean)");
+            return true;
+        }
+
+        File[] files = variantTargetDir.listFiles();
+        if (files == null) return true;
+
+        int deleted = 0;
+        for (File f : files) {
+            String name = f.getName().toLowerCase();
+            if (name.endsWith(".nasm") || name.endsWith(".o")
+                    || name.endsWith(".obj") || name.endsWith(".exe")
+                    || name.endsWith(".dll")  || name.endsWith(".so")
+                    || isExtensionlessBinary(f)) {
+                logger.accept("  Deleting: " + f.getName());
+                if (f.delete()) {
+                    deleted++;
+                } else {
+                    logger.accept("  WARNING: could not delete " + f.getName());
+                }
+            }
+        }
+        logger.accept("\nClean finished. " + deleted + " file(s) removed.");
+        return true;
+    }
+
+    /**
+     * Performs a full (clean + build): deletes all generated files, then
+     * rebuilds everything from scratch.
+     *
+     * @param logger  receives one line of output at a time
+     * @return {@code true} if every step succeeded
+     */
+    public boolean fullBuild(Consumer<String> logger) {
+        if (!clean(logger)) return false;
+        logger.accept("");
+        return build(logger);
+    }
+
+    /**
+     * Runs an incremental build for the variant.  Each {@code .sasm} file
+     * is only re-translated and re-assembled if it (or any library it
+     * references via {@code #REF}) is newer than the existing {@code .nasm}
+     * or {@code .o}/{@code .obj} file in the target directory.  The link
+     * step always runs when any object file was (re)produced.
      *
      * @param logger  receives one line of output at a time; called from the
      *                thread that calls {@code build()} (not the EDT)
@@ -111,18 +185,30 @@ public class SasmBuilder {
         String objExt = (varDef.toolchain.assemble != null
                 && varDef.toolchain.assemble.contains(".obj")) ? ".obj" : ".o";
 
-        // ── 4. Translate .sasm → .asm and assemble → object files ─────────────
+        // ── 4. Translate .sasm → .nasm and assemble → object files ─────────────
         Architecture targetArch = Architecture.from(
                 varDef.architecture, varDef.bits);
         SasmTranslator translator = new SasmTranslator(targetArch);
         List<File> objFiles = new ArrayList<>();
+        boolean anyRebuilt = false;
 
         for (File sasmFile : sasmFiles) {
             String baseName = sasmFile.getName().replaceAll("\\.sasm$", "");
-            File asmFile = new File(variantTargetDir, baseName + ".asm");
+            File asmFile = new File(variantTargetDir, baseName + ".nasm");
             File objFile = new File(variantTargetDir, baseName + objExt);
 
+            // ── Incremental check ─────────────────────────────────────────────
+            // Skip translate+assemble if both outputs exist and are newer than
+            // the source .sasm file and all #REF library files it references.
+            if (isUpToDate(sasmFile, asmFile, objFile, variantSrcDir, logger)) {
+                logger.accept("Up-to-date: " + sasmFile.getName()
+                        + "  (skipping translate + assemble)");
+                objFiles.add(objFile);
+                continue;
+            }
+
             // Translate
+            anyRebuilt = true;
             logger.accept("Translating: " + sasmFile.getName()
                     + "  →  " + asmFile.getName());
             try {
@@ -169,8 +255,7 @@ public class SasmBuilder {
             return true;
         }
 
-        String outputName = (project.name != null && !project.name.isEmpty())
-                ? project.name : variant.variantName;
+        String outputName = variant.variantName;
 
         // Determine the binary output extension.
         // Windows executables get ".exe", Windows DLLs get ".dll", Linux
@@ -190,6 +275,14 @@ public class SasmBuilder {
         }
 
         File outputFile = new File(variantTargetDir, outputName + binExt);
+
+        // If no source files were rebuilt and the binary already exists,
+        // the build is fully up-to-date — skip the link step.
+        if (!anyRebuilt && outputFile.exists()) {
+            logger.accept("\nAll files up-to-date. Nothing to do.");
+            return true;
+        }
+
         String[] linkCmd = buildLinkCommand(varDef.toolchain.link, objFiles, outputFile);
         logger.accept("\nLinking: " + String.join(" ", linkCmd));
         if (!runCommand(linkCmd, variantTargetDir, logger)) return false;
@@ -218,15 +311,15 @@ public class SasmBuilder {
      * Builds the assemble command by substituting placeholder file names in
      * the template with the actual absolute paths.
      *
-     * <p>Any token that ends with {@code .asm} is replaced by
-     * {@code asmFile}, and any token ending with {@code .o} or {@code .obj}
-     * is replaced by {@code objFile}.</p>
+     * <p>Any token that ends with {@code .asm} or {@code .nasm} is replaced
+     * by {@code asmFile}, and any token ending with {@code .o} or
+     * {@code .obj} is replaced by {@code objFile}.</p>
      */
     static String[] buildAssembleCommand(String template, File asmFile, File objFile) {
         String[] tokens = template.trim().split("\\s+");
         for (int i = 0; i < tokens.length; i++) {
             String tl = tokens[i].toLowerCase();
-            if (tl.endsWith(".asm")) {
+            if (tl.endsWith(".asm") || tl.endsWith(".nasm")) {
                 tokens[i] = asmFile.getAbsolutePath();
             } else if (tl.endsWith(".o") || tl.endsWith(".obj")) {
                 tokens[i] = objFile.getAbsolutePath();
@@ -321,5 +414,60 @@ public class SasmBuilder {
             logger.accept("Build interrupted.");
             return false;
         }
+    }
+
+    /**
+     * Checks whether a {@code .sasm} file's generated outputs ({@code .nasm}
+     * and {@code .o}/{@code .obj}) are up-to-date: both exist and are newer
+     * than the source file and every library referenced via {@code #REF}.
+     */
+    static boolean isUpToDate(File sasmFile, File asmFile, File objFile,
+                              File srcDir, Consumer<String> logger) {
+        if (!asmFile.exists() || !objFile.exists()) return false;
+
+        // Use the oldest output timestamp: every source/library must be
+        // older than both outputs for the build to be up-to-date.
+        long oldestOutputMod = Math.min(asmFile.lastModified(),
+                                        objFile.lastModified());
+
+        // Source file itself must be older than outputs.
+        if (sasmFile.lastModified() >= oldestOutputMod) return false;
+
+        // Check #REF library dependencies.
+        for (File libFile : collectRefFiles(sasmFile, srcDir)) {
+            if (libFile.lastModified() >= oldestOutputMod) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Scans a {@code .sasm} source file for {@code #REF <file> <alias>}
+     * directives and returns the resolved library {@link File} objects.
+     * Files that do not exist are silently skipped.
+     */
+    static List<File> collectRefFiles(File sasmFile, File srcDir) {
+        List<File> refs = new ArrayList<>();
+        try {
+            for (String line : Files.readAllLines(sasmFile.toPath(),
+                    StandardCharsets.UTF_8)) {
+                Matcher m = REF_DIRECTIVE.matcher(line.trim());
+                if (m.matches()) {
+                    File libFile = new File(srcDir, m.group(1));
+                    if (libFile.exists()) refs.add(libFile);
+                }
+            }
+        } catch (IOException ignored) {
+            // If we can't read the source, it's not up-to-date.
+        }
+        return refs;
+    }
+
+    /**
+     * Returns {@code true} if the given file looks like a Linux
+     * extension-less binary (executable or similar).  A file counts as
+     * extension-less when its name contains no '.' character.
+     */
+    private static boolean isExtensionlessBinary(File f) {
+        return f.isFile() && !f.getName().contains(".");
     }
 }

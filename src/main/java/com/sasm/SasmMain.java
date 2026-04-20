@@ -241,10 +241,12 @@ public class SasmMain {
 
         JPopupMenu dirPopup = new JPopupMenu();
         JMenuItem ctxBuild          = new JMenuItem("Build");
+        JMenuItem ctxFullBuild      = new JMenuItem("Full Build");
         JMenuItem ctxAddFileFromDir = new JMenuItem("Add New File");
         JMenuItem ctxRenameVariant  = new JMenuItem("Rename");
         JMenuItem ctxDeleteVariant  = new JMenuItem("Delete");
         dirPopup.add(ctxBuild);
+        dirPopup.add(ctxFullBuild);
         dirPopup.add(ctxAddFileFromDir);
         dirPopup.addSeparator();
         dirPopup.add(ctxRenameVariant);
@@ -267,6 +269,7 @@ public class SasmMain {
                     boolean isVariant = !"core".equals(sel.getName())
                             && !"lib".equals(sel.getName());
                     ctxBuild.setEnabled(isVariant);
+                    ctxFullBuild.setEnabled(isVariant);
                     ctxRenameVariant.setEnabled(isVariant);
                     ctxDeleteVariant.setEnabled(isVariant);
                     dirPopup.show(fileListComp, e.getX(), e.getY());
@@ -278,6 +281,7 @@ public class SasmMain {
         ctxRenameFile.addActionListener(e -> promptRenameFile());
         ctxDeleteFile.addActionListener(e -> promptDeleteFile());
         ctxBuild.addActionListener(e -> promptBuildVariant());
+        ctxFullBuild.addActionListener(e -> promptFullBuildVariant());
         ctxAddFileFromDir.addActionListener(e -> promptAddNewFile());
         ctxRenameVariant.addActionListener(e -> promptRenameVariant());
         ctxDeleteVariant.addActionListener(e -> promptDeleteVariant());
@@ -989,6 +993,82 @@ public class SasmMain {
                 statusBar.setText(success
                         ? " Build succeeded: " + finalVe.variantName
                         : " Build FAILED: "    + finalVe.variantName);
+            }
+        };
+        worker.execute();
+    }
+
+    /**
+     * Opens a build output dialog and runs a full (clean + rebuild) build
+     * for the selected variant in a background thread.
+     */
+    private static void promptFullBuildVariant() {
+        if (currentProject == null) return;
+        String dirName = idePanel.getSelectedDirectoryName();
+        if (dirName == null || "core".equals(dirName) || "lib".equals(dirName)) return;
+
+        ProjectFile.VariantEntry ve = null;
+        for (ProjectFile.VariantEntry v : currentProject.getVariants()) {
+            if (dirName.equals(v.variantName)) { ve = v; break; }
+        }
+        if (ve == null) {
+            statusBar.setText(" No variant entry found for: " + dirName);
+            return;
+        }
+
+        JDialog buildDlg = new JDialog(mainFrame, "Full Build — " + dirName, false);
+        buildDlg.setLayout(new BorderLayout(4, 4));
+
+        JTextArea outputArea = new JTextArea(22, 80);
+        outputArea.setEditable(false);
+        outputArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        outputArea.setBackground(new Color(0x0A, 0x14, 0x28));
+        outputArea.setForeground(new Color(0x7F, 0xDB, 0xCA));
+        outputArea.setCaretColor(new Color(0x7F, 0xDB, 0xCA));
+        outputArea.setTabSize(4);
+        buildDlg.add(new JScrollPane(outputArea), BorderLayout.CENTER);
+
+        JButton closeBtn = new JButton("Close");
+        closeBtn.setEnabled(false);
+        JPanel bp = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
+        bp.add(closeBtn);
+        buildDlg.add(bp, BorderLayout.SOUTH);
+
+        closeBtn.addActionListener(e -> buildDlg.dispose());
+        buildDlg.addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) { buildDlg.dispose(); }
+        });
+        buildDlg.pack();
+        buildDlg.setMinimumSize(new Dimension(720, 420));
+        buildDlg.setLocationRelativeTo(mainFrame);
+        buildDlg.setVisible(true);
+
+        SasmBuilder builder = new SasmBuilder(currentProject, ve);
+        final ProjectFile.VariantEntry finalVe = ve;
+
+        SwingWorker<Boolean, String> worker = new SwingWorker<Boolean, String>() {
+            @Override
+            protected Boolean doInBackground() {
+                return builder.fullBuild(line -> publish(line));
+            }
+
+            @Override
+            protected void process(List<String> chunks) {
+                for (String line : chunks) outputArea.append(line + "\n");
+                outputArea.setCaretPosition(outputArea.getDocument().getLength());
+            }
+
+            @Override
+            protected void done() {
+                boolean success = false;
+                try { success = get(); } catch (Exception ex) {
+                    outputArea.append("Full build failed: " + ex.getMessage() + "\n");
+                }
+                outputArea.setCaretPosition(outputArea.getDocument().getLength());
+                closeBtn.setEnabled(true);
+                statusBar.setText(success
+                        ? " Full build succeeded: " + finalVe.variantName
+                        : " Full build FAILED: "    + finalVe.variantName);
             }
         };
         worker.execute();
